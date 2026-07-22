@@ -200,6 +200,18 @@ class BankstandPanel extends PluginPanel {
         });
   }
 
+  /** Flags a failed identity update while staying in the connected state. */
+  void showSubmitFailed(String message) {
+    SwingUtilities.invokeLater(
+        () -> {
+          statusLabel.setForeground(ColorScheme.PROGRESS_ERROR_COLOR);
+          statusLabel.setText(
+              "<html>Connected, but the update did not reach Bankstand.<br>"
+                  + escape(message)
+                  + "</html>");
+        });
+  }
+
   private static String escape(String value) {
     if (value == null) {
       return "";
