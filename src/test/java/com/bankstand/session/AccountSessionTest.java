@@ -48,4 +48,23 @@ public class AccountSessionTest {
     assertFalse(s.isActive());
     assertEquals(AccountSession.LOGGED_OUT, s.getAccountHash());
   }
+
+  @Test
+  public void tracksTheSubmittedFlagPerAccount() {
+    AccountSession s = new AccountSession();
+    s.onLogin(123L);
+    assertFalse(s.isSubmitted());
+    s.markSubmitted();
+    assertTrue(s.isSubmitted());
+
+    // Same account stays submitted; a switch resets it; so does logout.
+    assertFalse(s.onLogin(123L));
+    assertTrue(s.isSubmitted());
+    assertTrue(s.onLogin(456L));
+    assertFalse(s.isSubmitted());
+
+    s.markSubmitted();
+    s.onLogout();
+    assertFalse(s.isSubmitted());
+  }
 }

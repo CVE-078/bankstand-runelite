@@ -1,6 +1,7 @@
 package com.bankstand;
 
 import com.bankstand.dto.PairResponse;
+import com.bankstand.dto.SubmitResponse;
 import com.bankstand.http.HttpResponse;
 import com.bankstand.http.HttpTransport;
 import com.google.gson.Gson;
@@ -20,6 +21,7 @@ import java.util.Map;
 public class BankstandClient {
 
   private static final String PAIR_PATH = "/api/plugin/v1/pair";
+  private static final String SUBMIT_PATH = "/api/plugin/v1/submit";
   private static final String USER_AGENT = "Bankstand-RuneLite";
   private static final String GENERIC_FAILURE = "Pairing failed. Check the code and try again.";
 
@@ -67,6 +69,52 @@ public class BankstandClient {
       throw new PairingException(GENERIC_FAILURE);
     }
     return parsed;
+  }
+
+  /**
+   * Submits the logged-in character's account hash (and display name) to the
+   * server, authenticated by the device token. The server records the client's
+   * last-seen and, if the display name matches one of the user's tracked accounts,
+   * links it and reports {@code verified}. Any failure is a generic
+   * {@link SubmitException}; the token and account hash are never logged.
+   */
+  public SubmitResponse submitIdentity(
+      String baseUrl, String deviceToken, long accountHash, String displayName)
+      throws SubmitException {
+    if (isBlank(deviceToken)) {
+      throw new SubmitException("Not paired.");
+    }
+    String url = trimTrailingSlash(baseUrl) + SUBMIT_PATH;
+    Map<String, String> body = new LinkedHashMap<>();
+    // Sent as a decimal string: a 64-bit account hash does not fit a JSON number safely.
+    body.put("accountHash", Long.toString(accountHash));
+    if (!isBlank(displayName)) {
+      body.put("displayName", displayName);
+    }
+    Map<String, String> headers = new LinkedHashMap<>();
+    headers.put("Content-Type", "application/json");
+    headers.put("Accept", "application/json");
+    headers.put("User-Agent", USER_AGENT);
+    headers.put("Authorization", "Bearer " + deviceToken);
+
+    HttpResponse response;
+    try {
+      response = transport.post(url, gson.toJson(body), headers);
+    } catch (IOException e) {
+      throw new SubmitException("Could not reach Bankstand.");
+    }
+    if (response.getStatus() != 200) {
+      throw new SubmitException("Bankstand rejected the update.");
+    }
+    try {
+      SubmitResponse parsed = gson.fromJson(response.getBody(), SubmitResponse.class);
+      if (parsed == null) {
+        throw new SubmitException("Unexpected response from Bankstand.");
+      }
+      return parsed;
+    } catch (JsonSyntaxException e) {
+      throw new SubmitException("Unexpected response from Bankstand.");
+    }
   }
 
   private static boolean isBlank(String value) {

@@ -1,6 +1,7 @@
 package com.bankstand;
 
 import com.bankstand.dto.PairResponse;
+import com.bankstand.dto.SubmitResponse;
 import com.bankstand.http.HttpTransport;
 import com.bankstand.http.OkHttpTransport;
 import com.bankstand.session.AccountSession;
@@ -10,7 +11,9 @@ import java.util.concurrent.ScheduledExecutorService;
 import javax.inject.Inject;
 import net.runelite.api.Client;
 import net.runelite.api.GameState;
+import net.runelite.api.Player;
 import net.runelite.api.events.GameStateChanged;
+import net.runelite.api.events.GameTick;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.plugins.Plugin;
@@ -87,6 +90,53 @@ public class BankstandPlugin extends Plugin {
     } else if (state == GameState.LOGIN_SCREEN) {
       session.onLogout();
     }
+  }
+
+  @Subscribe
+  public void onGameTick(GameTick event) {
+    // Submit the logged-in character's identity once per session, when paired. The
+    // local player (and its name) is reliably available a tick after LOGGED_IN, which
+    // is why this runs on the tick rather than directly on the state change.
+    if (pairingClient == null || !isPaired() || !session.isActive() || session.isSubmitted()) {
+      return;
+    }
+    Player local = client.getLocalPlayer();
+    if (local == null) {
+      return;
+    }
+    String name = local.getName();
+    if (name == null || name.isEmpty()) {
+      return;
+    }
+    // Mark before dispatching so a slow submit does not fire again on the next tick.
+    // One attempt per account per session; a relog retries.
+    session.markSubmitted();
+    submitIdentity(session.getAccountHash(), name);
+  }
+
+  private boolean isPaired() {
+    String token =
+        configManager.getConfiguration(BankstandConfig.GROUP, BankstandConfig.KEY_DEVICE_TOKEN);
+    return token != null && !token.trim().isEmpty();
+  }
+
+  private void submitIdentity(long accountHash, String displayName) {
+    String url = savedServerUrl();
+    String token =
+        configManager.getConfiguration(BankstandConfig.GROUP, BankstandConfig.KEY_DEVICE_TOKEN);
+    executor.submit(
+        () -> {
+          try {
+            SubmitResponse res =
+                pairingClient.submitIdentity(url, token, accountHash, displayName);
+            if (panel != null) {
+              panel.showVerification(res.isVerified(), res.getLinkedRsn());
+            }
+          } catch (SubmitException e) {
+            // Transient or a revoked token: leave the connected status as-is; a relog
+            // retries. The token and account hash are never logged.
+          }
+        });
   }
 
   private void pair(String serverUrl, String rawCode) {

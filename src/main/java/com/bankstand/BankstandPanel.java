@@ -183,6 +183,23 @@ class BankstandPanel extends PluginPanel {
         });
   }
 
+  /** Refines the connected status once the logged-in character has been submitted. */
+  void showVerification(boolean verified, String linkedRsn) {
+    SwingUtilities.invokeLater(
+        () -> {
+          if (verified) {
+            statusLabel.setForeground(ColorScheme.PROGRESS_COMPLETE_COLOR);
+            String who =
+                linkedRsn != null && !linkedRsn.isEmpty() ? " as " + escape(linkedRsn) : "";
+            statusLabel.setText("<html>RuneLite verified" + who + ".</html>");
+          } else {
+            statusLabel.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
+            statusLabel.setText(
+                "<html>Connected. This character is not tracked in Bankstand yet.</html>");
+          }
+        });
+  }
+
   private static String escape(String value) {
     if (value == null) {
       return "";

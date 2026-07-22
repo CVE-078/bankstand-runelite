@@ -1,11 +1,13 @@
 package com.bankstand;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import com.bankstand.dto.PairResponse;
+import com.bankstand.dto.SubmitResponse;
 import com.bankstand.http.HttpResponse;
 import com.bankstand.http.HttpTransport;
 import com.google.gson.Gson;
@@ -115,6 +117,63 @@ public class BankstandClientTest {
       client(t).exchangePairingCode(BASE, "ABCD-EFGH");
       fail("expected PairingException");
     } catch (PairingException e) {
+      assertTrue(t.called);
+    }
+  }
+
+  @Test
+  public void submitsIdentityWithBearerTokenAndAccountHash() throws Exception {
+    FakeTransport t =
+        new FakeTransport(new HttpResponse(200, "{\"verified\":true,\"linkedRsn\":\"Zezima\"}"));
+
+    SubmitResponse res = client(t).submitIdentity(BASE + "/", "bsd_tok", 123456789012345L, "Zezima");
+
+    assertTrue(res.isVerified());
+    assertEquals("Zezima", res.getLinkedRsn());
+    assertEquals(BASE + "/api/plugin/v1/submit", t.url);
+    assertTrue("account hash as a string in body", t.body.contains("\"123456789012345\""));
+    assertTrue("display name in body", t.body.contains("\"Zezima\""));
+    assertEquals("Bearer bsd_tok", t.headers.get("Authorization"));
+  }
+
+  @Test
+  public void submitReportsNotVerifiedWhenNothingMatched() throws Exception {
+    FakeTransport t =
+        new FakeTransport(new HttpResponse(200, "{\"verified\":false,\"linkedRsn\":null}"));
+    SubmitResponse res = client(t).submitIdentity(BASE, "bsd_tok", 1L, "Nobody");
+    assertFalse(res.isVerified());
+    assertNull(res.getLinkedRsn());
+  }
+
+  @Test
+  public void submitWithoutATokenFailsBeforeAnyRequest() {
+    FakeTransport t = new FakeTransport(new HttpResponse(200, "{}"));
+    try {
+      client(t).submitIdentity(BASE, "", 1L, "Zezima");
+      fail("expected SubmitException");
+    } catch (SubmitException e) {
+      assertFalseCalled(t);
+    }
+  }
+
+  @Test
+  public void submitMapsA401ToAFailure() {
+    FakeTransport t = new FakeTransport(new HttpResponse(401, "{\"error\":\"unauthorized\"}"));
+    try {
+      client(t).submitIdentity(BASE, "bsd_tok", 1L, "Zezima");
+      fail("expected SubmitException");
+    } catch (SubmitException e) {
+      assertTrue(t.called);
+    }
+  }
+
+  @Test
+  public void submitMapsANetworkErrorToAFailure() {
+    FakeTransport t = new FakeTransport(null, new IOException("boom"));
+    try {
+      client(t).submitIdentity(BASE, "bsd_tok", 1L, "Zezima");
+      fail("expected SubmitException");
+    } catch (SubmitException e) {
       assertTrue(t.called);
     }
   }

@@ -13,6 +13,7 @@ public class AccountSession {
   public static final long LOGGED_OUT = -1L;
 
   private long accountHash = LOGGED_OUT;
+  private boolean submitted = false;
 
   public long getAccountHash() {
     return accountHash;
@@ -22,10 +23,21 @@ public class AccountSession {
     return accountHash != LOGGED_OUT;
   }
 
+  /** True once this account's identity has been submitted, so it is not resent every tick. */
+  public boolean isSubmitted() {
+    return submitted;
+  }
+
+  /** Mark the current account's identity as submitted for this session. */
+  public void markSubmitted() {
+    submitted = true;
+  }
+
   /**
    * Handle a login for {@code hash}. The logged-out sentinel is ignored. A hash
-   * that differs from the current one resets the session and adopts the new hash;
-   * the same hash is a no-op. Returns true when a fresh session was started.
+   * that differs from the current one resets the session (clearing the submitted
+   * flag so the new account is submitted afresh) and adopts the new hash; the same
+   * hash is a no-op. Returns true when a fresh session was started.
    */
   public boolean onLogin(long hash) {
     if (hash == LOGGED_OUT || hash == accountHash) {
@@ -33,6 +45,7 @@ public class AccountSession {
     }
     reset();
     accountHash = hash;
+    submitted = false;
     return true;
   }
 
@@ -43,6 +56,7 @@ public class AccountSession {
   public void onLogout() {
     reset();
     accountHash = LOGGED_OUT;
+    submitted = false;
   }
 
   private void reset() {
