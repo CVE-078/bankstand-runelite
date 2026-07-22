@@ -12,7 +12,11 @@ public class AccountSession {
   /** RuneLite's {@code client.getAccountHash()} returns this when logged out. */
   public static final long LOGGED_OUT = -1L;
 
-  private long accountHash = LOGGED_OUT;
+  // accountHash and generation are read from the submit executor thread (see
+  // isCurrent) while written on the game thread, so both are volatile for visibility
+  // across the two. submitted is touched only on the game thread, so it is not.
+  private volatile long accountHash = LOGGED_OUT;
+  private volatile int generation = 0;
   private boolean submitted = false;
 
   public long getAccountHash() {
@@ -21,6 +25,26 @@ public class AccountSession {
 
   public boolean isActive() {
     return accountHash != LOGGED_OUT;
+  }
+
+  /**
+   * A monotonic marker of the current login instance, bumped on every session change
+   * (a switch, a logout, or a relog). A submit captures it at dispatch; the callback
+   * compares it via {@link #isCurrent} so a stale result cannot overwrite a later one.
+   */
+  public int getGeneration() {
+    return generation;
+  }
+
+  /**
+   * True when {@code hash}/{@code gen} still identify the current login instance. A
+   * submit is dispatched asynchronously with the account and generation it started
+   * for; its callback uses this to drop a superseded result once the session has
+   * moved on (a switch to another character, a logout, or a relog to the same
+   * account, which advances the generation). The logged-out sentinel is never current.
+   */
+  public boolean isCurrent(long hash, int gen) {
+    return isActive() && accountHash == hash && generation == gen;
   }
 
   /** True once this account's identity has been submitted, so it is not resent every tick. */
@@ -46,6 +70,7 @@ public class AccountSession {
     reset();
     accountHash = hash;
     submitted = false;
+    generation++;
     return true;
   }
 
@@ -57,6 +82,7 @@ public class AccountSession {
     reset();
     accountHash = LOGGED_OUT;
     submitted = false;
+    generation++;
   }
 
   private void reset() {

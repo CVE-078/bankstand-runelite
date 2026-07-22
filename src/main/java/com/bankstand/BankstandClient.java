@@ -101,10 +101,20 @@ public class BankstandClient {
     try {
       response = transport.post(url, gson.toJson(body), headers);
     } catch (IOException e) {
-      throw new SubmitException("Could not reach Bankstand.");
+      throw new SubmitException("Could not reach Bankstand.", true);
     }
-    if (response.getStatus() != 200) {
-      throw new SubmitException("Bankstand rejected the update.");
+    int status = response.getStatus();
+    if (status != 200) {
+      if (status == 401 || status == 403) {
+        // The device token is invalid or revoked; retrying will not help. Point the
+        // user at the one action that fixes it rather than looping.
+        throw new SubmitException(
+            "Bankstand rejected the device token. Re-pair in Account > Connect RuneLite.", false);
+      }
+      if (status == 429 || status >= 500) {
+        throw new SubmitException("Bankstand is busy.", true);
+      }
+      throw new SubmitException("Bankstand rejected the update.", false);
     }
     try {
       SubmitResponse parsed = gson.fromJson(response.getBody(), SubmitResponse.class);
@@ -114,6 +124,48 @@ public class BankstandClient {
       return parsed;
     } catch (JsonSyntaxException e) {
       throw new SubmitException("Unexpected response from Bankstand.");
+    }
+  }
+
+  /**
+   * Submits identity with a bounded retry. Retryable failures (network, 429, 5xx)
+   * are retried up to {@code maxAttempts} with a linear backoff of
+   * {@code baseDelayMillis * attempt}; terminal failures fail fast. Blocks the
+   * calling thread during backoff, so it runs on the plugin's background executor.
+   */
+  public SubmitResponse submitIdentityWithRetry(
+      String baseUrl,
+      String deviceToken,
+      long accountHash,
+      String displayName,
+      int maxAttempts,
+      long baseDelayMillis)
+      throws SubmitException {
+    SubmitException last = null;
+    for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        return submitIdentity(baseUrl, deviceToken, accountHash, displayName);
+      } catch (SubmitException e) {
+        last = e;
+        if (!e.isRetryable() || attempt == maxAttempts) {
+          throw e;
+        }
+        sleep(baseDelayMillis * attempt);
+      }
+    }
+    // Unreachable for maxAttempts >= 1: the final attempt always returns or throws.
+    throw last;
+  }
+
+  private static void sleep(long millis) {
+    if (millis <= 0) {
+      return;
+    }
+    try {
+      Thread.sleep(millis);
+    } catch (InterruptedException e) {
+      // A shutdown interrupt: stop backing off but let the bounded loop finish.
+      Thread.currentThread().interrupt();
     }
   }
 

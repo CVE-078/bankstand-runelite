@@ -29,6 +29,13 @@ import okhttp3.OkHttpClient;
     tags = {"bankstand", "account", "progress", "external"})
 public class BankstandPlugin extends Plugin {
 
+  // A bounded retry for a transient submit failure (network, 429, 5xx): three
+  // attempts with a 1s, then 2s, backoff. Terminal failures (a revoked token, a
+  // 4xx) fail fast. Runs on the background executor, so the backoff blocks nothing
+  // on the game thread.
+  private static final int MAX_SUBMIT_ATTEMPTS = 3;
+  private static final long SUBMIT_RETRY_BASE_DELAY_MS = 1000L;
+
   @Inject private Client client;
   @Inject private ClientToolbar clientToolbar;
   @Inject private ConfigManager configManager;
@@ -109,9 +116,10 @@ public class BankstandPlugin extends Plugin {
       return;
     }
     // Mark before dispatching so a slow submit does not fire again on the next tick.
-    // One attempt per account per session; a relog retries.
+    // One attempt per account per session; a relog retries. The generation pins this
+    // submit to this login instance so a stale result cannot overwrite a later one.
     session.markSubmitted();
-    submitIdentity(session.getAccountHash(), name);
+    submitIdentity(session.getAccountHash(), session.getGeneration(), name);
   }
 
   private boolean isPaired() {
@@ -120,7 +128,7 @@ public class BankstandPlugin extends Plugin {
     return token != null && !token.trim().isEmpty();
   }
 
-  private void submitIdentity(long accountHash, String displayName) {
+  private void submitIdentity(long accountHash, int generation, String displayName) {
     String url = savedServerUrl();
     String token =
         configManager.getConfiguration(BankstandConfig.GROUP, BankstandConfig.KEY_DEVICE_TOKEN);
@@ -128,13 +136,27 @@ public class BankstandPlugin extends Plugin {
         () -> {
           try {
             SubmitResponse res =
-                pairingClient.submitIdentity(url, token, accountHash, displayName);
-            if (panel != null) {
+                pairingClient.submitIdentityWithRetry(
+                    url,
+                    token,
+                    accountHash,
+                    displayName,
+                    MAX_SUBMIT_ATTEMPTS,
+                    SUBMIT_RETRY_BASE_DELAY_MS);
+            // Drop the result unless this login instance is still current. Guards two
+            // cases opened by the multi-second retry backoff: a relog to a different
+            // character, and a logout/relog to the SAME account (a fresh generation),
+            // so the panel never shows a status from a superseded submit.
+            if (panel != null && session.isCurrent(accountHash, generation)) {
               panel.showVerification(res.isVerified(), res.getLinkedRsn());
             }
           } catch (SubmitException e) {
-            // Transient or a revoked token: leave the connected status as-is; a relog
-            // retries. The token and account hash are never logged.
+            // A transient failure has already been retried to the cap; surface the
+            // reason rather than failing silently. A relog retries afresh. The token
+            // and account hash are never logged.
+            if (panel != null && session.isCurrent(accountHash, generation)) {
+              panel.showSubmitFailed(e.getMessage());
+            }
           }
         });
   }

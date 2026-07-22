@@ -51,6 +51,30 @@ public class BankstandClientTest {
     }
   }
 
+  /** Returns a scripted sequence of responses/errors and counts calls, for retry tests. */
+  private static final class SequencedTransport implements HttpTransport {
+    private final java.util.Deque<Object> steps = new java.util.ArrayDeque<>();
+    int calls;
+
+    SequencedTransport(Object... steps) {
+      java.util.Collections.addAll(this.steps, steps);
+    }
+
+    @Override
+    public HttpResponse post(String url, String jsonBody, Map<String, String> headers)
+        throws IOException {
+      calls++;
+      Object step = steps.isEmpty() ? null : steps.poll();
+      if (step instanceof IOException) {
+        throw (IOException) step;
+      }
+      if (step instanceof HttpResponse) {
+        return (HttpResponse) step;
+      }
+      throw new IllegalStateException("no scripted response for call " + calls);
+    }
+  }
+
   private static BankstandClient client(FakeTransport transport) {
     return new BankstandClient(transport, new Gson());
   }
@@ -175,6 +199,85 @@ public class BankstandClientTest {
       fail("expected SubmitException");
     } catch (SubmitException e) {
       assertTrue(t.called);
+    }
+  }
+
+  @Test
+  public void retriesARetryableFailureThenSucceeds() throws Exception {
+    SequencedTransport t =
+        new SequencedTransport(
+            new IOException("blip"),
+            new HttpResponse(200, "{\"verified\":true,\"linkedRsn\":\"Zezima\"}"));
+
+    SubmitResponse res =
+        new BankstandClient(t, new Gson())
+            .submitIdentityWithRetry(BASE, "bsd_tok", 1L, "Zezima", 3, 0L);
+
+    assertTrue(res.isVerified());
+    assertEquals("succeeded on the second attempt", 2, t.calls);
+  }
+
+  @Test
+  public void aTerminalFailureIsNotRetried() {
+    SequencedTransport t =
+        new SequencedTransport(new HttpResponse(401, "{\"error\":\"unauthorized\"}"));
+    try {
+      new BankstandClient(t, new Gson())
+          .submitIdentityWithRetry(BASE, "bsd_tok", 1L, "Zezima", 3, 0L);
+      fail("expected SubmitException");
+    } catch (SubmitException e) {
+      assertEquals("terminal failure fails fast without retrying", 1, t.calls);
+    }
+  }
+
+  @Test
+  public void retryableFailuresStopAtTheAttemptCap() {
+    SequencedTransport t =
+        new SequencedTransport(
+            new IOException("a"),
+            new IOException("b"),
+            new IOException("c"),
+            new IOException("d"));
+    try {
+      new BankstandClient(t, new Gson())
+          .submitIdentityWithRetry(BASE, "bsd_tok", 1L, "Zezima", 3, 0L);
+      fail("expected SubmitException");
+    } catch (SubmitException e) {
+      assertEquals("stopped at maxAttempts", 3, t.calls);
+      assertTrue("an exhausted retryable failure stays retryable", e.isRetryable());
+    }
+  }
+
+  @Test
+  public void classifiesANetworkErrorAsRetryable() {
+    FakeTransport t = new FakeTransport(null, new IOException("boom"));
+    try {
+      client(t).submitIdentity(BASE, "bsd_tok", 1L, "Zezima");
+      fail("expected SubmitException");
+    } catch (SubmitException e) {
+      assertTrue(e.isRetryable());
+    }
+  }
+
+  @Test
+  public void classifiesAServerErrorAsRetryable() {
+    FakeTransport t = new FakeTransport(new HttpResponse(503, "{\"error\":\"busy\"}"));
+    try {
+      client(t).submitIdentity(BASE, "bsd_tok", 1L, "Zezima");
+      fail("expected SubmitException");
+    } catch (SubmitException e) {
+      assertTrue(e.isRetryable());
+    }
+  }
+
+  @Test
+  public void classifiesARevokedTokenAsTerminal() {
+    FakeTransport t = new FakeTransport(new HttpResponse(401, "{\"error\":\"unauthorized\"}"));
+    try {
+      client(t).submitIdentity(BASE, "bsd_tok", 1L, "Zezima");
+      fail("expected SubmitException");
+    } catch (SubmitException e) {
+      assertFalse(e.isRetryable());
     }
   }
 
