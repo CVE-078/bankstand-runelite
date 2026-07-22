@@ -5,11 +5,6 @@ import com.bankstand.http.HttpTransport;
 import com.bankstand.http.OkHttpTransport;
 import com.bankstand.session.AccountSession;
 import com.google.gson.Gson;
-import java.awt.Color;
-import java.awt.Font;
-import java.awt.FontMetrics;
-import java.awt.Graphics2D;
-import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
 import java.util.concurrent.ScheduledExecutorService;
 import javax.inject.Inject;
@@ -22,6 +17,7 @@ import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
 import net.runelite.client.ui.ClientToolbar;
 import net.runelite.client.ui.NavigationButton;
+import net.runelite.client.util.ImageUtil;
 import okhttp3.OkHttpClient;
 
 @PluginDescriptor(
@@ -161,19 +157,7 @@ public class BankstandPlugin extends Plugin {
   }
 
   private static BufferedImage createIcon() {
-    BufferedImage image = new BufferedImage(24, 24, BufferedImage.TYPE_INT_ARGB);
-    Graphics2D g = image.createGraphics();
-    g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-    g.setColor(new Color(0xC8, 0xA2, 0x3C));
-    g.fillRoundRect(1, 1, 22, 22, 6, 6);
-    g.setColor(new Color(0x14, 0x14, 0x14));
-    g.setFont(new Font("SansSerif", Font.BOLD, 16));
-    FontMetrics fm = g.getFontMetrics();
-    String letter = "B";
-    int x = (24 - fm.stringWidth(letter)) / 2;
-    int y = (24 - fm.getHeight()) / 2 + fm.getAscent();
-    g.drawString(letter, x, y);
-    g.dispose();
-    return image;
+    // The Bankstand mark, bundled as src/main/resources/com/bankstand/icon.png.
+    return ImageUtil.loadImageResource(BankstandPlugin.class, "icon.png");
   }
 }
