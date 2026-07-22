@@ -12,7 +12,9 @@ public final class BankstandConfig {
 
   public static final String GROUP = "bankstand";
 
-  public static final String KEY_SERVER_URL = "serverUrl";
+  // Keep the original key name so a client that paired with the first version (which
+  // stored the URL under "serverBaseUrl") keeps its setting after the panel redesign.
+  public static final String KEY_SERVER_URL = "serverBaseUrl";
   public static final String KEY_DEVICE_TOKEN = "deviceToken";
   public static final String KEY_DEVICE_ID = "deviceId";
   public static final String KEY_TOKEN_EXPIRES_AT = "tokenExpiresAt";
