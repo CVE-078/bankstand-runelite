@@ -44,6 +44,17 @@ tasks.register('run', JavaExec) {
 	mainClass = pluginMainClass
 
 	jvmArgs "-ea"
+	// JDK 17 dev-mode: RuneLite reflects into java.base to invalidate its annotation
+	// caches at startup; open the package so it does not log an InaccessibleObjectException.
+	// Non-fatal without it, but this matches what the RuneLite launcher passes.
+	jvmArgs "--add-opens", "java.base/java.lang.reflect=ALL-UNNAMED"
+	// On macOS with JDK 11+, RuneLite's OSXFullScreenAdapter subclasses
+	// com.apple.eawt.FullScreenAdapter, which java.desktop no longer exports to the
+	// unnamed module, so startup fails with an IllegalAccessError. Grant access when
+	// running on a Mac. This affects dev-mode only; it is not part of the plugin.
+	if (System.getProperty('os.name').toLowerCase().contains('mac')) {
+		jvmArgs "--add-exports", "java.desktop/com.apple.eawt=ALL-UNNAMED"
+	}
 	args "--developer-mode", "--debug"
 }
 
