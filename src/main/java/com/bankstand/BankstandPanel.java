@@ -1,33 +1,46 @@
 package com.bankstand;
 
-import java.awt.BorderLayout;
 import java.awt.Component;
-import java.util.function.Consumer;
+import java.awt.Dimension;
+import javax.swing.Box;
 import javax.swing.BorderFactory;
 import javax.swing.BoxLayout;
 import javax.swing.JButton;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JTextField;
+import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
 import net.runelite.client.ui.ColorScheme;
 import net.runelite.client.ui.PluginPanel;
 
 /**
- * The side panel: enter a pairing code and pair, or see the connection status and
- * disconnect. All Swing mutations run on the EDT; the connect/error/disconnected
- * transitions are driven by the plugin from a background thread via these methods,
- * each of which marshals back onto the EDT.
+ * The side panel: the whole pairing flow in one place. Paste the code and Pair;
+ * the server URL lives under a collapsed "Advanced" toggle (defaults to prod, so
+ * only a local tester ever opens it) rather than in a separate config screen. All
+ * Swing mutations run on the EDT; the plugin drives the connected/error/disconnected
+ * transitions from a background thread via the show* methods, each of which marshals
+ * back onto the EDT.
  */
 class BankstandPanel extends PluginPanel {
 
+  /** Callbacks into the plugin. */
+  interface Listener {
+    void onPair(String serverUrl, String code);
+
+    void onDisconnect();
+  }
+
   private final JTextField codeField = new JTextField();
+  private final JTextField urlField = new JTextField();
   private final JButton pairButton = new JButton("Pair");
   private final JButton disconnectButton = new JButton("Disconnect");
+  private final JButton advancedToggle = new JButton("Advanced");
+  private final JPanel advancedPanel = new JPanel();
   private final JLabel statusLabel = new JLabel();
-  private final JPanel pairRow = new JPanel(new BorderLayout());
+  private final JPanel formPanel = new JPanel();
 
-  BankstandPanel(Consumer<String> onPair, Runnable onDisconnect) {
+  BankstandPanel(String initialServerUrl, Listener listener) {
     setLayout(new BoxLayout(this, BoxLayout.Y_AXIS));
     setBorder(BorderFactory.createEmptyBorder(12, 10, 12, 10));
 
@@ -37,43 +50,87 @@ class BankstandPanel extends PluginPanel {
 
     JLabel hint =
         new JLabel(
-            "<html>Generate a pairing code in Bankstand &gt; Account &gt; Connect RuneLite,"
-                + " then paste it below.</html>");
+            "<html>Generate a pairing code at Bankstand &gt; Account &gt; Connect RuneLite,"
+                + " then paste it here.</html>");
     hint.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
     hint.setAlignmentX(Component.LEFT_ALIGNMENT);
-    hint.setBorder(BorderFactory.createEmptyBorder(6, 0, 8, 0));
+    hint.setBorder(BorderFactory.createEmptyBorder(6, 0, 10, 0));
 
-    codeField.setToolTipText("Pairing code (XXXX-XXXX)");
+    JLabel codeLabel = fieldLabel("Pairing code");
+    capHeight(codeField);
+    codeField.setAlignmentX(Component.LEFT_ALIGNMENT);
+    codeField.setToolTipText("XXXX-XXXX");
 
+    pairButton.setAlignmentX(Component.LEFT_ALIGNMENT);
     pairButton.addActionListener(
         e -> {
           pairButton.setEnabled(false);
-          onPair.accept(codeField.getText());
+          listener.onPair(urlField.getText(), codeField.getText());
         });
-    disconnectButton.addActionListener(e -> onDisconnect.run());
 
-    JPanel form = new JPanel();
-    form.setLayout(new BoxLayout(form, BoxLayout.Y_AXIS));
-    form.add(codeField);
-    form.add(pairButton);
-    pairRow.add(form, BorderLayout.CENTER);
-    pairRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+    // Advanced: the server URL, collapsed by default. Normal users never open it.
+    urlField.setText(initialServerUrl);
+    capHeight(urlField);
+    urlField.setAlignmentX(Component.LEFT_ALIGNMENT);
+    urlField.setToolTipText("Bankstand server URL");
+    advancedPanel.setLayout(new BoxLayout(advancedPanel, BoxLayout.Y_AXIS));
+    advancedPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+    advancedPanel.setBorder(BorderFactory.createEmptyBorder(8, 0, 0, 0));
+    JLabel urlLabel = fieldLabel("Server URL");
+    advancedPanel.add(urlLabel);
+    advancedPanel.add(urlField);
+    advancedPanel.setVisible(false);
 
-    statusLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
-    statusLabel.setBorder(BorderFactory.createEmptyBorder(8, 0, 8, 0));
+    advancedToggle.setAlignmentX(Component.LEFT_ALIGNMENT);
+    advancedToggle.setHorizontalAlignment(SwingConstants.LEFT);
+    advancedToggle.setBorderPainted(false);
+    advancedToggle.setContentAreaFilled(false);
+    advancedToggle.setFocusPainted(false);
+    advancedToggle.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
+    advancedToggle.addActionListener(
+        e -> {
+          advancedPanel.setVisible(!advancedPanel.isVisible());
+          revalidate();
+          repaint();
+        });
+
+    formPanel.setLayout(new BoxLayout(formPanel, BoxLayout.Y_AXIS));
+    formPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+    formPanel.add(codeLabel);
+    formPanel.add(codeField);
+    formPanel.add(Box.createVerticalStrut(8));
+    formPanel.add(pairButton);
+    formPanel.add(Box.createVerticalStrut(6));
+    formPanel.add(advancedToggle);
+    formPanel.add(advancedPanel);
 
     disconnectButton.setAlignmentX(Component.LEFT_ALIGNMENT);
+    disconnectButton.addActionListener(e -> listener.onDisconnect());
+
+    statusLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+    statusLabel.setBorder(BorderFactory.createEmptyBorder(10, 0, 8, 0));
 
     add(title);
     add(hint);
-    add(pairRow);
+    add(formPanel);
     add(statusLabel);
     add(disconnectButton);
 
     showDisconnected();
   }
 
-  /** Pairing is in flight. */
+  private static JLabel fieldLabel(String text) {
+    JLabel label = new JLabel(text);
+    label.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
+    label.setAlignmentX(Component.LEFT_ALIGNMENT);
+    return label;
+  }
+
+  // Stop a single-line field from stretching to fill the vertical BoxLayout.
+  private static void capHeight(JTextField field) {
+    field.setMaximumSize(new Dimension(Integer.MAX_VALUE, field.getPreferredSize().height));
+  }
+
   void showBusy() {
     SwingUtilities.invokeLater(
         () -> {
@@ -86,7 +143,7 @@ class BankstandPanel extends PluginPanel {
   void showConnected(String deviceId, String expiresAt) {
     SwingUtilities.invokeLater(
         () -> {
-          pairRow.setVisible(false);
+          formPanel.setVisible(false);
           disconnectButton.setVisible(true);
           codeField.setText("");
           pairButton.setEnabled(true);
@@ -99,17 +156,21 @@ class BankstandPanel extends PluginPanel {
             text.append("<br>Expires ").append(escape(expiresAt));
           }
           statusLabel.setText(text.append("</html>").toString());
+          revalidate();
+          repaint();
         });
   }
 
   void showDisconnected() {
     SwingUtilities.invokeLater(
         () -> {
-          pairRow.setVisible(true);
+          formPanel.setVisible(true);
           disconnectButton.setVisible(false);
           pairButton.setEnabled(true);
           statusLabel.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
           statusLabel.setText("Not connected.");
+          revalidate();
+          repaint();
         });
   }
 

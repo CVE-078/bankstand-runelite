@@ -5,9 +5,11 @@ import com.bankstand.http.HttpTransport;
 import com.bankstand.http.OkHttpTransport;
 import com.bankstand.session.AccountSession;
 import com.google.gson.Gson;
-import com.google.inject.Provides;
 import java.awt.Color;
+import java.awt.Font;
+import java.awt.FontMetrics;
 import java.awt.Graphics2D;
+import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
 import java.util.concurrent.ScheduledExecutorService;
 import javax.inject.Inject;
@@ -31,7 +33,6 @@ public class BankstandPlugin extends Plugin {
   @Inject private Client client;
   @Inject private ClientToolbar clientToolbar;
   @Inject private ConfigManager configManager;
-  @Inject private BankstandConfig config;
   @Inject private OkHttpClient okHttpClient;
   @Inject private Gson gson;
   @Inject private ScheduledExecutorService executor;
@@ -41,16 +42,24 @@ public class BankstandPlugin extends Plugin {
   private BankstandPanel panel;
   private NavigationButton navButton;
 
-  @Provides
-  BankstandConfig provideConfig(ConfigManager configManager) {
-    return configManager.getConfig(BankstandConfig.class);
-  }
-
   @Override
   protected void startUp() {
     HttpTransport transport = new OkHttpTransport(okHttpClient);
     pairingClient = new BankstandClient(transport, gson);
-    panel = new BankstandPanel(this::pair, this::disconnect);
+    panel =
+        new BankstandPanel(
+            savedServerUrl(),
+            new BankstandPanel.Listener() {
+              @Override
+              public void onPair(String serverUrl, String code) {
+                pair(serverUrl, code);
+              }
+
+              @Override
+              public void onDisconnect() {
+                disconnect();
+              }
+            });
 
     navButton =
         NavigationButton.builder()
@@ -84,15 +93,20 @@ public class BankstandPlugin extends Plugin {
     }
   }
 
-  private void pair(String rawCode) {
+  private void pair(String serverUrl, String rawCode) {
+    String url =
+        serverUrl == null || serverUrl.trim().isEmpty()
+            ? BankstandConfig.DEFAULT_SERVER_URL
+            : serverUrl.trim();
+    // Persist the URL so it survives a restart and the panel reopens with it.
+    configManager.setConfiguration(BankstandConfig.GROUP, BankstandConfig.KEY_SERVER_URL, url);
     if (panel != null) {
       panel.showBusy();
     }
     executor.submit(
         () -> {
           try {
-            PairResponse res =
-                pairingClient.exchangePairingCode(config.serverBaseUrl(), rawCode);
+            PairResponse res = pairingClient.exchangePairingCode(url, rawCode);
             storeToken(res);
             if (panel != null) {
               panel.showConnected(res.getDeviceId(), res.getExpiresAt());
@@ -128,6 +142,11 @@ public class BankstandPlugin extends Plugin {
     }
   }
 
+  private String savedServerUrl() {
+    String url = configManager.getConfiguration(BankstandConfig.GROUP, BankstandConfig.KEY_SERVER_URL);
+    return url != null && !url.trim().isEmpty() ? url : BankstandConfig.DEFAULT_SERVER_URL;
+  }
+
   private void refreshPanelState() {
     String token =
         configManager.getConfiguration(BankstandConfig.GROUP, BankstandConfig.KEY_DEVICE_TOKEN);
@@ -144,8 +163,16 @@ public class BankstandPlugin extends Plugin {
   private static BufferedImage createIcon() {
     BufferedImage image = new BufferedImage(24, 24, BufferedImage.TYPE_INT_ARGB);
     Graphics2D g = image.createGraphics();
+    g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
     g.setColor(new Color(0xC8, 0xA2, 0x3C));
-    g.fillRect(4, 4, 16, 16);
+    g.fillRoundRect(1, 1, 22, 22, 6, 6);
+    g.setColor(new Color(0x14, 0x14, 0x14));
+    g.setFont(new Font("SansSerif", Font.BOLD, 16));
+    FontMetrics fm = g.getFontMetrics();
+    String letter = "B";
+    int x = (24 - fm.stringWidth(letter)) / 2;
+    int y = (24 - fm.getHeight()) / 2 + fm.getAscent();
+    g.drawString(letter, x, y);
     g.dispose();
     return image;
   }
