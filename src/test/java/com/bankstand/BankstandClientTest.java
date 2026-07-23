@@ -8,6 +8,7 @@ import static org.junit.Assert.fail;
 
 import com.bankstand.dto.PairResponse;
 import com.bankstand.dto.SubmitResponse;
+import com.bankstand.dto.SubmitSnapshotResponse;
 import com.bankstand.http.HttpResponse;
 import com.bankstand.http.HttpTransport;
 import com.google.gson.Gson;
@@ -275,6 +276,68 @@ public class BankstandClientTest {
     FakeTransport t = new FakeTransport(new HttpResponse(401, "{\"error\":\"unauthorized\"}"));
     try {
       client(t).submitIdentity(BASE, "bsd_tok", 1L, "Zezima");
+      fail("expected SubmitException");
+    } catch (SubmitException e) {
+      assertFalse(e.isRetryable());
+    }
+  }
+
+  @Test
+  public void submitsASnapshotWithBearerAndEnvelope() throws Exception {
+    FakeTransport t =
+        new FakeTransport(
+            new HttpResponse(
+                200,
+                "{\"accepted\":true,\"stored\":false,\"reason\":\"not_applied\","
+                    + "\"eventsCreated\":0,\"serverTime\":\"2026-07-23T10:00:00.000Z\","
+                    + "\"nextSubmitAfter\":\"2026-07-23T10:01:00.000Z\"}"));
+    java.util.Map<String, Object> body = new java.util.LinkedHashMap<>();
+    body.put("submissionId", "018f9c8e-7b7a-7c00-8000-000000000abc");
+    body.put("schemaVersion", 1);
+
+    SubmitSnapshotResponse res =
+        new BankstandClient(t, new Gson())
+            .submitSnapshot(BASE + "/", "bsd_tok", body);
+
+    assertTrue(res.isAccepted());
+    assertFalse(res.isStored());
+    assertEquals("not_applied", res.getReason());
+    assertEquals(BASE + "/api/plugin/v1/submit", t.url);
+    assertEquals("Bearer bsd_tok", t.headers.get("Authorization"));
+    assertTrue("envelope serialized in body", t.body.contains("\"submissionId\""));
+  }
+
+  @Test
+  public void submitSnapshotWithoutTokenFailsBeforeAnyRequest() {
+    FakeTransport t = new FakeTransport(new HttpResponse(200, "{}"));
+    try {
+      new BankstandClient(t, new Gson())
+          .submitSnapshot(BASE, "", new java.util.LinkedHashMap<>());
+      fail("expected SubmitException");
+    } catch (SubmitException e) {
+      assertFalseCalled(t);
+    }
+  }
+
+  @Test
+  public void submitSnapshotRetriesARetryableFailureThenSucceeds() throws Exception {
+    SequencedTransport t =
+        new SequencedTransport(
+            new IOException("blip"),
+            new HttpResponse(200, "{\"accepted\":true,\"stored\":true,\"reason\":\"persisted\"}"));
+    SubmitSnapshotResponse res =
+        new BankstandClient(t, new Gson())
+            .submitSnapshotWithRetry(BASE, "bsd_tok", new java.util.LinkedHashMap<>(), 3, 0L);
+    assertTrue(res.isStored());
+    assertEquals(2, t.calls);
+  }
+
+  @Test
+  public void submitSnapshotMapsA401ToATerminalFailure() {
+    FakeTransport t = new FakeTransport(new HttpResponse(401, "{\"error\":\"unauthorized\"}"));
+    try {
+      new BankstandClient(t, new Gson())
+          .submitSnapshotWithRetry(BASE, "bsd_tok", new java.util.LinkedHashMap<>(), 3, 0L);
       fail("expected SubmitException");
     } catch (SubmitException e) {
       assertFalse(e.isRetryable());
