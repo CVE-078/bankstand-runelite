@@ -195,6 +195,9 @@ public class BankstandPlugin extends Plugin {
             return;
           }
           String name = local.getName();
+          if (name == null || name.isEmpty()) {
+            return;
+          }
           long accountHash = session.getAccountHash();
           int generation = session.getGeneration();
           Map<String, Integer> skills = readSkillXp();
@@ -262,8 +265,15 @@ public class BankstandPlugin extends Plugin {
             // us; a cooldown means try the same change again next cycle. This makes a
             // dropped or throttled submit self-heal without a client-side queue.
             if (res.isAccepted() && !"cooldown".equals(res.getReason())) {
-              // Advance on the client thread: the baseline is only touched there.
-              clientThread.invoke(() -> skillBaseline.advance(skills));
+              // Advance on the client thread, and only if this submit's login instance is
+              // still current, so a stale ack from a superseded account cannot clobber the
+              // current account's baseline (the same guard the panel update below uses).
+              clientThread.invoke(
+                  () -> {
+                    if (session.isCurrent(accountHash, generation)) {
+                      skillBaseline.advance(skills);
+                    }
+                  });
             }
             if (panel != null && session.isCurrent(accountHash, generation)) {
               panel.showSnapshotOutcome(res.isStored(), res.getReason());
