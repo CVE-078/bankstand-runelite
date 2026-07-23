@@ -200,6 +200,22 @@ class BankstandPanel extends PluginPanel {
         });
   }
 
+  /** Reports a skills-sync outcome while staying in the connected state. */
+  void showSnapshotOutcome(boolean stored, String reason) {
+    SwingUtilities.invokeLater(
+        () -> {
+          if (stored) {
+            statusLabel.setForeground(ColorScheme.PROGRESS_COMPLETE_COLOR);
+            statusLabel.setText("<html>Stats synced.</html>");
+          } else {
+            // Accepted but not stored (e.g. ingest not enabled yet, or a stale/duplicate
+            // submit). Not an error; keep it muted.
+            statusLabel.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
+            statusLabel.setText("<html>Stats received.</html>");
+          }
+        });
+  }
+
   /** Flags a failed identity update while staying in the connected state. */
   void showSubmitFailed(String message) {
     SwingUtilities.invokeLater(
