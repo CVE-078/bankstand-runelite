@@ -1,0 +1,43 @@
+package com.bankstand;
+
+import java.util.LinkedHashMap;
+import java.util.Map;
+
+/**
+ * Builds the v1 skills-submit envelope as an ordered map, ready for Gson. The
+ * account hash is emitted as a decimal string because a 64-bit value does not fit
+ * a JSON number safely, matching the server's contract. The shape is frozen; see
+ * the mirrored contract fixtures under src/test/resources/contracts.
+ */
+public final class SubmitEnvelope {
+  private SubmitEnvelope() {}
+
+  public static final int SCHEMA_VERSION = 1;
+
+  public static Map<String, Object> body(
+      String submissionId,
+      int schemaVersion,
+      String pluginVersion,
+      String capturedAt,
+      long accountHash,
+      String displayName,
+      Map<String, Integer> skillXp) {
+    Map<String, Object> body = new LinkedHashMap<>();
+    body.put("submissionId", submissionId);
+    body.put("schemaVersion", schemaVersion);
+    body.put("pluginVersion", pluginVersion);
+    body.put("capturedAt", capturedAt);
+    body.put("accountHash", Long.toString(accountHash));
+    if (displayName != null && !displayName.trim().isEmpty()) {
+      body.put("displayName", displayName);
+    }
+    Map<String, Object> skills = new LinkedHashMap<>();
+    for (Map.Entry<String, Integer> e : skillXp.entrySet()) {
+      Map<String, Object> stat = new LinkedHashMap<>();
+      stat.put("xp", e.getValue());
+      skills.put(e.getKey(), stat);
+    }
+    body.put("skills", skills);
+    return body;
+  }
+}

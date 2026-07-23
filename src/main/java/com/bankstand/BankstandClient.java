@@ -2,6 +2,7 @@ package com.bankstand;
 
 import com.bankstand.dto.PairResponse;
 import com.bankstand.dto.SubmitResponse;
+import com.bankstand.dto.SubmitSnapshotResponse;
 import com.bankstand.http.HttpResponse;
 import com.bankstand.http.HttpTransport;
 import com.google.gson.Gson;
@@ -141,10 +142,91 @@ public class BankstandClient {
       int maxAttempts,
       long baseDelayMillis)
       throws SubmitException {
+    return withRetry(
+        () -> submitIdentity(baseUrl, deviceToken, accountHash, displayName),
+        maxAttempts,
+        baseDelayMillis);
+  }
+
+  /**
+   * Submits a v1 skills envelope (already built by SubmitEnvelope), authenticated by
+   * the device token. Status handling mirrors submitIdentity: 401/403 terminal, 429/5xx
+   * retryable, other non-200 terminal, IOException retryable. The token is never logged.
+   */
+  public SubmitSnapshotResponse submitSnapshot(
+      String baseUrl, String deviceToken, Map<String, Object> envelopeBody)
+      throws SubmitException {
+    if (isBlank(deviceToken)) {
+      throw new SubmitException("Not paired.");
+    }
+    String url = trimTrailingSlash(baseUrl) + SUBMIT_PATH;
+    Map<String, String> headers = new LinkedHashMap<>();
+    headers.put("Content-Type", "application/json");
+    headers.put("Accept", "application/json");
+    headers.put("User-Agent", USER_AGENT);
+    headers.put("Authorization", "Bearer " + deviceToken);
+
+    HttpResponse response;
+    try {
+      response = transport.post(url, gson.toJson(envelopeBody), headers);
+    } catch (IOException e) {
+      throw new SubmitException("Could not reach Bankstand.", true);
+    }
+    int status = response.getStatus();
+    if (status != 200) {
+      if (status == 401 || status == 403) {
+        throw new SubmitException(
+            "Bankstand rejected the device token. Re-pair in Account > Connect RuneLite.", false);
+      }
+      if (status == 429 || status >= 500) {
+        throw new SubmitException("Bankstand is busy.", true);
+      }
+      throw new SubmitException("Bankstand rejected the update.", false);
+    }
+    try {
+      SubmitSnapshotResponse parsed =
+          gson.fromJson(response.getBody(), SubmitSnapshotResponse.class);
+      if (parsed == null) {
+        throw new SubmitException("Unexpected response from Bankstand.");
+      }
+      return parsed;
+    } catch (JsonSyntaxException e) {
+      throw new SubmitException("Unexpected response from Bankstand.");
+    }
+  }
+
+  /**
+   * Submits a snapshot with the same bounded retry policy as
+   * {@link #submitIdentityWithRetry}.
+   */
+  public SubmitSnapshotResponse submitSnapshotWithRetry(
+      String baseUrl,
+      String deviceToken,
+      Map<String, Object> envelopeBody,
+      int maxAttempts,
+      long baseDelayMillis)
+      throws SubmitException {
+    return withRetry(
+        () -> submitSnapshot(baseUrl, deviceToken, envelopeBody), maxAttempts, baseDelayMillis);
+  }
+
+  /** A retryable unit of work that produces a {@code T} or throws {@link SubmitException}. */
+  private interface SubmitCall<T> {
+    T call() throws SubmitException;
+  }
+
+  /**
+   * Generic bounded retry shared by every submit endpoint: retryable failures are
+   * retried up to {@code maxAttempts} with a linear backoff of
+   * {@code baseDelayMillis * attempt}; terminal failures fail fast. Blocks the
+   * calling thread during backoff, so it runs on the plugin's background executor.
+   */
+  private static <T> T withRetry(SubmitCall<T> call, int maxAttempts, long baseDelayMillis)
+      throws SubmitException {
     SubmitException last = null;
     for (int attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
-        return submitIdentity(baseUrl, deviceToken, accountHash, displayName);
+        return call.call();
       } catch (SubmitException e) {
         last = e;
         if (!e.isRetryable() || attempt == maxAttempts) {
