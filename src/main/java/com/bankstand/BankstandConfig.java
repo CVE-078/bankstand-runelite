@@ -19,6 +19,10 @@ public final class BankstandConfig {
   public static final String KEY_DEVICE_ID = "deviceId";
   public static final String KEY_TOKEN_EXPIRES_AT = "tokenExpiresAt";
 
+  // Opt-in (default off): quest state is more sensitive than hiscore stats, so unlike
+  // skill capture it is never sent unless the player explicitly turns this on.
+  public static final String KEY_SHARE_QUESTS = "shareQuests";
+
   public static final String DEFAULT_SERVER_URL =
       "https://bankstand.christiaanvaneijnsbergen.nl";
 }

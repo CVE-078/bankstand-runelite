@@ -6,6 +6,7 @@ import javax.swing.Box;
 import javax.swing.BorderFactory;
 import javax.swing.BoxLayout;
 import javax.swing.JButton;
+import javax.swing.JCheckBox;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JTextField;
@@ -29,6 +30,8 @@ class BankstandPanel extends PluginPanel {
     void onPair(String serverUrl, String code);
 
     void onDisconnect();
+
+    void onShareQuestsChanged(boolean enabled);
   }
 
   private final JTextField codeField = new JTextField();
@@ -39,6 +42,8 @@ class BankstandPanel extends PluginPanel {
   private final JPanel advancedPanel = new JPanel();
   private final JLabel statusLabel = new JLabel();
   private final JPanel formPanel = new JPanel();
+  private final JCheckBox shareQuestsCheckbox = new JCheckBox("Share quest progress");
+  private final JPanel questSharingPanel = new JPanel();
 
   BankstandPanel(String initialServerUrl, Listener listener) {
     setLayout(new BoxLayout(this, BoxLayout.Y_AXIS));
@@ -110,10 +115,34 @@ class BankstandPanel extends PluginPanel {
     statusLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
     statusLabel.setBorder(BorderFactory.createEmptyBorder(10, 0, 8, 0));
 
+    // Quest progress is more sensitive than hiscore stats (which sync unconditionally),
+    // so it is opt-in, default off, and only ever offered once paired.
+    shareQuestsCheckbox.setAlignmentX(Component.LEFT_ALIGNMENT);
+    shareQuestsCheckbox.addActionListener(
+        e -> listener.onShareQuestsChanged(shareQuestsCheckbox.isSelected()));
+
+    JLabel shareQuestsDisclosure =
+        new JLabel(
+            "<html>Sends which quests you've started and finished so you can see them on your"
+                + " guides. Only you can see it, it's never public. This is more personal than"
+                + " your hiscore stats.</html>");
+    shareQuestsDisclosure.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
+    shareQuestsDisclosure.setAlignmentX(Component.LEFT_ALIGNMENT);
+    shareQuestsDisclosure.setBorder(BorderFactory.createEmptyBorder(2, 0, 0, 0));
+
+    questSharingPanel.setLayout(new BoxLayout(questSharingPanel, BoxLayout.Y_AXIS));
+    questSharingPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+    questSharingPanel.setBorder(BorderFactory.createEmptyBorder(10, 0, 0, 0));
+    questSharingPanel.add(shareQuestsCheckbox);
+    questSharingPanel.add(shareQuestsDisclosure);
+    // Hidden until connected; showConnected/showDisconnected toggle it like disconnectButton.
+    questSharingPanel.setVisible(false);
+
     add(title);
     add(hint);
     add(formPanel);
     add(statusLabel);
+    add(questSharingPanel);
     add(disconnectButton);
 
     showDisconnected();
@@ -145,6 +174,7 @@ class BankstandPanel extends PluginPanel {
         () -> {
           formPanel.setVisible(false);
           disconnectButton.setVisible(true);
+          questSharingPanel.setVisible(true);
           codeField.setText("");
           pairButton.setEnabled(true);
           statusLabel.setForeground(ColorScheme.PROGRESS_COMPLETE_COLOR);
@@ -166,6 +196,7 @@ class BankstandPanel extends PluginPanel {
         () -> {
           formPanel.setVisible(true);
           disconnectButton.setVisible(false);
+          questSharingPanel.setVisible(false);
           pairButton.setEnabled(true);
           statusLabel.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
           statusLabel.setText("Not connected.");
@@ -226,6 +257,11 @@ class BankstandPanel extends PluginPanel {
                   + escape(message)
                   + "</html>");
         });
+  }
+
+  /** Initialises the quest-sharing checkbox from the stored config value, e.g. on build. */
+  void setShareQuestsEnabled(boolean enabled) {
+    SwingUtilities.invokeLater(() -> shareQuestsCheckbox.setSelected(enabled));
   }
 
   private static String escape(String value) {

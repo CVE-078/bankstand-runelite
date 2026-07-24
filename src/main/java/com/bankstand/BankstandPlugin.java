@@ -115,6 +115,11 @@ public class BankstandPlugin extends Plugin {
               public void onDisconnect() {
                 disconnect();
               }
+
+              @Override
+              public void onShareQuestsChanged(boolean enabled) {
+                setQuestSharingEnabled(enabled);
+              }
             });
 
     navButton =
@@ -294,6 +299,19 @@ public class BankstandPlugin extends Plugin {
     return token != null && !token.trim().isEmpty();
   }
 
+  // Null-safe: an unset key (never opted in) reads as false. Quest state is more
+  // sensitive than hiscore stats, so the capture path must check this before reading
+  // or sending it.
+  private boolean isQuestSharingEnabled() {
+    return Boolean.parseBoolean(
+        configManager.getConfiguration(BankstandConfig.GROUP, BankstandConfig.KEY_SHARE_QUESTS));
+  }
+
+  private void setQuestSharingEnabled(boolean enabled) {
+    configManager.setConfiguration(
+        BankstandConfig.GROUP, BankstandConfig.KEY_SHARE_QUESTS, String.valueOf(enabled));
+  }
+
   private void submitIdentity(long accountHash, int generation, String displayName) {
     String url = savedServerUrl();
     String token =
@@ -392,6 +410,7 @@ public class BankstandPlugin extends Plugin {
     } else {
       panel.showDisconnected();
     }
+    panel.setShareQuestsEnabled(isQuestSharingEnabled());
   }
 
   private static BufferedImage createIcon() {
