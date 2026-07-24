@@ -286,6 +286,18 @@ public class BankstandPlugin extends Plugin {
     return res.isAccepted() && !"cooldown".equals(res.getReason());
   }
 
+  // Skills gate on accept because the server always stores an accepted skills update.
+  // Quests are different: until bankstand PR #407 and PLUGIN_QUESTS_INGEST_ENABLED are
+  // both live, the server accepts the submission but silently strips the unknown
+  // quests key, so isStoredAccept alone would mark quest state as acknowledged when it
+  // was never persisted, and that first quest snapshot would not be resent until a
+  // relog. Gating on res.isStored() instead keeps questBaseline from advancing until
+  // the server confirms this submission was actually stored, so an un-stored quests
+  // submission keeps re-sending every capture and self-heals the moment storage lands.
+  static boolean shouldAdvanceQuests(SubmitSnapshotResponse res, boolean questsIncluded) {
+    return questsIncluded && res.isStored();
+  }
+
   private void submitSnapshot(
       long accountHash,
       int generation,
@@ -324,7 +336,7 @@ public class BankstandPlugin extends Plugin {
                   () -> {
                     if (session.isCurrent(accountHash, generation)) {
                       skillBaseline.advance(skills);
-                      if (quests != null) {
+                      if (shouldAdvanceQuests(res, quests != null)) {
                         questBaseline.advance(quests);
                       }
                     }

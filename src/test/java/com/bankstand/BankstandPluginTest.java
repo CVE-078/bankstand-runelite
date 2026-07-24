@@ -110,4 +110,26 @@ public class BankstandPluginTest {
   public void aRejectedResponseIsNotAStoredAccept() {
     assertFalse(BankstandPlugin.isStoredAccept(response(false, false, "unclaimed")));
   }
+
+  @Test
+  public void advancesQuestsWhenIncludedAndStored() {
+    assertTrue(BankstandPlugin.shouldAdvanceQuests(response(true, true, "persisted"), true));
+  }
+
+  @Test
+  public void doesNotAdvanceQuestsWhenIncludedButNotStored() {
+    // Accepted (not on cooldown) but the server did not store this submission, e.g. the
+    // quests key was silently stripped because #407 or its rollout flag is not live yet.
+    assertFalse(BankstandPlugin.shouldAdvanceQuests(response(true, false, "not_applied"), true));
+  }
+
+  @Test
+  public void doesNotAdvanceQuestsWhenIncludedButStale() {
+    assertFalse(BankstandPlugin.shouldAdvanceQuests(response(true, false, "stale"), true));
+  }
+
+  @Test
+  public void doesNotAdvanceQuestsWhenNotIncludedEvenIfStored() {
+    assertFalse(BankstandPlugin.shouldAdvanceQuests(response(true, true, "persisted"), false));
+  }
 }
