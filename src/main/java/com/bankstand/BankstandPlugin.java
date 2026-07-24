@@ -18,6 +18,7 @@ import javax.inject.Inject;
 import net.runelite.api.Client;
 import net.runelite.api.GameState;
 import net.runelite.api.Player;
+import net.runelite.api.Quest;
 import net.runelite.api.Skill;
 import net.runelite.api.WorldType;
 import net.runelite.api.events.GameStateChanged;
@@ -91,6 +92,7 @@ public class BankstandPlugin extends Plugin {
 
   private final AccountSession session = new AccountSession();
   private final SkillBaseline skillBaseline = new SkillBaseline();
+  private final QuestBaseline questBaseline = new QuestBaseline();
   // The generation the baseline currently tracks; a change means the account switched
   // and the baseline must be forgotten so the new account submits afresh.
   private int baselineGeneration = -1;
@@ -114,6 +116,11 @@ public class BankstandPlugin extends Plugin {
               @Override
               public void onDisconnect() {
                 disconnect();
+              }
+
+              @Override
+              public void onShareQuestsChanged(boolean enabled) {
+                setQuestSharingEnabled(enabled);
               }
             });
 
@@ -201,7 +208,10 @@ public class BankstandPlugin extends Plugin {
           long accountHash = session.getAccountHash();
           int generation = session.getGeneration();
           Map<String, Integer> skills = readSkillXp();
-          onSkillsCaptured(accountHash, generation, name, skills);
+          // Quest state is opt-in; read it in this same block so it is one consistent
+          // snapshot with the skills, and leave it null (never sent) when off.
+          Map<String, String> quests = isQuestSharingEnabled() ? readQuestStates() : null;
+          onSkillsCaptured(accountHash, generation, name, skills, quests);
         });
   }
 
@@ -226,21 +236,74 @@ public class BankstandPlugin extends Plugin {
     return skills;
   }
 
+  // Reads every quest's completion state, keyed by the Quest enum constant name (the
+  // server's contract key). Runs on the client thread alongside readSkillXp (Quest.
+  // getState reads varps/varbits). Unlike the skills read, there is no allowlist: the
+  // server accepts any key up to its cap, and 210 quests is well under it.
+  private Map<String, String> readQuestStates() {
+    Map<String, String> quests = new LinkedHashMap<>();
+    for (Quest quest : Quest.values()) {
+      quests.put(quest.name(), quest.getState(client).name());
+    }
+    return quests;
+  }
+
   private void onSkillsCaptured(
-      long accountHash, int generation, String name, Map<String, Integer> skills) {
-    // A change of account forgets the baseline so the new account submits afresh.
+      long accountHash,
+      int generation,
+      String name,
+      Map<String, Integer> skills,
+      Map<String, String> quests) {
+    // A change of account forgets both baselines so the new account submits afresh.
     if (generation != baselineGeneration) {
       skillBaseline.reset();
+      questBaseline.reset();
       baselineGeneration = generation;
     }
-    if (!skillBaseline.changedSince(skills)) {
+    if (!shouldSubmit(skillBaseline, skills, questBaseline, quests)) {
       return;
     }
-    submitSnapshot(accountHash, generation, name, skills);
+    submitSnapshot(accountHash, generation, name, skills, quests);
+  }
+
+  // A quest change alone is enough to submit; a null quests map (the opt-in is off)
+  // never contributes. Package-private and static so it is unit-testable with real
+  // SkillBaseline/QuestBaseline instances, without a Client or ConfigManager fake.
+  static boolean shouldSubmit(
+      SkillBaseline skillBaseline,
+      Map<String, Integer> skills,
+      QuestBaseline questBaseline,
+      Map<String, String> quests) {
+    return skillBaseline.changedSince(skills)
+        || (quests != null && questBaseline.changedSince(quests));
+  }
+
+  // A cooldown means the server rejected this cycle's change for pacing, not because
+  // it was applied; the caller should retry the same change next cycle rather than
+  // treat it as acknowledged. Package-private and static for the same reason as
+  // shouldSubmit above.
+  static boolean isStoredAccept(SubmitSnapshotResponse res) {
+    return res.isAccepted() && !"cooldown".equals(res.getReason());
+  }
+
+  // Skills gate on accept because the server always stores an accepted skills update.
+  // Quests are different: until bankstand PR #407 and PLUGIN_QUESTS_INGEST_ENABLED are
+  // both live, the server accepts the submission but silently strips the unknown
+  // quests key, so isStoredAccept alone would mark quest state as acknowledged when it
+  // was never persisted, and that first quest snapshot would not be resent until a
+  // relog. Gating on res.isStored() instead keeps questBaseline from advancing until
+  // the server confirms this submission was actually stored, so an un-stored quests
+  // submission keeps re-sending every capture and self-heals the moment storage lands.
+  static boolean shouldAdvanceQuests(SubmitSnapshotResponse res, boolean questsIncluded) {
+    return questsIncluded && res.isStored();
   }
 
   private void submitSnapshot(
-      long accountHash, int generation, String name, Map<String, Integer> skills) {
+      long accountHash,
+      int generation,
+      String name,
+      Map<String, Integer> skills,
+      Map<String, String> quests) {
     String url = savedServerUrl();
     String token =
         configManager.getConfiguration(BankstandConfig.GROUP, BankstandConfig.KEY_DEVICE_TOKEN);
@@ -254,17 +317,18 @@ public class BankstandPlugin extends Plugin {
             Instant.now().toString(),
             accountHash,
             name,
-            skills);
+            skills,
+            quests);
     executor.submit(
         () -> {
           try {
             SubmitSnapshotResponse res =
                 pairingClient.submitSnapshotWithRetry(
                     url, token, body, MAX_SUBMIT_ATTEMPTS, SUBMIT_RETRY_BASE_DELAY_MS);
-            // Advance the baseline when the server accepted and was not rate-limiting
+            // Advance the baseline(s) when the server accepted and was not rate-limiting
             // us; a cooldown means try the same change again next cycle. This makes a
             // dropped or throttled submit self-heal without a client-side queue.
-            if (res.isAccepted() && !"cooldown".equals(res.getReason())) {
+            if (isStoredAccept(res)) {
               // Advance on the client thread, and only if this submit's login instance is
               // still current, so a stale ack from a superseded account cannot clobber the
               // current account's baseline (the same guard the panel update below uses).
@@ -272,6 +336,9 @@ public class BankstandPlugin extends Plugin {
                   () -> {
                     if (session.isCurrent(accountHash, generation)) {
                       skillBaseline.advance(skills);
+                      if (shouldAdvanceQuests(res, quests != null)) {
+                        questBaseline.advance(quests);
+                      }
                     }
                   });
             }
@@ -292,6 +359,19 @@ public class BankstandPlugin extends Plugin {
     String token =
         configManager.getConfiguration(BankstandConfig.GROUP, BankstandConfig.KEY_DEVICE_TOKEN);
     return token != null && !token.trim().isEmpty();
+  }
+
+  // Null-safe: an unset key (never opted in) reads as false. Quest state is more
+  // sensitive than hiscore stats, so the capture path must check this before reading
+  // or sending it.
+  private boolean isQuestSharingEnabled() {
+    return Boolean.parseBoolean(
+        configManager.getConfiguration(BankstandConfig.GROUP, BankstandConfig.KEY_SHARE_QUESTS));
+  }
+
+  private void setQuestSharingEnabled(boolean enabled) {
+    configManager.setConfiguration(
+        BankstandConfig.GROUP, BankstandConfig.KEY_SHARE_QUESTS, String.valueOf(enabled));
   }
 
   private void submitIdentity(long accountHash, int generation, String displayName) {
@@ -392,6 +472,7 @@ public class BankstandPlugin extends Plugin {
     } else {
       panel.showDisconnected();
     }
+    panel.setShareQuestsEnabled(isQuestSharingEnabled());
   }
 
   private static BufferedImage createIcon() {
