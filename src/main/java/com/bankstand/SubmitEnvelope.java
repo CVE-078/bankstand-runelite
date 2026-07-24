@@ -22,6 +22,20 @@ public final class SubmitEnvelope {
       long accountHash,
       String displayName,
       Map<String, Integer> skillXp) {
+    return body(
+        submissionId, schemaVersion, pluginVersion, capturedAt, accountHash, displayName, skillXp,
+        null);
+  }
+
+  public static Map<String, Object> body(
+      String submissionId,
+      int schemaVersion,
+      String pluginVersion,
+      String capturedAt,
+      long accountHash,
+      String displayName,
+      Map<String, Integer> skillXp,
+      Map<String, String> questStates) {
     Map<String, Object> body = new LinkedHashMap<>();
     body.put("submissionId", submissionId);
     body.put("schemaVersion", schemaVersion);
@@ -38,6 +52,9 @@ public final class SubmitEnvelope {
       skills.put(e.getKey(), stat);
     }
     body.put("skills", skills);
+    if (questStates != null && !questStates.isEmpty()) {
+      body.put("quests", new LinkedHashMap<>(questStates));
+    }
     return body;
   }
 }
