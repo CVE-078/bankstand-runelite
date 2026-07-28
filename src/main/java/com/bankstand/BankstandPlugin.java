@@ -323,18 +323,17 @@ public class BankstandPlugin extends Plugin {
     return res.isBlockStored("skills");
   }
 
-  // Skills gate on accept because the server always stores an accepted skills update.
+  // An optional capability block additionally checks that it was submitted at all, so a
+  // cycle with the opt-in off never advances a baseline it did not send.
   //
-  // An optional capability block is different, and the whole-submission stored verdict
-  // is not enough to gate one. That verdict is decided by skills freshness, so it reads
-  // true even when the server dropped the block because that capability's rollout flag
-  // is off. Advancing a capability baseline on it would mark data acknowledged that was
-  // never written, and unlike skill XP (which changes almost every cycle and so resends
-  // itself) a diary tier completing is a one-shot fact: once falsely acknowledged the
-  // value never differs again, so it is never resent, not even after a relog. Each
-  // capability therefore gates on the server's own per-block acknowledgement, which
-  // keeps an unstored block re-sending every capture and self-heals the moment that
-  // capability's storage lands.
+  // The whole-submission stored verdict is no better a gate here than it is for skills:
+  // it is decided by skills freshness, so it reads true even when the server dropped
+  // this block because that capability's rollout flag is off. The consequence is worse
+  // for a capability than for skills, though. Skill XP changes almost every cycle, so a
+  // false acknowledgement resends itself; a diary tier completing is a one-shot fact, so
+  // once falsely acknowledged the value never differs again and it is never resent, not
+  // even after a relog. Gating on the per-block acknowledgement keeps an unstored block
+  // re-sending every capture and self-heals the moment that capability's storage lands.
   static boolean shouldAdvanceQuests(SubmitSnapshotResponse res, boolean questsIncluded) {
     return questsIncluded && res.isBlockStored("quests");
   }
