@@ -83,4 +83,29 @@ public class SubmitEnvelopeContractTest {
     JsonObject got = new Gson().toJsonTree(body).getAsJsonObject();
     assertEquals(want, got);
   }
+
+  @Test
+  public void javaEnvelopeMatchesTheFrozenDiariesFixture() throws Exception {
+    JsonObject want = fixture("submit-v1.diaries.json");
+    Map<String, Integer> skills = new LinkedHashMap<>();
+    skills.put("attack", 5500000);
+    Map<String, String> diaries = new LinkedHashMap<>();
+    diaries.put("ARDOUGNE_EASY", "COMPLETE");
+    diaries.put("KOUREND_KEBOS_MEDIUM", "INCOMPLETE");
+    diaries.put("WESTERN_PROVINCES_ELITE", "INCOMPLETE");
+    // Build the envelope from the fixture's own field values.
+    Map<String, Object> body =
+        SubmitEnvelope.body(
+            want.get("submissionId").getAsString(),
+            want.get("schemaVersion").getAsInt(),
+            want.get("pluginVersion").getAsString(),
+            want.get("capturedAt").getAsString(),
+            Long.parseLong(want.get("accountHash").getAsString()),
+            want.get("displayName").getAsString(),
+            skills,
+            null,
+            diaries);
+    JsonObject got = new Gson().toJsonTree(body).getAsJsonObject();
+    assertEquals(want, got);
+  }
 }

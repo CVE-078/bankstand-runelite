@@ -42,6 +42,12 @@ public class BankstandPluginTest {
     return m;
   }
 
+  private static Map<String, String> diaries(String key, String state) {
+    Map<String, String> m = new LinkedHashMap<>();
+    m.put(key, state);
+    return m;
+  }
+
   private static SubmitSnapshotResponse response(boolean accepted, boolean stored, String reason) {
     String json =
         String.format(
@@ -55,7 +61,12 @@ public class BankstandPluginTest {
     // alone is still enough to submit.
     assertTrue(
         BankstandPlugin.shouldSubmit(
-            new SkillBaseline(), skills("attack", 100), new QuestBaseline(), null));
+            new SkillBaseline(),
+            skills("attack", 100),
+            new QuestBaseline(),
+            null,
+            new DiaryBaseline(),
+            null));
   }
 
   @Test
@@ -66,7 +77,12 @@ public class BankstandPluginTest {
     // be observed, so nothing should trigger a submit.
     assertFalse(
         BankstandPlugin.shouldSubmit(
-            skillBaseline, skills("attack", 100), new QuestBaseline(), null));
+            skillBaseline,
+            skills("attack", 100),
+            new QuestBaseline(),
+            null,
+            new DiaryBaseline(),
+            null));
   }
 
   @Test
@@ -79,7 +95,9 @@ public class BankstandPluginTest {
             skillBaseline,
             skills("attack", 100),
             new QuestBaseline(),
-            quests("COOKS_ASSISTANT", "IN_PROGRESS")));
+            quests("COOKS_ASSISTANT", "IN_PROGRESS"),
+            new DiaryBaseline(),
+            null));
   }
 
   @Test
@@ -93,7 +111,58 @@ public class BankstandPluginTest {
             skillBaseline,
             skills("attack", 100),
             questBaseline,
-            quests("COOKS_ASSISTANT", "IN_PROGRESS")));
+            quests("COOKS_ASSISTANT", "IN_PROGRESS"),
+            new DiaryBaseline(),
+            null));
+  }
+
+  @Test
+  public void ignoresADiaryChangeWhenSharingIsOff() {
+    SkillBaseline skillBaseline = new SkillBaseline();
+    skillBaseline.advance(skills("attack", 100));
+    // Skills and quests are unchanged and diaries are null (opt-in off): a diary
+    // change can never be observed, so nothing should trigger a submit.
+    assertFalse(
+        BankstandPlugin.shouldSubmit(
+            skillBaseline,
+            skills("attack", 100),
+            new QuestBaseline(),
+            null,
+            new DiaryBaseline(),
+            null));
+  }
+
+  @Test
+  public void submitsOnADiaryChangeAloneWhenSharingIsOn() {
+    SkillBaseline skillBaseline = new SkillBaseline();
+    skillBaseline.advance(skills("attack", 100));
+    // Skills are identical to the baseline; only the diary state changed.
+    assertTrue(
+        BankstandPlugin.shouldSubmit(
+            skillBaseline,
+            skills("attack", 100),
+            new QuestBaseline(),
+            null,
+            new DiaryBaseline(),
+            diaries("ARDOUGNE_EASY", "COMPLETE")));
+  }
+
+  @Test
+  public void doesNotSubmitWhenNeitherSkillsNorQuestsNorDiariesChanged() {
+    SkillBaseline skillBaseline = new SkillBaseline();
+    skillBaseline.advance(skills("attack", 100));
+    QuestBaseline questBaseline = new QuestBaseline();
+    questBaseline.advance(quests("COOKS_ASSISTANT", "IN_PROGRESS"));
+    DiaryBaseline diaryBaseline = new DiaryBaseline();
+    diaryBaseline.advance(diaries("ARDOUGNE_EASY", "COMPLETE"));
+    assertFalse(
+        BankstandPlugin.shouldSubmit(
+            skillBaseline,
+            skills("attack", 100),
+            questBaseline,
+            quests("COOKS_ASSISTANT", "IN_PROGRESS"),
+            diaryBaseline,
+            diaries("ARDOUGNE_EASY", "COMPLETE")));
   }
 
   @Test
@@ -131,5 +200,23 @@ public class BankstandPluginTest {
   @Test
   public void doesNotAdvanceQuestsWhenNotIncludedEvenIfStored() {
     assertFalse(BankstandPlugin.shouldAdvanceQuests(response(true, true, "persisted"), false));
+  }
+
+  @Test
+  public void advancesDiariesWhenIncludedAndStored() {
+    assertTrue(BankstandPlugin.shouldAdvanceDiaries(response(true, true, "persisted"), true));
+  }
+
+  @Test
+  public void doesNotAdvanceDiariesWhenIncludedButNotStored() {
+    // Accepted (not on cooldown) but the server did not store this submission, e.g. the
+    // diaries key was silently stripped because the capability flag is not live yet.
+    assertFalse(
+        BankstandPlugin.shouldAdvanceDiaries(response(true, false, "not_applied"), true));
+  }
+
+  @Test
+  public void doesNotAdvanceDiariesWhenNotIncludedEvenIfStored() {
+    assertFalse(BankstandPlugin.shouldAdvanceDiaries(response(true, true, "persisted"), false));
   }
 }

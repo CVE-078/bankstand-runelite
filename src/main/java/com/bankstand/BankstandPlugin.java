@@ -93,6 +93,7 @@ public class BankstandPlugin extends Plugin {
   private final AccountSession session = new AccountSession();
   private final SkillBaseline skillBaseline = new SkillBaseline();
   private final QuestBaseline questBaseline = new QuestBaseline();
+  private final DiaryBaseline diaryBaseline = new DiaryBaseline();
   // The generation the baseline currently tracks; a change means the account switched
   // and the baseline must be forgotten so the new account submits afresh.
   private int baselineGeneration = -1;
@@ -121,6 +122,11 @@ public class BankstandPlugin extends Plugin {
               @Override
               public void onShareQuestsChanged(boolean enabled) {
                 setQuestSharingEnabled(enabled);
+              }
+
+              @Override
+              public void onShareDiariesChanged(boolean enabled) {
+                setDiarySharingEnabled(enabled);
               }
             });
 
@@ -208,10 +214,12 @@ public class BankstandPlugin extends Plugin {
           long accountHash = session.getAccountHash();
           int generation = session.getGeneration();
           Map<String, Integer> skills = readSkillXp();
-          // Quest state is opt-in; read it in this same block so it is one consistent
-          // snapshot with the skills, and leave it null (never sent) when off.
+          // Quest and diary state are opt-in; read them in this same block so they are
+          // one consistent snapshot with the skills, and leave each null (never sent)
+          // when off.
           Map<String, String> quests = isQuestSharingEnabled() ? readQuestStates() : null;
-          onSkillsCaptured(accountHash, generation, name, skills, quests);
+          Map<String, String> diaries = isDiarySharingEnabled() ? readDiaryStates() : null;
+          onSkillsCaptured(accountHash, generation, name, skills, quests, diaries);
         });
   }
 
@@ -248,34 +256,54 @@ public class BankstandPlugin extends Plugin {
     return quests;
   }
 
+  // Reads every tracked achievement diary tier's completion state, keyed by the
+  // server's wire key (see DiaryVarbits). Runs on the client thread alongside
+  // readSkillXp and readQuestStates (varbit reads must not happen off it). The exact
+  // non-zero value a completed tier's varbit holds is unverified, so completion is
+  // read as "not zero" rather than "equals one".
+  private Map<String, String> readDiaryStates() {
+    Map<String, String> diaries = new LinkedHashMap<>();
+    for (Map.Entry<String, Integer> e : DiaryVarbits.ALL.entrySet()) {
+      boolean complete = client.getVarbitValue(e.getValue()) != 0;
+      diaries.put(e.getKey(), complete ? "COMPLETE" : "INCOMPLETE");
+    }
+    return diaries;
+  }
+
   private void onSkillsCaptured(
       long accountHash,
       int generation,
       String name,
       Map<String, Integer> skills,
-      Map<String, String> quests) {
-    // A change of account forgets both baselines so the new account submits afresh.
+      Map<String, String> quests,
+      Map<String, String> diaries) {
+    // A change of account forgets every baseline so the new account submits afresh.
     if (generation != baselineGeneration) {
       skillBaseline.reset();
       questBaseline.reset();
+      diaryBaseline.reset();
       baselineGeneration = generation;
     }
-    if (!shouldSubmit(skillBaseline, skills, questBaseline, quests)) {
+    if (!shouldSubmit(skillBaseline, skills, questBaseline, quests, diaryBaseline, diaries)) {
       return;
     }
-    submitSnapshot(accountHash, generation, name, skills, quests);
+    submitSnapshot(accountHash, generation, name, skills, quests, diaries);
   }
 
-  // A quest change alone is enough to submit; a null quests map (the opt-in is off)
+  // A quest or diary change alone is enough to submit; a null map (the opt-in is off)
   // never contributes. Package-private and static so it is unit-testable with real
-  // SkillBaseline/QuestBaseline instances, without a Client or ConfigManager fake.
+  // SkillBaseline/QuestBaseline/DiaryBaseline instances, without a Client or
+  // ConfigManager fake.
   static boolean shouldSubmit(
       SkillBaseline skillBaseline,
       Map<String, Integer> skills,
       QuestBaseline questBaseline,
-      Map<String, String> quests) {
+      Map<String, String> quests,
+      DiaryBaseline diaryBaseline,
+      Map<String, String> diaries) {
     return skillBaseline.changedSince(skills)
-        || (quests != null && questBaseline.changedSince(quests));
+        || (quests != null && questBaseline.changedSince(quests))
+        || (diaries != null && diaryBaseline.changedSince(diaries));
   }
 
   // A cooldown means the server rejected this cycle's change for pacing, not because
@@ -298,12 +326,22 @@ public class BankstandPlugin extends Plugin {
     return questsIncluded && res.isStored();
   }
 
+  // Diaries advance on the same res.isStored() gate as quests, and for the same
+  // reason: until the server's diaries capability flag is live, an accepted
+  // submission can silently strip the diaries key, and advancing on accept alone
+  // would mark that first diary snapshot as acknowledged when it was never
+  // persisted, losing it until a relog.
+  static boolean shouldAdvanceDiaries(SubmitSnapshotResponse res, boolean diariesIncluded) {
+    return diariesIncluded && res.isStored();
+  }
+
   private void submitSnapshot(
       long accountHash,
       int generation,
       String name,
       Map<String, Integer> skills,
-      Map<String, String> quests) {
+      Map<String, String> quests,
+      Map<String, String> diaries) {
     String url = savedServerUrl();
     String token =
         configManager.getConfiguration(BankstandConfig.GROUP, BankstandConfig.KEY_DEVICE_TOKEN);
@@ -318,7 +356,8 @@ public class BankstandPlugin extends Plugin {
             accountHash,
             name,
             skills,
-            quests);
+            quests,
+            diaries);
     executor.submit(
         () -> {
           try {
@@ -338,6 +377,9 @@ public class BankstandPlugin extends Plugin {
                       skillBaseline.advance(skills);
                       if (shouldAdvanceQuests(res, quests != null)) {
                         questBaseline.advance(quests);
+                      }
+                      if (shouldAdvanceDiaries(res, diaries != null)) {
+                        diaryBaseline.advance(diaries);
                       }
                     }
                   });
@@ -372,6 +414,19 @@ public class BankstandPlugin extends Plugin {
   private void setQuestSharingEnabled(boolean enabled) {
     configManager.setConfiguration(
         BankstandConfig.GROUP, BankstandConfig.KEY_SHARE_QUESTS, String.valueOf(enabled));
+  }
+
+  // Null-safe: an unset key (never opted in) reads as false. Diary state is more
+  // sensitive than hiscore stats, so the capture path must check this before reading
+  // or sending it.
+  private boolean isDiarySharingEnabled() {
+    return Boolean.parseBoolean(
+        configManager.getConfiguration(BankstandConfig.GROUP, BankstandConfig.KEY_SHARE_DIARIES));
+  }
+
+  private void setDiarySharingEnabled(boolean enabled) {
+    configManager.setConfiguration(
+        BankstandConfig.GROUP, BankstandConfig.KEY_SHARE_DIARIES, String.valueOf(enabled));
   }
 
   private void submitIdentity(long accountHash, int generation, String displayName) {
@@ -473,6 +528,7 @@ public class BankstandPlugin extends Plugin {
       panel.showDisconnected();
     }
     panel.setShareQuestsEnabled(isQuestSharingEnabled());
+    panel.setShareDiariesEnabled(isDiarySharingEnabled());
   }
 
   private static BufferedImage createIcon() {

@@ -23,6 +23,9 @@ public final class BankstandConfig {
   // skill capture it is never sent unless the player explicitly turns this on.
   public static final String KEY_SHARE_QUESTS = "shareQuests";
 
+  // Opt-in (default off), for the same reason as quest sharing above.
+  public static final String KEY_SHARE_DIARIES = "shareDiaries";
+
   public static final String DEFAULT_SERVER_URL =
       "https://bankstand.christiaanvaneijnsbergen.nl";
 }

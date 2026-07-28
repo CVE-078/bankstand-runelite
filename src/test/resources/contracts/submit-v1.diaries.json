@@ -1,0 +1,16 @@
+{
+  "submissionId": "018f9c8e-7b7a-7c00-8000-0000000abcdf",
+  "schemaVersion": 1,
+  "pluginVersion": "1.0.0",
+  "capturedAt": "2026-07-28T10:00:00.000Z",
+  "accountHash": "123456789012345",
+  "displayName": "Zezima",
+  "skills": {
+    "attack": { "xp": 5500000 }
+  },
+  "diaries": {
+    "ARDOUGNE_EASY": "COMPLETE",
+    "KOUREND_KEBOS_MEDIUM": "INCOMPLETE",
+    "WESTERN_PROVINCES_ELITE": "INCOMPLETE"
+  }
+}
