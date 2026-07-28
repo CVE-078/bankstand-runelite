@@ -182,18 +182,26 @@ public class BankstandPluginTest {
   }
 
   @Test
-  public void aStoredResponseIsAnAcceptThatIsNotOnCooldown() {
-    assertTrue(BankstandPlugin.isStoredAccept(response(true, true, "persisted")));
+  public void advancesSkillsWhenTheServerAcknowledgedTheBlock() {
+    assertTrue(BankstandPlugin.shouldAdvanceSkills(storedBlocks("skills")));
   }
 
   @Test
-  public void aCooldownResponseIsNotAStoredAccept() {
-    assertFalse(BankstandPlugin.isStoredAccept(response(true, false, "cooldown")));
+  public void doesNotAdvanceSkillsOnACooldown() {
+    assertFalse(BankstandPlugin.shouldAdvanceSkills(response(true, false, "cooldown")));
   }
 
   @Test
-  public void aRejectedResponseIsNotAStoredAccept() {
-    assertFalse(BankstandPlugin.isStoredAccept(response(false, false, "unclaimed")));
+  public void doesNotAdvanceSkillsWhenTheAccountIsUnclaimed() {
+    // The real server shape: accepted, HTTP 200, but nothing stored. Asserting this
+    // with accepted=false would pass while missing the bug, because the server never
+    // returns accepted=false for a reason it recognises.
+    assertFalse(BankstandPlugin.shouldAdvanceSkills(response(true, false, "unclaimed")));
+  }
+
+  @Test
+  public void doesNotAdvanceSkillsWhenIngestIsNotApplied() {
+    assertFalse(BankstandPlugin.shouldAdvanceSkills(response(true, false, "not_applied")));
   }
 
   @Test

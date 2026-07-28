@@ -306,12 +306,21 @@ public class BankstandPlugin extends Plugin {
         || (diaries != null && diaryBaseline.changedSince(diaries));
   }
 
-  // A cooldown means the server rejected this cycle's change for pacing, not because
-  // it was applied; the caller should retry the same change next cycle rather than
-  // treat it as acknowledged. Package-private and static for the same reason as
-  // shouldSubmit above.
-  static boolean isStoredAccept(SubmitSnapshotResponse res) {
-    return res.isAccepted() && !"cooldown".equals(res.getReason());
+  // Every baseline, skills included, advances only on the server's own per-block
+  // acknowledgement.
+  //
+  // The obvious-looking alternative, "accepted and not on cooldown", does not work:
+  // the server answers HTTP 200 with accepted=true for every outcome it recognises,
+  // including stale, regression, unclaimed and not_applied, all of which store
+  // nothing. Gating on that would advance a baseline for data the server discarded,
+  // and the client would not resend until the value changed again on its own. That is
+  // most visible before an account is bound (reason "unclaimed") or before a
+  // capability's rollout flag is on (reason "not_applied"), which is exactly when a
+  // first snapshot most needs to survive.
+  //
+  // Package-private and static for the same reason as shouldSubmit above.
+  static boolean shouldAdvanceSkills(SubmitSnapshotResponse res) {
+    return res.isBlockStored("skills");
   }
 
   // Skills gate on accept because the server always stores an accepted skills update.
@@ -363,26 +372,27 @@ public class BankstandPlugin extends Plugin {
             SubmitSnapshotResponse res =
                 pairingClient.submitSnapshotWithRetry(
                     url, token, body, MAX_SUBMIT_ATTEMPTS, SUBMIT_RETRY_BASE_DELAY_MS);
-            // Advance the baseline(s) when the server accepted and was not rate-limiting
-            // us; a cooldown means try the same change again next cycle. This makes a
-            // dropped or throttled submit self-heal without a client-side queue.
-            if (isStoredAccept(res)) {
-              // Advance on the client thread, and only if this submit's login instance is
-              // still current, so a stale ack from a superseded account cannot clobber the
-              // current account's baseline (the same guard the panel update below uses).
-              clientThread.invoke(
-                  () -> {
-                    if (session.isCurrent(accountHash, generation)) {
+            // Advance each baseline only for a block the server says it wrote, so an
+            // unstored or throttled submit self-heals on the next capture without a
+            // client-side queue.
+            //
+            // Advance on the client thread, and only if this submit's login instance is
+            // still current, so a stale ack from a superseded account cannot clobber the
+            // current account's baseline (the same guard the panel update below uses).
+            clientThread.invoke(
+                () -> {
+                  if (session.isCurrent(accountHash, generation)) {
+                    if (shouldAdvanceSkills(res)) {
                       skillBaseline.advance(skills);
-                      if (shouldAdvanceQuests(res, quests != null)) {
-                        questBaseline.advance(quests);
-                      }
-                      if (shouldAdvanceDiaries(res, diaries != null)) {
-                        diaryBaseline.advance(diaries);
-                      }
                     }
-                  });
-            }
+                    if (shouldAdvanceQuests(res, quests != null)) {
+                      questBaseline.advance(quests);
+                    }
+                    if (shouldAdvanceDiaries(res, diaries != null)) {
+                      diaryBaseline.advance(diaries);
+                    }
+                  }
+                });
             if (panel != null && session.isCurrent(accountHash, generation)) {
               panel.showSnapshotOutcome(res.isStored(), res.getReason());
             }
