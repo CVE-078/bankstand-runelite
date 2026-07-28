@@ -32,6 +32,8 @@ class BankstandPanel extends PluginPanel {
     void onDisconnect();
 
     void onShareQuestsChanged(boolean enabled);
+
+    void onShareDiariesChanged(boolean enabled);
   }
 
   private final JTextField codeField = new JTextField();
@@ -44,6 +46,8 @@ class BankstandPanel extends PluginPanel {
   private final JPanel formPanel = new JPanel();
   private final JCheckBox shareQuestsCheckbox = new JCheckBox("Share quest progress");
   private final JPanel questSharingPanel = new JPanel();
+  private final JCheckBox shareDiariesCheckbox = new JCheckBox("Share achievement diary progress");
+  private final JPanel diarySharingPanel = new JPanel();
 
   BankstandPanel(String initialServerUrl, Listener listener) {
     setLayout(new BoxLayout(this, BoxLayout.Y_AXIS));
@@ -138,11 +142,34 @@ class BankstandPanel extends PluginPanel {
     // Hidden until connected; showConnected/showDisconnected toggle it like disconnectButton.
     questSharingPanel.setVisible(false);
 
+    // Achievement diary progress is opt-in for the same reason as quest progress above.
+    shareDiariesCheckbox.setAlignmentX(Component.LEFT_ALIGNMENT);
+    shareDiariesCheckbox.addActionListener(
+        e -> listener.onShareDiariesChanged(shareDiariesCheckbox.isSelected()));
+
+    JLabel shareDiariesDisclosure =
+        new JLabel(
+            "<html>Sends which achievement diary tiers you've completed so you can see them on"
+                + " your guides. Only you can see it, it's never public. This is more personal"
+                + " than your hiscore stats.</html>");
+    shareDiariesDisclosure.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
+    shareDiariesDisclosure.setAlignmentX(Component.LEFT_ALIGNMENT);
+    shareDiariesDisclosure.setBorder(BorderFactory.createEmptyBorder(2, 0, 0, 0));
+
+    diarySharingPanel.setLayout(new BoxLayout(diarySharingPanel, BoxLayout.Y_AXIS));
+    diarySharingPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+    diarySharingPanel.setBorder(BorderFactory.createEmptyBorder(10, 0, 0, 0));
+    diarySharingPanel.add(shareDiariesCheckbox);
+    diarySharingPanel.add(shareDiariesDisclosure);
+    // Hidden until connected; showConnected/showDisconnected toggle it like disconnectButton.
+    diarySharingPanel.setVisible(false);
+
     add(title);
     add(hint);
     add(formPanel);
     add(statusLabel);
     add(questSharingPanel);
+    add(diarySharingPanel);
     add(disconnectButton);
 
     showDisconnected();
@@ -175,6 +202,7 @@ class BankstandPanel extends PluginPanel {
           formPanel.setVisible(false);
           disconnectButton.setVisible(true);
           questSharingPanel.setVisible(true);
+          diarySharingPanel.setVisible(true);
           codeField.setText("");
           pairButton.setEnabled(true);
           statusLabel.setForeground(ColorScheme.PROGRESS_COMPLETE_COLOR);
@@ -197,6 +225,7 @@ class BankstandPanel extends PluginPanel {
           formPanel.setVisible(true);
           disconnectButton.setVisible(false);
           questSharingPanel.setVisible(false);
+          diarySharingPanel.setVisible(false);
           pairButton.setEnabled(true);
           statusLabel.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
           statusLabel.setText("Not connected.");
@@ -262,6 +291,11 @@ class BankstandPanel extends PluginPanel {
   /** Initialises the quest-sharing checkbox from the stored config value, e.g. on build. */
   void setShareQuestsEnabled(boolean enabled) {
     SwingUtilities.invokeLater(() -> shareQuestsCheckbox.setSelected(enabled));
+  }
+
+  /** Initialises the diary-sharing checkbox from the stored config value, e.g. on build. */
+  void setShareDiariesEnabled(boolean enabled) {
+    SwingUtilities.invokeLater(() -> shareDiariesCheckbox.setSelected(enabled));
   }
 
   private static String escape(String value) {

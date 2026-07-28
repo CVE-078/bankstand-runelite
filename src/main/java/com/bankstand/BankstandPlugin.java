@@ -93,6 +93,7 @@ public class BankstandPlugin extends Plugin {
   private final AccountSession session = new AccountSession();
   private final SkillBaseline skillBaseline = new SkillBaseline();
   private final QuestBaseline questBaseline = new QuestBaseline();
+  private final DiaryBaseline diaryBaseline = new DiaryBaseline();
   // The generation the baseline currently tracks; a change means the account switched
   // and the baseline must be forgotten so the new account submits afresh.
   private int baselineGeneration = -1;
@@ -121,6 +122,11 @@ public class BankstandPlugin extends Plugin {
               @Override
               public void onShareQuestsChanged(boolean enabled) {
                 setQuestSharingEnabled(enabled);
+              }
+
+              @Override
+              public void onShareDiariesChanged(boolean enabled) {
+                setDiarySharingEnabled(enabled);
               }
             });
 
@@ -208,10 +214,12 @@ public class BankstandPlugin extends Plugin {
           long accountHash = session.getAccountHash();
           int generation = session.getGeneration();
           Map<String, Integer> skills = readSkillXp();
-          // Quest state is opt-in; read it in this same block so it is one consistent
-          // snapshot with the skills, and leave it null (never sent) when off.
+          // Quest and diary state are opt-in; read them in this same block so they are
+          // one consistent snapshot with the skills, and leave each null (never sent)
+          // when off.
           Map<String, String> quests = isQuestSharingEnabled() ? readQuestStates() : null;
-          onSkillsCaptured(accountHash, generation, name, skills, quests);
+          Map<String, String> diaries = isDiarySharingEnabled() ? readDiaryStates() : null;
+          onSkillsCaptured(accountHash, generation, name, skills, quests, diaries);
         });
   }
 
@@ -248,54 +256,90 @@ public class BankstandPlugin extends Plugin {
     return quests;
   }
 
+  // Reads every tracked achievement diary tier's completion state, keyed by the
+  // server's wire key (see DiaryVarbits). Runs on the client thread alongside
+  // readSkillXp and readQuestStates (varbit reads must not happen off it). The exact
+  // non-zero value a completed tier's varbit holds is unverified, so completion is
+  // read as "not zero" rather than "equals one".
+  private Map<String, String> readDiaryStates() {
+    Map<String, String> diaries = new LinkedHashMap<>();
+    for (Map.Entry<String, Integer> e : DiaryVarbits.ALL.entrySet()) {
+      boolean complete = client.getVarbitValue(e.getValue()) != 0;
+      diaries.put(e.getKey(), complete ? "COMPLETE" : "INCOMPLETE");
+    }
+    return diaries;
+  }
+
   private void onSkillsCaptured(
       long accountHash,
       int generation,
       String name,
       Map<String, Integer> skills,
-      Map<String, String> quests) {
-    // A change of account forgets both baselines so the new account submits afresh.
+      Map<String, String> quests,
+      Map<String, String> diaries) {
+    // A change of account forgets every baseline so the new account submits afresh.
     if (generation != baselineGeneration) {
       skillBaseline.reset();
       questBaseline.reset();
+      diaryBaseline.reset();
       baselineGeneration = generation;
     }
-    if (!shouldSubmit(skillBaseline, skills, questBaseline, quests)) {
+    if (!shouldSubmit(skillBaseline, skills, questBaseline, quests, diaryBaseline, diaries)) {
       return;
     }
-    submitSnapshot(accountHash, generation, name, skills, quests);
+    submitSnapshot(accountHash, generation, name, skills, quests, diaries);
   }
 
-  // A quest change alone is enough to submit; a null quests map (the opt-in is off)
+  // A quest or diary change alone is enough to submit; a null map (the opt-in is off)
   // never contributes. Package-private and static so it is unit-testable with real
-  // SkillBaseline/QuestBaseline instances, without a Client or ConfigManager fake.
+  // SkillBaseline/QuestBaseline/DiaryBaseline instances, without a Client or
+  // ConfigManager fake.
   static boolean shouldSubmit(
       SkillBaseline skillBaseline,
       Map<String, Integer> skills,
       QuestBaseline questBaseline,
-      Map<String, String> quests) {
+      Map<String, String> quests,
+      DiaryBaseline diaryBaseline,
+      Map<String, String> diaries) {
     return skillBaseline.changedSince(skills)
-        || (quests != null && questBaseline.changedSince(quests));
+        || (quests != null && questBaseline.changedSince(quests))
+        || (diaries != null && diaryBaseline.changedSince(diaries));
   }
 
-  // A cooldown means the server rejected this cycle's change for pacing, not because
-  // it was applied; the caller should retry the same change next cycle rather than
-  // treat it as acknowledged. Package-private and static for the same reason as
-  // shouldSubmit above.
-  static boolean isStoredAccept(SubmitSnapshotResponse res) {
-    return res.isAccepted() && !"cooldown".equals(res.getReason());
+  // Every baseline, skills included, advances only on the server's own per-block
+  // acknowledgement.
+  //
+  // The obvious-looking alternative, "accepted and not on cooldown", does not work:
+  // the server answers HTTP 200 with accepted=true for every outcome it recognises,
+  // including stale, regression, unclaimed and not_applied, all of which store
+  // nothing. Gating on that would advance a baseline for data the server discarded,
+  // and the client would not resend until the value changed again on its own. That is
+  // most visible before an account is bound (reason "unclaimed") or before a
+  // capability's rollout flag is on (reason "not_applied"), which is exactly when a
+  // first snapshot most needs to survive.
+  //
+  // Package-private and static for the same reason as shouldSubmit above.
+  static boolean shouldAdvanceSkills(SubmitSnapshotResponse res) {
+    return res.isBlockStored("skills");
   }
 
-  // Skills gate on accept because the server always stores an accepted skills update.
-  // Quests are different: until bankstand PR #407 and PLUGIN_QUESTS_INGEST_ENABLED are
-  // both live, the server accepts the submission but silently strips the unknown
-  // quests key, so isStoredAccept alone would mark quest state as acknowledged when it
-  // was never persisted, and that first quest snapshot would not be resent until a
-  // relog. Gating on res.isStored() instead keeps questBaseline from advancing until
-  // the server confirms this submission was actually stored, so an un-stored quests
-  // submission keeps re-sending every capture and self-heals the moment storage lands.
+  // An optional capability block additionally checks that it was submitted at all, so a
+  // cycle with the opt-in off never advances a baseline it did not send.
+  //
+  // The whole-submission stored verdict is no better a gate here than it is for skills:
+  // it is decided by skills freshness, so it reads true even when the server dropped
+  // this block because that capability's rollout flag is off. The consequence is worse
+  // for a capability than for skills, though. Skill XP changes almost every cycle, so a
+  // false acknowledgement resends itself; a diary tier completing is a one-shot fact, so
+  // once falsely acknowledged the value never differs again and it is never resent, not
+  // even after a relog. Gating on the per-block acknowledgement keeps an unstored block
+  // re-sending every capture and self-heals the moment that capability's storage lands.
   static boolean shouldAdvanceQuests(SubmitSnapshotResponse res, boolean questsIncluded) {
-    return questsIncluded && res.isStored();
+    return questsIncluded && res.isBlockStored("quests");
+  }
+
+  static boolean shouldAdvanceDiaries(SubmitSnapshotResponse res, boolean diariesIncluded) {
+    return diariesIncluded && res.isBlockStored("diaries");
   }
 
   private void submitSnapshot(
@@ -303,7 +347,8 @@ public class BankstandPlugin extends Plugin {
       int generation,
       String name,
       Map<String, Integer> skills,
-      Map<String, String> quests) {
+      Map<String, String> quests,
+      Map<String, String> diaries) {
     String url = savedServerUrl();
     String token =
         configManager.getConfiguration(BankstandConfig.GROUP, BankstandConfig.KEY_DEVICE_TOKEN);
@@ -318,30 +363,35 @@ public class BankstandPlugin extends Plugin {
             accountHash,
             name,
             skills,
-            quests);
+            quests,
+            diaries);
     executor.submit(
         () -> {
           try {
             SubmitSnapshotResponse res =
                 pairingClient.submitSnapshotWithRetry(
                     url, token, body, MAX_SUBMIT_ATTEMPTS, SUBMIT_RETRY_BASE_DELAY_MS);
-            // Advance the baseline(s) when the server accepted and was not rate-limiting
-            // us; a cooldown means try the same change again next cycle. This makes a
-            // dropped or throttled submit self-heal without a client-side queue.
-            if (isStoredAccept(res)) {
-              // Advance on the client thread, and only if this submit's login instance is
-              // still current, so a stale ack from a superseded account cannot clobber the
-              // current account's baseline (the same guard the panel update below uses).
-              clientThread.invoke(
-                  () -> {
-                    if (session.isCurrent(accountHash, generation)) {
+            // Advance each baseline only for a block the server says it wrote, so an
+            // unstored or throttled submit self-heals on the next capture without a
+            // client-side queue.
+            //
+            // Advance on the client thread, and only if this submit's login instance is
+            // still current, so a stale ack from a superseded account cannot clobber the
+            // current account's baseline (the same guard the panel update below uses).
+            clientThread.invoke(
+                () -> {
+                  if (session.isCurrent(accountHash, generation)) {
+                    if (shouldAdvanceSkills(res)) {
                       skillBaseline.advance(skills);
-                      if (shouldAdvanceQuests(res, quests != null)) {
-                        questBaseline.advance(quests);
-                      }
                     }
-                  });
-            }
+                    if (shouldAdvanceQuests(res, quests != null)) {
+                      questBaseline.advance(quests);
+                    }
+                    if (shouldAdvanceDiaries(res, diaries != null)) {
+                      diaryBaseline.advance(diaries);
+                    }
+                  }
+                });
             if (panel != null && session.isCurrent(accountHash, generation)) {
               panel.showSnapshotOutcome(res.isStored(), res.getReason());
             }
@@ -372,6 +422,19 @@ public class BankstandPlugin extends Plugin {
   private void setQuestSharingEnabled(boolean enabled) {
     configManager.setConfiguration(
         BankstandConfig.GROUP, BankstandConfig.KEY_SHARE_QUESTS, String.valueOf(enabled));
+  }
+
+  // Null-safe: an unset key (never opted in) reads as false. Diary state is more
+  // sensitive than hiscore stats, so the capture path must check this before reading
+  // or sending it.
+  private boolean isDiarySharingEnabled() {
+    return Boolean.parseBoolean(
+        configManager.getConfiguration(BankstandConfig.GROUP, BankstandConfig.KEY_SHARE_DIARIES));
+  }
+
+  private void setDiarySharingEnabled(boolean enabled) {
+    configManager.setConfiguration(
+        BankstandConfig.GROUP, BankstandConfig.KEY_SHARE_DIARIES, String.valueOf(enabled));
   }
 
   private void submitIdentity(long accountHash, int generation, String displayName) {
@@ -473,6 +536,7 @@ public class BankstandPlugin extends Plugin {
       panel.showDisconnected();
     }
     panel.setShareQuestsEnabled(isQuestSharingEnabled());
+    panel.setShareDiariesEnabled(isDiarySharingEnabled());
   }
 
   private static BufferedImage createIcon() {

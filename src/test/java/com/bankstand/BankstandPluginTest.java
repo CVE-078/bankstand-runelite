@@ -42,10 +42,32 @@ public class BankstandPluginTest {
     return m;
   }
 
+  private static Map<String, String> diaries(String key, String state) {
+    Map<String, String> m = new LinkedHashMap<>();
+    m.put(key, state);
+    return m;
+  }
+
   private static SubmitSnapshotResponse response(boolean accepted, boolean stored, String reason) {
     String json =
         String.format(
             "{\"accepted\":%s,\"stored\":%s,\"reason\":\"%s\"}", accepted, stored, reason);
+    return new Gson().fromJson(json, SubmitSnapshotResponse.class);
+  }
+
+  /** A response that stored the submission and acknowledged the named blocks. */
+  private static SubmitSnapshotResponse storedBlocks(String... blocks) {
+    StringBuilder list = new StringBuilder();
+    for (String block : blocks) {
+      if (list.length() > 0) {
+        list.append(",");
+      }
+      list.append("\"").append(block).append("\"");
+    }
+    String json =
+        String.format(
+            "{\"accepted\":true,\"stored\":true,\"reason\":\"persisted\",\"storedBlocks\":[%s]}",
+            list);
     return new Gson().fromJson(json, SubmitSnapshotResponse.class);
   }
 
@@ -55,7 +77,12 @@ public class BankstandPluginTest {
     // alone is still enough to submit.
     assertTrue(
         BankstandPlugin.shouldSubmit(
-            new SkillBaseline(), skills("attack", 100), new QuestBaseline(), null));
+            new SkillBaseline(),
+            skills("attack", 100),
+            new QuestBaseline(),
+            null,
+            new DiaryBaseline(),
+            null));
   }
 
   @Test
@@ -66,7 +93,12 @@ public class BankstandPluginTest {
     // be observed, so nothing should trigger a submit.
     assertFalse(
         BankstandPlugin.shouldSubmit(
-            skillBaseline, skills("attack", 100), new QuestBaseline(), null));
+            skillBaseline,
+            skills("attack", 100),
+            new QuestBaseline(),
+            null,
+            new DiaryBaseline(),
+            null));
   }
 
   @Test
@@ -79,7 +111,9 @@ public class BankstandPluginTest {
             skillBaseline,
             skills("attack", 100),
             new QuestBaseline(),
-            quests("COOKS_ASSISTANT", "IN_PROGRESS")));
+            quests("COOKS_ASSISTANT", "IN_PROGRESS"),
+            new DiaryBaseline(),
+            null));
   }
 
   @Test
@@ -93,33 +127,105 @@ public class BankstandPluginTest {
             skillBaseline,
             skills("attack", 100),
             questBaseline,
-            quests("COOKS_ASSISTANT", "IN_PROGRESS")));
+            quests("COOKS_ASSISTANT", "IN_PROGRESS"),
+            new DiaryBaseline(),
+            null));
   }
 
   @Test
-  public void aStoredResponseIsAnAcceptThatIsNotOnCooldown() {
-    assertTrue(BankstandPlugin.isStoredAccept(response(true, true, "persisted")));
+  public void ignoresADiaryChangeWhenSharingIsOff() {
+    SkillBaseline skillBaseline = new SkillBaseline();
+    skillBaseline.advance(skills("attack", 100));
+    // Skills and quests are unchanged and diaries are null (opt-in off): a diary
+    // change can never be observed, so nothing should trigger a submit.
+    assertFalse(
+        BankstandPlugin.shouldSubmit(
+            skillBaseline,
+            skills("attack", 100),
+            new QuestBaseline(),
+            null,
+            new DiaryBaseline(),
+            null));
   }
 
   @Test
-  public void aCooldownResponseIsNotAStoredAccept() {
-    assertFalse(BankstandPlugin.isStoredAccept(response(true, false, "cooldown")));
+  public void submitsOnADiaryChangeAloneWhenSharingIsOn() {
+    SkillBaseline skillBaseline = new SkillBaseline();
+    skillBaseline.advance(skills("attack", 100));
+    // Skills are identical to the baseline; only the diary state changed.
+    assertTrue(
+        BankstandPlugin.shouldSubmit(
+            skillBaseline,
+            skills("attack", 100),
+            new QuestBaseline(),
+            null,
+            new DiaryBaseline(),
+            diaries("ARDOUGNE_EASY", "COMPLETE")));
   }
 
   @Test
-  public void aRejectedResponseIsNotAStoredAccept() {
-    assertFalse(BankstandPlugin.isStoredAccept(response(false, false, "unclaimed")));
+  public void doesNotSubmitWhenNeitherSkillsNorQuestsNorDiariesChanged() {
+    SkillBaseline skillBaseline = new SkillBaseline();
+    skillBaseline.advance(skills("attack", 100));
+    QuestBaseline questBaseline = new QuestBaseline();
+    questBaseline.advance(quests("COOKS_ASSISTANT", "IN_PROGRESS"));
+    DiaryBaseline diaryBaseline = new DiaryBaseline();
+    diaryBaseline.advance(diaries("ARDOUGNE_EASY", "COMPLETE"));
+    assertFalse(
+        BankstandPlugin.shouldSubmit(
+            skillBaseline,
+            skills("attack", 100),
+            questBaseline,
+            quests("COOKS_ASSISTANT", "IN_PROGRESS"),
+            diaryBaseline,
+            diaries("ARDOUGNE_EASY", "COMPLETE")));
   }
 
   @Test
-  public void advancesQuestsWhenIncludedAndStored() {
-    assertTrue(BankstandPlugin.shouldAdvanceQuests(response(true, true, "persisted"), true));
+  public void advancesSkillsWhenTheServerAcknowledgedTheBlock() {
+    assertTrue(BankstandPlugin.shouldAdvanceSkills(storedBlocks("skills")));
+  }
+
+  @Test
+  public void doesNotAdvanceSkillsOnACooldown() {
+    assertFalse(BankstandPlugin.shouldAdvanceSkills(response(true, false, "cooldown")));
+  }
+
+  @Test
+  public void doesNotAdvanceSkillsWhenTheAccountIsUnclaimed() {
+    // The real server shape: accepted, HTTP 200, but nothing stored. Asserting this
+    // with accepted=false would pass while missing the bug, because the server never
+    // returns accepted=false for a reason it recognises.
+    assertFalse(BankstandPlugin.shouldAdvanceSkills(response(true, false, "unclaimed")));
+  }
+
+  @Test
+  public void doesNotAdvanceSkillsWhenIngestIsNotApplied() {
+    assertFalse(BankstandPlugin.shouldAdvanceSkills(response(true, false, "not_applied")));
+  }
+
+  @Test
+  public void advancesQuestsWhenTheServerAcknowledgedTheBlock() {
+    assertTrue(BankstandPlugin.shouldAdvanceQuests(storedBlocks("skills", "quests"), true));
+  }
+
+  @Test
+  public void doesNotAdvanceQuestsWhenStoredButTheBlockWasNotAcknowledged() {
+    // The submission stored (skills were fresh) but the server dropped the quests block
+    // because its rollout flag is off. Advancing here would acknowledge data that was
+    // never written.
+    assertFalse(BankstandPlugin.shouldAdvanceQuests(storedBlocks("skills"), true));
+  }
+
+  @Test
+  public void doesNotAdvanceQuestsWhenTheServerSendsNoAcknowledgement() {
+    // An older server omits the field entirely. Treating that as "not written" re-sends
+    // rather than risking a silent loss.
+    assertFalse(BankstandPlugin.shouldAdvanceQuests(response(true, true, "persisted"), true));
   }
 
   @Test
   public void doesNotAdvanceQuestsWhenIncludedButNotStored() {
-    // Accepted (not on cooldown) but the server did not store this submission, e.g. the
-    // quests key was silently stripped because #407 or its rollout flag is not live yet.
     assertFalse(BankstandPlugin.shouldAdvanceQuests(response(true, false, "not_applied"), true));
   }
 
@@ -129,7 +235,34 @@ public class BankstandPluginTest {
   }
 
   @Test
-  public void doesNotAdvanceQuestsWhenNotIncludedEvenIfStored() {
-    assertFalse(BankstandPlugin.shouldAdvanceQuests(response(true, true, "persisted"), false));
+  public void doesNotAdvanceQuestsWhenNotIncludedEvenIfAcknowledged() {
+    assertFalse(BankstandPlugin.shouldAdvanceQuests(storedBlocks("skills", "quests"), false));
+  }
+
+  @Test
+  public void advancesDiariesWhenTheServerAcknowledgedTheBlock() {
+    assertTrue(BankstandPlugin.shouldAdvanceDiaries(storedBlocks("skills", "diaries"), true));
+  }
+
+  @Test
+  public void doesNotAdvanceDiariesWhenStoredButTheBlockWasNotAcknowledged() {
+    // The case that loses data if it advances: a completed diary tier is a one-shot
+    // fact, so a false acknowledgement means it is never re-sent.
+    assertFalse(BankstandPlugin.shouldAdvanceDiaries(storedBlocks("skills", "quests"), true));
+  }
+
+  @Test
+  public void doesNotAdvanceDiariesWhenTheServerSendsNoAcknowledgement() {
+    assertFalse(BankstandPlugin.shouldAdvanceDiaries(response(true, true, "persisted"), true));
+  }
+
+  @Test
+  public void doesNotAdvanceDiariesWhenIncludedButNotStored() {
+    assertFalse(BankstandPlugin.shouldAdvanceDiaries(response(true, false, "not_applied"), true));
+  }
+
+  @Test
+  public void doesNotAdvanceDiariesWhenNotIncludedEvenIfAcknowledged() {
+    assertFalse(BankstandPlugin.shouldAdvanceDiaries(storedBlocks("skills", "diaries"), false));
   }
 }

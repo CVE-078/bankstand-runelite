@@ -48,4 +48,19 @@ public class SubmitEnvelopeTest {
         SubmitEnvelope.body("id", 1, "1.0.0", "t", 1L, null, skills());
     assertFalse(new Gson().toJsonTree(body).getAsJsonObject().has("displayName"));
   }
+
+  @Test
+  public void omitsDiariesWhenNull() {
+    Map<String, Object> body =
+        SubmitEnvelope.body("id", 1, "1.0.0", "t", 1L, "Zezima", skills(), null, null);
+    assertFalse(new Gson().toJsonTree(body).getAsJsonObject().has("diaries"));
+  }
+
+  @Test
+  public void omitsDiariesWhenEmpty() {
+    Map<String, Object> body =
+        SubmitEnvelope.body(
+            "id", 1, "1.0.0", "t", 1L, "Zezima", skills(), null, new LinkedHashMap<>());
+    assertFalse(new Gson().toJsonTree(body).getAsJsonObject().has("diaries"));
+  }
 }
