@@ -315,24 +315,23 @@ public class BankstandPlugin extends Plugin {
   }
 
   // Skills gate on accept because the server always stores an accepted skills update.
-  // Quests are different: until bankstand PR #407 and PLUGIN_QUESTS_INGEST_ENABLED are
-  // both live, the server accepts the submission but silently strips the unknown
-  // quests key, so isStoredAccept alone would mark quest state as acknowledged when it
-  // was never persisted, and that first quest snapshot would not be resent until a
-  // relog. Gating on res.isStored() instead keeps questBaseline from advancing until
-  // the server confirms this submission was actually stored, so an un-stored quests
-  // submission keeps re-sending every capture and self-heals the moment storage lands.
+  //
+  // An optional capability block is different, and the whole-submission stored verdict
+  // is not enough to gate one. That verdict is decided by skills freshness, so it reads
+  // true even when the server dropped the block because that capability's rollout flag
+  // is off. Advancing a capability baseline on it would mark data acknowledged that was
+  // never written, and unlike skill XP (which changes almost every cycle and so resends
+  // itself) a diary tier completing is a one-shot fact: once falsely acknowledged the
+  // value never differs again, so it is never resent, not even after a relog. Each
+  // capability therefore gates on the server's own per-block acknowledgement, which
+  // keeps an unstored block re-sending every capture and self-heals the moment that
+  // capability's storage lands.
   static boolean shouldAdvanceQuests(SubmitSnapshotResponse res, boolean questsIncluded) {
-    return questsIncluded && res.isStored();
+    return questsIncluded && res.isBlockStored("quests");
   }
 
-  // Diaries advance on the same res.isStored() gate as quests, and for the same
-  // reason: until the server's diaries capability flag is live, an accepted
-  // submission can silently strip the diaries key, and advancing on accept alone
-  // would mark that first diary snapshot as acknowledged when it was never
-  // persisted, losing it until a relog.
   static boolean shouldAdvanceDiaries(SubmitSnapshotResponse res, boolean diariesIncluded) {
-    return diariesIncluded && res.isStored();
+    return diariesIncluded && res.isBlockStored("diaries");
   }
 
   private void submitSnapshot(
