@@ -8,6 +8,7 @@ import com.bankstand.http.OkHttpTransport;
 import com.bankstand.session.AccountSession;
 import com.google.gson.Gson;
 import com.google.inject.Provides;
+import java.awt.Color;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.EnumSet;
@@ -25,6 +26,9 @@ import net.runelite.api.WorldType;
 import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.GameTick;
 import net.runelite.client.callback.ClientThread;
+import net.runelite.client.chat.ChatMessageBuilder;
+import net.runelite.client.chat.ChatMessageManager;
+import net.runelite.client.chat.QueuedMessage;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.events.ConfigChanged;
 import net.runelite.client.eventbus.Subscribe;
@@ -50,6 +54,18 @@ public class BankstandPlugin extends Plugin {
   // the last acknowledged submit. The interval matches the server's per-device
   // cooldown so a change is reported at most once per window.
   private static final int CAPTURE_INTERVAL_SECONDS = 60;
+
+  // Every chat line the plugin writes carries a coloured prefix, so a message is
+  // attributable at a glance in a busy chat box: the panel used to give that context
+  // by simply being the thing you were looking at.
+  //
+  // This is the site's accent in its LIGHT-SURFACE variant (--app-accent under the
+  // light theme), not the dark-theme gold the site itself shows. The chat box is a
+  // pale parchment by default, where the brighter #f0a830 washes out. The darker gold
+  // still reads on a transparent chat box over the game world, so it is the one that
+  // works in both, rather than the one that looks best in either.
+  private static final Color BRAND = new Color(0xB3730A);
+  private static final String NOTICE_PREFIX = "Bankstand: ";
 
   // The server's v1 contract is frozen to these 23 XP skills. Skill.values() can
   // include entries the contract never anticipated (a client-only OVERALL total, or
@@ -88,6 +104,7 @@ public class BankstandPlugin extends Plugin {
   @Inject private Gson gson;
   @Inject private ScheduledExecutorService executor;
   @Inject private ClientThread clientThread;
+  @Inject private ChatMessageManager chatMessageManager;
 
   private final AccountSession session = new AccountSession();
   private final SkillBaseline skillBaseline = new SkillBaseline();
@@ -498,12 +515,32 @@ public class BankstandPlugin extends Plugin {
    * while logged in anyway.
    */
   private void notice(String message) {
+    String formatted = brandedNotice(message);
     clientThread.invoke(
         () -> {
           if (client.getGameState() == GameState.LOGGED_IN) {
-            client.addChatMessage(ChatMessageType.CONSOLE, "Bankstand", message, null);
+            chatMessageManager.queue(
+                QueuedMessage.builder()
+                    .type(ChatMessageType.CONSOLE)
+                    .runeLiteFormattedMessage(formatted)
+                    .build());
           }
         });
+  }
+
+  /**
+   * Builds one chat line: the brand-coloured "Bankstand: " prefix, then the message in
+   * the chat's own default colour.
+   *
+   * <p>Only the prefix is coloured. The body is what the player has to actually read,
+   * and it is most legible in whatever colour their chat is already using, whichever
+   * chat mode and transparency they run.
+   *
+   * <p>{@code addChatMessage}'s name argument is not rendered for a CONSOLE message,
+   * which is why the prefix is part of the text rather than passed as the sender.
+   */
+  static String brandedNotice(String message) {
+    return new ChatMessageBuilder().append(BRAND, NOTICE_PREFIX).append(message).build();
   }
 
   private void storeToken(PairResponse res) {
