@@ -1,31 +1,76 @@
 package com.bankstand;
 
+import net.runelite.client.config.Config;
+import net.runelite.client.config.ConfigGroup;
+import net.runelite.client.config.ConfigItem;
+
 /**
- * Storage keys and defaults for the plugin's persisted state. Everything is kept
- * via RuneLite's ConfigManager under {@link #GROUP} and managed from the side
- * panel, so there is no separate config screen to visit: the whole pairing flow
- * lives in one place. The device token is a bearer credential (local, unencrypted,
- * acceptable for a dogfood build) and is never logged.
+ * The plugin's whole UI. Everything a player sets lives in RuneLite's own settings
+ * screen, so Bankstand takes no permanent slot in the sidebar for something it is
+ * interacted with roughly once per device.
+ *
+ * <p>Two items are actions rather than settings, because config has no button:
+ * pasting into {@link #pairingCode()} performs the pairing and the field is cleared
+ * afterwards, and ticking {@link #disconnect()} forgets the credentials and untick
+ * itself. Both are handled in {@code BankstandPlugin.onConfigChanged}.
+ *
+ * <p>Key names match the storage keys on {@link BankstandKeys} exactly, so an
+ * existing pairing keeps its server URL and opt-ins across this change.
  */
-public final class BankstandConfig {
-  private BankstandConfig() {}
+@ConfigGroup(BankstandKeys.GROUP)
+public interface BankstandConfig extends Config {
 
-  public static final String GROUP = "bankstand";
+  @ConfigItem(
+      keyName = BankstandKeys.KEY_SERVER_URL,
+      name = "Server URL",
+      description =
+          "Where to send your data. Leave this alone unless you are running Bankstand"
+              + " locally. A stale address here makes every update fail silently.",
+      position = 1)
+  default String serverBaseUrl() {
+    return BankstandKeys.DEFAULT_SERVER_URL;
+  }
 
-  // Keep the original key name so a client that paired with the first version (which
-  // stored the URL under "serverBaseUrl") keeps its setting after the panel redesign.
-  public static final String KEY_SERVER_URL = "serverBaseUrl";
-  public static final String KEY_DEVICE_TOKEN = "deviceToken";
-  public static final String KEY_DEVICE_ID = "deviceId";
-  public static final String KEY_TOKEN_EXPIRES_AT = "tokenExpiresAt";
+  @ConfigItem(
+      keyName = BankstandKeys.KEY_SHARE_QUESTS,
+      name = "Share quest progress",
+      description =
+          "Sends which quests you have started and finished so you can see them on your"
+              + " guides. Only you can see it, it is never public.",
+      position = 2)
+  default boolean shareQuests() {
+    return false;
+  }
 
-  // Opt-in (default off): quest state is more sensitive than hiscore stats, so unlike
-  // skill capture it is never sent unless the player explicitly turns this on.
-  public static final String KEY_SHARE_QUESTS = "shareQuests";
+  @ConfigItem(
+      keyName = BankstandKeys.KEY_SHARE_DIARIES,
+      name = "Share achievement diary progress",
+      description =
+          "Sends which achievement diary tiers you have completed so you can see them on"
+              + " your guides. Only you can see it, it is never public.",
+      position = 3)
+  default boolean shareDiaries() {
+    return false;
+  }
 
-  // Opt-in (default off), for the same reason as quest sharing above.
-  public static final String KEY_SHARE_DIARIES = "shareDiaries";
+  @ConfigItem(
+      keyName = BankstandKeys.KEY_PAIRING_CODE,
+      name = "Pairing code",
+      description =
+          "Generate a code at Bankstand > Account > Connect RuneLite, then paste it here."
+              + " It is exchanged for a device token and cleared.",
+      position = 4)
+  default String pairingCode() {
+    return "";
+  }
 
-  public static final String DEFAULT_SERVER_URL =
-      "https://bankstand.christiaanvaneijnsbergen.nl";
+  @ConfigItem(
+      keyName = BankstandKeys.KEY_DISCONNECT,
+      name = "Disconnect",
+      description =
+          "Tick to forget this device's pairing. Nothing is sent until you pair again.",
+      position = 5)
+  default boolean disconnect() {
+    return false;
+  }
 }

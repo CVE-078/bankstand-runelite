@@ -7,7 +7,7 @@ import com.bankstand.http.HttpTransport;
 import com.bankstand.http.OkHttpTransport;
 import com.bankstand.session.AccountSession;
 import com.google.gson.Gson;
-import java.awt.image.BufferedImage;
+import com.google.inject.Provides;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.EnumSet;
@@ -15,6 +15,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.ScheduledExecutorService;
 import javax.inject.Inject;
+import net.runelite.api.ChatMessageType;
 import net.runelite.api.Client;
 import net.runelite.api.GameState;
 import net.runelite.api.Player;
@@ -25,13 +26,11 @@ import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.GameTick;
 import net.runelite.client.callback.ClientThread;
 import net.runelite.client.config.ConfigManager;
+import net.runelite.client.events.ConfigChanged;
 import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
 import net.runelite.client.task.Schedule;
-import net.runelite.client.ui.ClientToolbar;
-import net.runelite.client.ui.NavigationButton;
-import net.runelite.client.util.ImageUtil;
 import okhttp3.OkHttpClient;
 
 @PluginDescriptor(
@@ -83,8 +82,8 @@ public class BankstandPlugin extends Plugin {
           Skill.CONSTRUCTION);
 
   @Inject private Client client;
-  @Inject private ClientToolbar clientToolbar;
   @Inject private ConfigManager configManager;
+  @Inject private BankstandConfig config;
   @Inject private OkHttpClient okHttpClient;
   @Inject private Gson gson;
   @Inject private ScheduledExecutorService executor;
@@ -94,61 +93,49 @@ public class BankstandPlugin extends Plugin {
   private final SkillBaseline skillBaseline = new SkillBaseline();
   private final QuestBaseline questBaseline = new QuestBaseline();
   private final DiaryBaseline diaryBaseline = new DiaryBaseline();
+  // Suppresses a recurring failure from printing every capture cycle.
+  private final NoticeGate noticeGate = new NoticeGate();
   // The generation the baseline currently tracks; a change means the account switched
   // and the baseline must be forgotten so the new account submits afresh.
   private int baselineGeneration = -1;
   private BankstandClient pairingClient;
-  private BankstandPanel panel;
-  private NavigationButton navButton;
+
+  @Provides
+  BankstandConfig provideConfig(ConfigManager configManager) {
+    return configManager.getConfig(BankstandConfig.class);
+  }
 
   @Override
   protected void startUp() {
     HttpTransport transport = new OkHttpTransport(okHttpClient);
     pairingClient = new BankstandClient(transport, gson);
-    panel =
-        new BankstandPanel(
-            savedServerUrl(),
-            new BankstandPanel.Listener() {
-              @Override
-              public void onPair(String serverUrl, String code) {
-                pair(serverUrl, code);
-              }
-
-              @Override
-              public void onDisconnect() {
-                disconnect();
-              }
-
-              @Override
-              public void onShareQuestsChanged(boolean enabled) {
-                setQuestSharingEnabled(enabled);
-              }
-
-              @Override
-              public void onShareDiariesChanged(boolean enabled) {
-                setDiarySharingEnabled(enabled);
-              }
-            });
-
-    navButton =
-        NavigationButton.builder()
-            .tooltip("Bankstand")
-            .icon(createIcon())
-            .priority(7)
-            .panel(panel)
-            .build();
-    clientToolbar.addNavigation(navButton);
-    refreshPanelState();
   }
 
   @Override
   protected void shutDown() {
-    if (navButton != null) {
-      clientToolbar.removeNavigation(navButton);
-    }
-    panel = null;
-    navButton = null;
     pairingClient = null;
+  }
+
+  /**
+   * Config carries two actions as well as settings, because a settings screen has no
+   * button: a pasted pairing code performs the pairing, and the disconnect toggle
+   * forgets the credentials. Both clear themselves afterwards, which fires this
+   * handler a second time with an empty or false value that falls through.
+   */
+  @Subscribe
+  public void onConfigChanged(ConfigChanged event) {
+    if (!BankstandKeys.GROUP.equals(event.getGroup())) {
+      return;
+    }
+    if (BankstandKeys.KEY_PAIRING_CODE.equals(event.getKey())) {
+      String code = event.getNewValue();
+      if (code != null && !code.trim().isEmpty()) {
+        pair(code);
+      }
+    } else if (BankstandKeys.KEY_DISCONNECT.equals(event.getKey())
+        && Boolean.parseBoolean(event.getNewValue())) {
+      disconnect();
+    }
   }
 
   @Subscribe
@@ -351,7 +338,7 @@ public class BankstandPlugin extends Plugin {
       Map<String, String> diaries) {
     String url = savedServerUrl();
     String token =
-        configManager.getConfiguration(BankstandConfig.GROUP, BankstandConfig.KEY_DEVICE_TOKEN);
+        configManager.getConfiguration(BankstandKeys.GROUP, BankstandKeys.KEY_DEVICE_TOKEN);
     String version = getClass().getPackage().getImplementationVersion();
     String pluginVersion = version != null ? version : "dev";
     Map<String, Object> body =
@@ -377,7 +364,7 @@ public class BankstandPlugin extends Plugin {
             //
             // Advance on the client thread, and only if this submit's login instance is
             // still current, so a stale ack from a superseded account cannot clobber the
-            // current account's baseline (the same guard the panel update below uses).
+            // current account's baseline (the same guard the notice below uses).
             clientThread.invoke(
                 () -> {
                   if (session.isCurrent(accountHash, generation)) {
@@ -392,14 +379,18 @@ public class BankstandPlugin extends Plugin {
                     }
                   }
                 });
-            if (panel != null && session.isCurrent(accountHash, generation)) {
-              panel.showSnapshotOutcome(res.isStored(), res.getReason());
+            // A reached server is a success for notice purposes even when it stored
+            // nothing: "stale" or "not_applied" is the server working as intended, and
+            // is not something the player can act on. Only announce the recovery, so a
+            // healthy client stays silent rather than narrating every 60 seconds.
+            if (session.isCurrent(accountHash, generation) && noticeGate.onSuccess()) {
+              notice("Reconnected. Your progress is syncing again.");
             }
           } catch (SubmitException e) {
             // Do not advance the baseline: the change is unsent, retry next cycle. The
             // token and account hash are never logged.
-            if (panel != null && session.isCurrent(accountHash, generation)) {
-              panel.showSubmitFailed(e.getMessage());
+            if (session.isCurrent(accountHash, generation) && noticeGate.onFailure(e.getMessage())) {
+              notice("Could not sync your progress. " + e.getMessage());
             }
           }
         });
@@ -407,40 +398,25 @@ public class BankstandPlugin extends Plugin {
 
   private boolean isPaired() {
     String token =
-        configManager.getConfiguration(BankstandConfig.GROUP, BankstandConfig.KEY_DEVICE_TOKEN);
+        configManager.getConfiguration(BankstandKeys.GROUP, BankstandKeys.KEY_DEVICE_TOKEN);
     return token != null && !token.trim().isEmpty();
   }
 
-  // Null-safe: an unset key (never opted in) reads as false. Quest state is more
-  // sensitive than hiscore stats, so the capture path must check this before reading
-  // or sending it.
+  // Both default to false on the config item, so an unset key (never opted in) reads
+  // as off. Quest and diary state are more sensitive than hiscore stats, so the
+  // capture path must check these before reading or sending either.
   private boolean isQuestSharingEnabled() {
-    return Boolean.parseBoolean(
-        configManager.getConfiguration(BankstandConfig.GROUP, BankstandConfig.KEY_SHARE_QUESTS));
+    return config.shareQuests();
   }
 
-  private void setQuestSharingEnabled(boolean enabled) {
-    configManager.setConfiguration(
-        BankstandConfig.GROUP, BankstandConfig.KEY_SHARE_QUESTS, String.valueOf(enabled));
-  }
-
-  // Null-safe: an unset key (never opted in) reads as false. Diary state is more
-  // sensitive than hiscore stats, so the capture path must check this before reading
-  // or sending it.
   private boolean isDiarySharingEnabled() {
-    return Boolean.parseBoolean(
-        configManager.getConfiguration(BankstandConfig.GROUP, BankstandConfig.KEY_SHARE_DIARIES));
-  }
-
-  private void setDiarySharingEnabled(boolean enabled) {
-    configManager.setConfiguration(
-        BankstandConfig.GROUP, BankstandConfig.KEY_SHARE_DIARIES, String.valueOf(enabled));
+    return config.shareDiaries();
   }
 
   private void submitIdentity(long accountHash, int generation, String displayName) {
     String url = savedServerUrl();
     String token =
-        configManager.getConfiguration(BankstandConfig.GROUP, BankstandConfig.KEY_DEVICE_TOKEN);
+        configManager.getConfiguration(BankstandKeys.GROUP, BankstandKeys.KEY_DEVICE_TOKEN);
     executor.submit(
         () -> {
           try {
@@ -455,92 +431,98 @@ public class BankstandPlugin extends Plugin {
             // Drop the result unless this login instance is still current. Guards two
             // cases opened by the multi-second retry backoff: a relog to a different
             // character, and a logout/relog to the SAME account (a fresh generation),
-            // so the panel never shows a status from a superseded submit.
-            if (panel != null && session.isCurrent(accountHash, generation)) {
-              panel.showVerification(res.isVerified(), res.getLinkedRsn());
+            // so the player never reads a status from a superseded submit.
+            if (session.isCurrent(accountHash, generation)) {
+              notice(
+                  res.isVerified()
+                      ? "Verified as " + res.getLinkedRsn() + "."
+                      : "This character is not claimed on Bankstand yet, so nothing will sync."
+                          + " Claim it on your account page.");
             }
           } catch (SubmitException e) {
             // A transient failure has already been retried to the cap; surface the
             // reason rather than failing silently. A relog retries afresh. The token
             // and account hash are never logged.
-            if (panel != null && session.isCurrent(accountHash, generation)) {
-              panel.showSubmitFailed(e.getMessage());
+            if (session.isCurrent(accountHash, generation)) {
+              notice("Could not verify this character. " + e.getMessage());
             }
           }
         });
   }
 
-  private void pair(String serverUrl, String rawCode) {
-    String url =
-        serverUrl == null || serverUrl.trim().isEmpty()
-            ? BankstandConfig.DEFAULT_SERVER_URL
-            : serverUrl.trim();
-    // Persist the URL so it survives a restart and the panel reopens with it.
-    configManager.setConfiguration(BankstandConfig.GROUP, BankstandConfig.KEY_SERVER_URL, url);
-    if (panel != null) {
-      panel.showBusy();
-    }
+  private void pair(String rawCode) {
+    String url = savedServerUrl();
+    notice("Pairing with " + url + "...");
     executor.submit(
         () -> {
           try {
             PairResponse res = pairingClient.exchangePairingCode(url, rawCode);
             storeToken(res);
-            if (panel != null) {
-              panel.showConnected(res.getDeviceId(), res.getExpiresAt());
-            }
+            // A fresh pairing is a clean slate: an outstanding failure against the old
+            // credentials must not suppress the first notice against the new ones.
+            noticeGate.onSuccess();
+            notice("Connected. Your progress will sync from now on.");
           } catch (PairingException e) {
             // The message is generic and safe; the raw code and token are never logged.
-            if (panel != null) {
-              panel.showError(e.getMessage());
-            }
+            notice("Pairing failed. " + e.getMessage());
+          } finally {
+            // Always clear the code, successful or not: it is single-use either way,
+            // and leaving a dead code in a settings field invites re-submitting it.
+            clearPairingCode();
           }
         });
   }
 
   private void disconnect() {
-    configManager.unsetConfiguration(BankstandConfig.GROUP, BankstandConfig.KEY_DEVICE_TOKEN);
-    configManager.unsetConfiguration(BankstandConfig.GROUP, BankstandConfig.KEY_DEVICE_ID);
-    configManager.unsetConfiguration(BankstandConfig.GROUP, BankstandConfig.KEY_TOKEN_EXPIRES_AT);
-    if (panel != null) {
-      panel.showDisconnected();
-    }
+    configManager.unsetConfiguration(BankstandKeys.GROUP, BankstandKeys.KEY_DEVICE_TOKEN);
+    configManager.unsetConfiguration(BankstandKeys.GROUP, BankstandKeys.KEY_DEVICE_ID);
+    configManager.unsetConfiguration(BankstandKeys.GROUP, BankstandKeys.KEY_TOKEN_EXPIRES_AT);
+    // Untick the toggle so it reads as an action taken rather than a state entered,
+    // and so ticking it again later fires this handler afresh.
+    configManager.setConfiguration(
+        BankstandKeys.GROUP, BankstandKeys.KEY_DISCONNECT, Boolean.FALSE.toString());
+    notice("Disconnected. Nothing will be sent until you pair again.");
+  }
+
+  private void clearPairingCode() {
+    configManager.setConfiguration(BankstandKeys.GROUP, BankstandKeys.KEY_PAIRING_CODE, "");
+  }
+
+  /**
+   * Says something to the player in the chat box.
+   *
+   * <p>This is the whole replacement for the side panel's status line, so it has to
+   * hold every outcome the panel used to show. Logged out there is no chat box to
+   * write to, and the message is dropped rather than queued: an outcome is only worth
+   * reporting while the player is there to read it, and the capture cycle only runs
+   * while logged in anyway.
+   */
+  private void notice(String message) {
+    clientThread.invoke(
+        () -> {
+          if (client.getGameState() == GameState.LOGGED_IN) {
+            client.addChatMessage(ChatMessageType.CONSOLE, "Bankstand", message, null);
+          }
+        });
   }
 
   private void storeToken(PairResponse res) {
     configManager.setConfiguration(
-        BankstandConfig.GROUP, BankstandConfig.KEY_DEVICE_TOKEN, res.getDeviceToken());
+        BankstandKeys.GROUP, BankstandKeys.KEY_DEVICE_TOKEN, res.getDeviceToken());
     if (res.getDeviceId() != null) {
       configManager.setConfiguration(
-          BankstandConfig.GROUP, BankstandConfig.KEY_DEVICE_ID, res.getDeviceId());
+          BankstandKeys.GROUP, BankstandKeys.KEY_DEVICE_ID, res.getDeviceId());
     }
     if (res.getExpiresAt() != null) {
       configManager.setConfiguration(
-          BankstandConfig.GROUP, BankstandConfig.KEY_TOKEN_EXPIRES_AT, res.getExpiresAt());
+          BankstandKeys.GROUP, BankstandKeys.KEY_TOKEN_EXPIRES_AT, res.getExpiresAt());
     }
   }
 
+  // Read through the config item so an unset key falls back to the same default the
+  // settings screen shows, then normalised so a blank or padded value cannot reach
+  // the socket. A player who clears the field gets prod back, not a failed request.
   private String savedServerUrl() {
-    String url = configManager.getConfiguration(BankstandConfig.GROUP, BankstandConfig.KEY_SERVER_URL);
-    return url != null && !url.trim().isEmpty() ? url : BankstandConfig.DEFAULT_SERVER_URL;
-  }
-
-  private void refreshPanelState() {
-    String token =
-        configManager.getConfiguration(BankstandConfig.GROUP, BankstandConfig.KEY_DEVICE_TOKEN);
-    if (token != null && !token.trim().isEmpty()) {
-      panel.showConnected(
-          configManager.getConfiguration(BankstandConfig.GROUP, BankstandConfig.KEY_DEVICE_ID),
-          configManager.getConfiguration(
-              BankstandConfig.GROUP, BankstandConfig.KEY_TOKEN_EXPIRES_AT));
-    } else {
-      panel.showDisconnected();
-    }
-    panel.setShareQuestsEnabled(isQuestSharingEnabled());
-    panel.setShareDiariesEnabled(isDiarySharingEnabled());
-  }
-
-  private static BufferedImage createIcon() {
-    // The Bankstand mark, bundled as src/main/resources/com/bankstand/icon.png.
-    return ImageUtil.loadImageResource(BankstandPlugin.class, "icon.png");
+    return BankstandKeys.normaliseServerUrl(config.serverBaseUrl());
   }
 }
