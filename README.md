@@ -22,6 +22,9 @@ already ships (Gson and OkHttp are used as its transitives).
 - Every 60 seconds while logged in, captures skill XP and (behind their own opt-ins) quest and
   achievement diary state, submitting only when something changed since the last acknowledged submit.
   An idle account sends nothing.
+- Reads your collection log (opt-in) while the log interface enumerates its items. Unlike the
+  others this ACCUMULATES: a partial read adds to what is known and never replaces it, because
+  the game only reveals the log while you are looking at it.
 - Tracks the logged-in account hash per character, never carries state across an account switch, and
   never submits the logged-out sentinel (`-1`).
 
@@ -36,6 +39,10 @@ All of it is under **RuneLite settings > Bankstand**.
   `bankstand.serverBaseUrl` config key. **A stale value here makes every submit fail**, which is why
   it is a visible setting rather than hidden behind an advanced toggle.
 - **Share quest progress** / **Share achievement diary progress**: opt-in, both default off.
+- **Share collection log**: opt-in, default off. The collection log is not held in the
+  client, so it is read while the log interface enumerates. That happens when you search
+  your log, and a **Sync to Bankstand** right-click entry triggers it for you. If another
+  plugin already makes your log enumerate, Bankstand picks it up from that too.
 - **Pairing code**: paste a code to pair. Cleared automatically once used, successfully or not.
 - **Disconnect**: tick to forget this device's token. Unticks itself. To revoke server-side, use
   Bankstand > Account.

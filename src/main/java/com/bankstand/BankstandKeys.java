@@ -24,6 +24,7 @@ public final class BankstandKeys {
   public static final String KEY_SERVER_URL = "serverBaseUrl";
   public static final String KEY_SHARE_QUESTS = "shareQuests";
   public static final String KEY_SHARE_DIARIES = "shareDiaries";
+  public static final String KEY_SHARE_COLLECTION_LOG = "shareCollectionLog";
   public static final String KEY_PAIRING_CODE = "pairingCode";
   public static final String KEY_DISCONNECT = "disconnect";
 

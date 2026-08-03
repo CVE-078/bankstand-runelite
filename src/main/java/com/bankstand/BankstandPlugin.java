@@ -23,8 +23,13 @@ import net.runelite.api.Player;
 import net.runelite.api.Quest;
 import net.runelite.api.Skill;
 import net.runelite.api.WorldType;
+import net.runelite.api.MenuAction;
 import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.GameTick;
+import net.runelite.api.events.MenuOpened;
+import net.runelite.api.events.ScriptPostFired;
+import net.runelite.api.events.ScriptPreFired;
+import net.runelite.api.gameval.InterfaceID;
 import net.runelite.client.callback.ClientThread;
 import net.runelite.client.chat.ChatMessageBuilder;
 import net.runelite.client.chat.ChatMessageManager;
@@ -54,6 +59,17 @@ public class BankstandPlugin extends Plugin {
   // the last acknowledged submit. The interval matches the server's per-device
   // cooldown so a change is reported at most once per window.
   private static final int CAPTURE_INTERVAL_SECONDS = 60;
+
+  // The collection log is not held in varbits: Jagex keeps it server-side and only
+  // reveals it while the log interface enumerates its items. Script 4100 fires once
+  // per item during that enumeration, carrying the item id as its second argument,
+  // and 7797 fires when the interface finishes building. Searching the log is what
+  // makes it enumerate everything rather than one page, which is why the menu entry
+  // below triggers the log's own Search rather than trying to walk pages.
+  private static final int COLLECTION_LOG_ITEM_SCRIPT = 4100;
+  private static final int COLLECTION_LOG_SETUP_SCRIPT = 7797;
+  private static final int COLLECTION_LOG_SEARCH_SCRIPT = 2240;
+  private static final String SYNC_MENU_OPTION = "Sync to Bankstand";
 
   // Every chat line the plugin writes carries a coloured prefix, so a message is
   // attributable at a glance in a busy chat box: the panel used to give that context
@@ -110,6 +126,10 @@ public class BankstandPlugin extends Plugin {
   private final SkillBaseline skillBaseline = new SkillBaseline();
   private final QuestBaseline questBaseline = new QuestBaseline();
   private final DiaryBaseline diaryBaseline = new DiaryBaseline();
+  private final CollectionLogAccumulator collectionLog = new CollectionLogAccumulator();
+  // Whether the collection log interface is currently built, so the menu entry is
+  // only offered where it means something.
+  private boolean collectionLogOpen;
   // Suppresses a recurring failure from printing every capture cycle.
   private final NoticeGate noticeGate = new NoticeGate();
   // The generation the baseline currently tracks; a change means the account switched
@@ -155,6 +175,75 @@ public class BankstandPlugin extends Plugin {
     }
   }
 
+  /**
+   * Harvests the collection log while the client enumerates it.
+   *
+   * <p>Deliberately NOT gated on the player having used our own trigger. Any
+   * enumeration will do: another plugin's sync button, or the player simply searching
+   * their own log. Consent is already handled by the opt-in, the data is the player's
+   * own on their own client, and refusing to look at an enumeration we can see would
+   * only make the feature worse for no gain in safety.
+   */
+  @Subscribe
+  public void onScriptPreFired(ScriptPreFired event) {
+    if (event.getScriptId() != COLLECTION_LOG_ITEM_SCRIPT || !isCollectionLogSharingEnabled()) {
+      return;
+    }
+    Object[] args = event.getScriptEvent() == null ? null : event.getScriptEvent().getArguments();
+    // args[1] is the item id. Guarded rather than assumed: this is an internal game
+    // script and its shape is not a contract we control.
+    if (args == null || args.length < 2 || !(args[1] instanceof Integer)) {
+      return;
+    }
+    collectionLog.observe((Integer) args[1]);
+  }
+
+  @Subscribe
+  public void onScriptPostFired(ScriptPostFired event) {
+    if (event.getScriptId() == COLLECTION_LOG_SETUP_SCRIPT) {
+      collectionLogOpen = true;
+    }
+  }
+
+  /**
+   * Offers the sync action as a menu entry rather than a drawn button.
+   *
+   * <p>A button would have to be positioned by hand against the log's own controls,
+   * which collides with any other plugin doing the same (WikiSync draws one there
+   * already) and breaks whenever the interface is reshuffled. A menu entry cannot
+   * collide, and costs a fraction of the code.
+   */
+  @Subscribe
+  public void onMenuOpened(MenuOpened event) {
+    if (!collectionLogOpen || !isCollectionLogSharingEnabled() || !isPaired()) {
+      return;
+    }
+    client
+        .createMenuEntry(-1)
+        .setOption(SYNC_MENU_OPTION)
+        .setTarget("")
+        .setType(MenuAction.RUNELITE)
+        .onClick(e -> syncCollectionLog());
+  }
+
+  /**
+   * Makes the log enumerate everything by triggering its own Search, which is the only
+   * way to see the whole log without the player walking every page.
+   */
+  private void syncCollectionLog() {
+    clientThread.invoke(
+        () -> {
+          client.menuAction(
+              -1, InterfaceID.Collection.SEARCH_TOGGLE, MenuAction.CC_OP, 1, -1, "Search", null);
+          client.runScript(COLLECTION_LOG_SEARCH_SCRIPT);
+        });
+    notice("Reading your collection log...");
+  }
+
+  private boolean isCollectionLogSharingEnabled() {
+    return config.shareCollectionLog();
+  }
+
   @Subscribe
   public void onGameStateChanged(GameStateChanged event) {
     GameState state = event.getGameState();
@@ -163,6 +252,7 @@ public class BankstandPlugin extends Plugin {
       session.onLogin(client.getAccountHash());
     } else if (state == GameState.LOGIN_SCREEN) {
       session.onLogout();
+      collectionLogOpen = false;
     }
   }
 
@@ -286,6 +376,9 @@ public class BankstandPlugin extends Plugin {
       skillBaseline.reset();
       questBaseline.reset();
       diaryBaseline.reset();
+      // A collection log belongs to one character; carrying it across an account
+      // switch would attribute one account's items to another.
+      collectionLog.reset();
       baselineGeneration = generation;
     }
     if (!shouldSubmit(skillBaseline, skills, questBaseline, quests, diaryBaseline, diaries)) {
