@@ -1,5 +1,7 @@
 package com.bankstand;
 
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -51,6 +53,22 @@ public final class SubmitEnvelope {
       Map<String, Integer> skillXp,
       Map<String, String> questStates,
       Map<String, String> diaryStates) {
+    return body(
+        submissionId, schemaVersion, pluginVersion, capturedAt, accountHash, displayName, skillXp,
+        questStates, diaryStates, null);
+  }
+
+  public static Map<String, Object> body(
+      String submissionId,
+      int schemaVersion,
+      String pluginVersion,
+      String capturedAt,
+      long accountHash,
+      String displayName,
+      Map<String, Integer> skillXp,
+      Map<String, String> questStates,
+      Map<String, String> diaryStates,
+      Collection<Integer> collectionLogItems) {
     Map<String, Object> body = new LinkedHashMap<>();
     body.put("submissionId", submissionId);
     body.put("schemaVersion", schemaVersion);
@@ -72,6 +90,13 @@ public final class SubmitEnvelope {
     }
     if (diaryStates != null && !diaryStates.isEmpty()) {
       body.put("diaries", new LinkedHashMap<>(diaryStates));
+    }
+    // An array, not a map: this capability records presence only. Omitted when empty
+    // for the same reason as every other block, and the reason is load-bearing here
+    // too: an empty block means "not observed", and the server would otherwise have
+    // to distinguish that from "owns nothing".
+    if (collectionLogItems != null && !collectionLogItems.isEmpty()) {
+      body.put("collectionLog", new ArrayList<>(collectionLogItems));
     }
     return body;
   }
