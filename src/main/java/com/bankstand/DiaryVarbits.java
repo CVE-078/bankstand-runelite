@@ -12,16 +12,21 @@ import net.runelite.api.Varbits;
  * KOUREND becomes KOUREND_KEBOS, LUMBRIDGE becomes LUMBRIDGE_DRAYNOR, and WESTERN
  * becomes WESTERN_PROVINCES. The other nine regions keep their name.
  *
- * <p>Karamja's easy/medium/hard varbits are deliberately excluded. Unlike every other
- * region, Karamja's diary predates the flag-per-tier redesign and is task-counted:
- * its easy/medium/hard varbits (3578/3599/3611) sit far outside the 4458-4498 block
- * the rest of the tiers occupy, and the newer {@code VarbitID} table declines to name
- * them completion flags, exposing separate {@code KARAMJA_*_COUNT} varbits instead.
- * Reading one of those as {@code != 0} would report a diary as complete the moment a
- * single task was done, which is wrong data, worse than the "not observed" the server
- * already treats an omitted entry as. Only Karamja's elite tier is a real completion
- * flag, so it is the one Karamja entry captured. That keeps this table at 45 of the
- * 48 possible tiers.
+ * <p>All 48 tiers are captured, Karamja included. Its easy/medium/hard flags do sit
+ * outside the 4458-4498 block the other regions occupy, at 3578/3599/3611, because the
+ * Karamja diary predates that block. They were once excluded on the theory that they
+ * were task counters rather than completion flags; the newer {@code VarbitID} table
+ * disproves it by naming those exact ids {@code ATJUN_EASY_DONE},
+ * {@code ATJUN_MED_DONE} and {@code ATJUN_HARD_DONE}. The {@code KARAMJA_*_COUNT}
+ * varbits that prompted the doubt are separate ids entirely (2423/6288/6289/6290), so
+ * reading 3578 never reports a diary complete on a single task.
+ *
+ * <p>Worth knowing for anything built on top: the game keeps THREE varbits per tier,
+ * and this table reads only the first. {@code *_COMPLETE} (here) means every task is
+ * done. {@code *_REWARD} is a separate flag for whether the player has claimed the
+ * rewards from the taskmaster. {@code *_COUNT} holds how many of the tier's tasks are
+ * done, and exists for all 48 tiers. A tier can therefore be complete but unclaimed,
+ * which this table alone cannot express.
  *
  * <p>A plain data table with no {@code Client} dependency, so it is unit-testable
  * without a live game client.
@@ -61,8 +66,11 @@ public final class DiaryVarbits {
         Varbits.DIARY_WESTERN_HARD, Varbits.DIARY_WESTERN_ELITE);
     region(m, "WILDERNESS", Varbits.DIARY_WILDERNESS_EASY, Varbits.DIARY_WILDERNESS_MEDIUM,
         Varbits.DIARY_WILDERNESS_HARD, Varbits.DIARY_WILDERNESS_ELITE);
-    // Karamja: elite only. See the class comment for why easy/medium/hard are excluded.
-    m.put("KARAMJA_ELITE", Varbits.DIARY_KARAMJA_ELITE);
+    // Karamja's easy/medium/hard flags sit outside the block the other regions use
+    // (3578/3599/3611 rather than 4458-4498), because its diary predates them. They
+    // are still completion flags. See the class comment.
+    region(m, "KARAMJA", Varbits.DIARY_KARAMJA_EASY, Varbits.DIARY_KARAMJA_MEDIUM,
+        Varbits.DIARY_KARAMJA_HARD, Varbits.DIARY_KARAMJA_ELITE);
     return m;
   }
 
