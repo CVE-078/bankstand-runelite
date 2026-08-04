@@ -54,12 +54,23 @@ public interface BankstandConfig extends Config {
   }
 
   @ConfigItem(
+      keyName = BankstandKeys.KEY_SHARE_COLLECTION_LOG,
+      name = "Share collection log",
+      description =
+          "Sends which collection log items you have obtained. Read only while the log"
+              + " is open, so it updates when you look at it. Only you can see it.",
+      position = 4)
+  default boolean shareCollectionLog() {
+    return false;
+  }
+
+  @ConfigItem(
       keyName = BankstandKeys.KEY_PAIRING_CODE,
       name = "Pairing code",
       description =
           "Generate a code at Bankstand > Account > Connect RuneLite, then paste it here."
               + " It is exchanged for a device token and cleared.",
-      position = 4)
+      position = 5)
   default String pairingCode() {
     return "";
   }
@@ -69,7 +80,7 @@ public interface BankstandConfig extends Config {
       name = "Disconnect",
       description =
           "Tick to forget this device's pairing. Nothing is sent until you pair again.",
-      position = 5)
+      position = 6)
   default boolean disconnect() {
     return false;
   }

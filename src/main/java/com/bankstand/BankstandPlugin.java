@@ -12,8 +12,10 @@ import java.awt.Color;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.EnumSet;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ScheduledExecutorService;
 import javax.inject.Inject;
 import net.runelite.api.ChatMessageType;
@@ -23,8 +25,13 @@ import net.runelite.api.Player;
 import net.runelite.api.Quest;
 import net.runelite.api.Skill;
 import net.runelite.api.WorldType;
+import net.runelite.api.MenuAction;
 import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.GameTick;
+import net.runelite.api.events.MenuOpened;
+import net.runelite.api.events.ScriptPreFired;
+import net.runelite.api.gameval.InterfaceID;
+import net.runelite.api.widgets.Widget;
 import net.runelite.client.callback.ClientThread;
 import net.runelite.client.chat.ChatMessageBuilder;
 import net.runelite.client.chat.ChatMessageManager;
@@ -54,6 +61,16 @@ public class BankstandPlugin extends Plugin {
   // the last acknowledged submit. The interval matches the server's per-device
   // cooldown so a change is reported at most once per window.
   private static final int CAPTURE_INTERVAL_SECONDS = 60;
+
+  // The collection log is not held in varbits: Jagex keeps it server-side and only
+  // reveals it while the log interface enumerates its items. Script 4100 fires once
+  // per item during that enumeration, carrying the item id as its second argument,
+  // which is what the harvest listens to. Searching the log is what
+  // makes it enumerate everything rather than one page, which is why the menu entry
+  // below triggers the log's own Search rather than trying to walk pages.
+  private static final int COLLECTION_LOG_ITEM_SCRIPT = 4100;
+  private static final int COLLECTION_LOG_SEARCH_SCRIPT = 2240;
+  private static final String SYNC_MENU_OPTION = "Sync to Bankstand";
 
   // Every chat line the plugin writes carries a coloured prefix, so a message is
   // attributable at a glance in a busy chat box: the panel used to give that context
@@ -110,6 +127,8 @@ public class BankstandPlugin extends Plugin {
   private final SkillBaseline skillBaseline = new SkillBaseline();
   private final QuestBaseline questBaseline = new QuestBaseline();
   private final DiaryBaseline diaryBaseline = new DiaryBaseline();
+  private final CollectionLogAccumulator collectionLog = new CollectionLogAccumulator();
+  private final CollectionLogBaseline collectionLogBaseline = new CollectionLogBaseline();
   // Suppresses a recurring failure from printing every capture cycle.
   private final NoticeGate noticeGate = new NoticeGate();
   // The generation the baseline currently tracks; a change means the account switched
@@ -153,6 +172,77 @@ public class BankstandPlugin extends Plugin {
         && Boolean.parseBoolean(event.getNewValue())) {
       disconnect();
     }
+  }
+
+  /**
+   * Harvests the collection log while the client enumerates it.
+   *
+   * <p>Deliberately NOT gated on the player having used our own trigger. Any
+   * enumeration will do: another plugin's sync button, or the player simply searching
+   * their own log. Consent is already handled by the opt-in, the data is the player's
+   * own on their own client, and refusing to look at an enumeration we can see would
+   * only make the feature worse for no gain in safety.
+   */
+  @Subscribe
+  public void onScriptPreFired(ScriptPreFired event) {
+    if (event.getScriptId() != COLLECTION_LOG_ITEM_SCRIPT || !isCollectionLogSharingEnabled()) {
+      return;
+    }
+    Object[] args = event.getScriptEvent() == null ? null : event.getScriptEvent().getArguments();
+    // args[1] is the item id. Guarded rather than assumed: this is an internal game
+    // script and its shape is not a contract we control.
+    if (args == null || args.length < 2 || !(args[1] instanceof Integer)) {
+      return;
+    }
+    collectionLog.observe((Integer) args[1]);
+  }
+
+  /**
+   * Offers the sync action as a menu entry rather than a drawn button.
+   *
+   * <p>A button would have to be positioned by hand against the log's own controls,
+   * which collides with any other plugin doing the same (WikiSync draws one there
+   * already) and breaks whenever the interface is reshuffled. A menu entry cannot
+   * collide, and costs a fraction of the code.
+   */
+  @Subscribe
+  public void onMenuOpened(MenuOpened event) {
+    if (!isCollectionLogSharingEnabled() || !isPaired()) {
+      return;
+    }
+    // Ask the client whether the log is on screen RIGHT NOW rather than tracking it.
+    // A boolean set when the interface builds has no reliable clear: the first
+    // version set it on open and cleared it only on logout, so after one visit to
+    // the collection log the entry followed the player onto every right-click in the
+    // world. Widget presence cannot go stale.
+    Widget collectionLog = client.getWidget(InterfaceID.Collection.UNIVERSE);
+    if (collectionLog == null || collectionLog.isHidden()) {
+      return;
+    }
+    client
+        .createMenuEntry(-1)
+        .setOption(SYNC_MENU_OPTION)
+        .setTarget("")
+        .setType(MenuAction.RUNELITE)
+        .onClick(e -> syncCollectionLog());
+  }
+
+  /**
+   * Makes the log enumerate everything by triggering its own Search, which is the only
+   * way to see the whole log without the player walking every page.
+   */
+  private void syncCollectionLog() {
+    clientThread.invoke(
+        () -> {
+          client.menuAction(
+              -1, InterfaceID.Collection.SEARCH_TOGGLE, MenuAction.CC_OP, 1, -1, "Search", null);
+          client.runScript(COLLECTION_LOG_SEARCH_SCRIPT);
+        });
+    notice("Reading your collection log...");
+  }
+
+  private boolean isCollectionLogSharingEnabled() {
+    return config.shareCollectionLog();
   }
 
   @Subscribe
@@ -286,12 +376,28 @@ public class BankstandPlugin extends Plugin {
       skillBaseline.reset();
       questBaseline.reset();
       diaryBaseline.reset();
+      // A collection log belongs to one character; carrying it across an account
+      // switch would attribute one account's items to another.
+      collectionLog.reset();
+      collectionLogBaseline.reset();
       baselineGeneration = generation;
     }
-    if (!shouldSubmit(skillBaseline, skills, questBaseline, quests, diaryBaseline, diaries)) {
+    // Only send the log once the player has opted in; the accumulator may hold items
+    // observed before they did, and an opt-in is not retroactive.
+    Set<Integer> clog =
+        isCollectionLogSharingEnabled() ? collectionLog.observed() : Collections.emptySet();
+    if (!shouldSubmit(
+        skillBaseline,
+        skills,
+        questBaseline,
+        quests,
+        diaryBaseline,
+        diaries,
+        collectionLogBaseline,
+        clog.size())) {
       return;
     }
-    submitSnapshot(accountHash, generation, name, skills, quests, diaries);
+    submitSnapshot(accountHash, generation, name, skills, quests, diaries, clog);
   }
 
   // A quest or diary change alone is enough to submit; a null map (the opt-in is off)
@@ -304,10 +410,15 @@ public class BankstandPlugin extends Plugin {
       QuestBaseline questBaseline,
       Map<String, String> quests,
       DiaryBaseline diaryBaseline,
-      Map<String, String> diaries) {
+      Map<String, String> diaries,
+      CollectionLogBaseline collectionLogBaseline,
+      int collectionLogCount) {
     return skillBaseline.changedSince(skills)
         || (quests != null && questBaseline.changedSince(quests))
-        || (diaries != null && diaryBaseline.changedSince(diaries));
+        || (diaries != null && diaryBaseline.changedSince(diaries))
+        // Without this, syncing a collection log would sit unsent until the player
+        // happened to gain xp, which is exactly when they are least likely to look.
+        || collectionLogBaseline.changedSince(collectionLogCount);
   }
 
   // Every baseline, skills included, advances only on the server's own per-block
@@ -346,13 +457,18 @@ public class BankstandPlugin extends Plugin {
     return diariesIncluded && res.isBlockStored("diaries");
   }
 
+  static boolean shouldAdvanceCollectionLog(SubmitSnapshotResponse res, boolean included) {
+    return included && res.isBlockStored("collectionLog");
+  }
+
   private void submitSnapshot(
       long accountHash,
       int generation,
       String name,
       Map<String, Integer> skills,
       Map<String, String> quests,
-      Map<String, String> diaries) {
+      Map<String, String> diaries,
+      Set<Integer> collectionLogItems) {
     String url = savedServerUrl();
     String token =
         configManager.getConfiguration(BankstandKeys.GROUP, BankstandKeys.KEY_DEVICE_TOKEN);
@@ -368,7 +484,8 @@ public class BankstandPlugin extends Plugin {
             name,
             skills,
             quests,
-            diaries);
+            diaries,
+            collectionLogItems);
     executor.submit(
         () -> {
           try {
@@ -393,6 +510,9 @@ public class BankstandPlugin extends Plugin {
                     }
                     if (shouldAdvanceDiaries(res, diaries != null)) {
                       diaryBaseline.advance(diaries);
+                    }
+                    if (shouldAdvanceCollectionLog(res, !collectionLogItems.isEmpty())) {
+                      collectionLogBaseline.advance(collectionLogItems.size());
                     }
                   }
                 });

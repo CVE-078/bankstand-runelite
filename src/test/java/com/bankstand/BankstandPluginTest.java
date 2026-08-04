@@ -82,7 +82,7 @@ public class BankstandPluginTest {
             new QuestBaseline(),
             null,
             new DiaryBaseline(),
-            null));
+            null, new CollectionLogBaseline(), 0));
   }
 
   @Test
@@ -98,7 +98,7 @@ public class BankstandPluginTest {
             new QuestBaseline(),
             null,
             new DiaryBaseline(),
-            null));
+            null, new CollectionLogBaseline(), 0));
   }
 
   @Test
@@ -113,7 +113,7 @@ public class BankstandPluginTest {
             new QuestBaseline(),
             quests("COOKS_ASSISTANT", "IN_PROGRESS"),
             new DiaryBaseline(),
-            null));
+            null, new CollectionLogBaseline(), 0));
   }
 
   @Test
@@ -129,7 +129,7 @@ public class BankstandPluginTest {
             questBaseline,
             quests("COOKS_ASSISTANT", "IN_PROGRESS"),
             new DiaryBaseline(),
-            null));
+            null, new CollectionLogBaseline(), 0));
   }
 
   @Test
@@ -145,7 +145,7 @@ public class BankstandPluginTest {
             new QuestBaseline(),
             null,
             new DiaryBaseline(),
-            null));
+            null, new CollectionLogBaseline(), 0));
   }
 
   @Test
@@ -160,7 +160,46 @@ public class BankstandPluginTest {
             new QuestBaseline(),
             null,
             new DiaryBaseline(),
-            diaries("ARDOUGNE_EASY", "COMPLETE")));
+            diaries("ARDOUGNE_EASY", "COMPLETE"),
+            new CollectionLogBaseline(),
+            0));
+  }
+
+  @Test
+  public void submitsWhenOnlyTheCollectionLogGrew() {
+    // The case that made this gate necessary. A player syncs their log and gains no
+    // xp; without the collection log in the gate the submission would wait for the
+    // next level, which is exactly when they are not looking at their log.
+    SkillBaseline skillBaseline = new SkillBaseline();
+    skillBaseline.advance(skills("attack", 100));
+    assertTrue(
+        BankstandPlugin.shouldSubmit(
+            skillBaseline,
+            skills("attack", 100),
+            new QuestBaseline(),
+            null,
+            new DiaryBaseline(),
+            null,
+            new CollectionLogBaseline(),
+            42));
+  }
+
+  @Test
+  public void doesNotSubmitForAnEmptyCollectionLog() {
+    // Nothing observed is not nothing owned, so an empty log is not a change worth
+    // sending on every capture.
+    SkillBaseline skillBaseline = new SkillBaseline();
+    skillBaseline.advance(skills("attack", 100));
+    assertFalse(
+        BankstandPlugin.shouldSubmit(
+            skillBaseline,
+            skills("attack", 100),
+            new QuestBaseline(),
+            null,
+            new DiaryBaseline(),
+            null,
+            new CollectionLogBaseline(),
+            0));
   }
 
   @Test
@@ -178,7 +217,9 @@ public class BankstandPluginTest {
             questBaseline,
             quests("COOKS_ASSISTANT", "IN_PROGRESS"),
             diaryBaseline,
-            diaries("ARDOUGNE_EASY", "COMPLETE")));
+            diaries("ARDOUGNE_EASY", "COMPLETE"),
+            new CollectionLogBaseline(),
+            0));
   }
 
   @Test
