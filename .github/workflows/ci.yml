@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+    # Documentation cannot break the build or the tests, so skip the suite.
+    paths-ignore:
+      - "**/*.md"
+  push:
+    branches: [main]
+    paths-ignore:
+      - "**/*.md"
+
+# Cancel superseded runs on the same ref (e.g. rapid pushes to a PR branch).
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # JDK 17. build.gradle sets no toolchain and targets `release 11`, so the
+      # JDK Gradle runs on is the one that compiles. 17 is what the readme names
+      # and what dev-mode `./gradlew run` is tuned for.
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      # `./gradlew build` compiles and runs the JUnit suite. It is the whole gate:
+      # this repo has no lint or format step to add.
+      - run: ./gradlew build
