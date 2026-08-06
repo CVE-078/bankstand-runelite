@@ -27,8 +27,22 @@ already ships (Gson and OkHttp are used as its transitives).
   the game only reveals the log while you are looking at it.
 - Tracks the logged-in account hash per character, never carries state across an account switch, and
   never submits the logged-out sentinel (`-1`).
+- Skips non-standard worlds (tournament, seasonal, deadman, PvP arena), whose XP is not the account's
+  real progression.
 
 Everything captured is private to your own Bankstand account. None of it is public or ranked.
+
+### What it does not capture
+
+Stated because a gap is easy to mistake for a bug, and because a figure nobody observed is not the
+same as zero.
+
+- **Combat achievements.** No capture path exists yet, so Bankstand shows the unavailable placeholder
+  for them rather than a count.
+- **Individual diary tasks.** Diary capture is tier-level: a tier reads as complete or not, so a tier
+  at 21 of 22 tasks currently reports nothing.
+- **Bank value, worn equipment, inventory, chat and your location.** Not captured, not offered, and
+  not requestable by the server.
 
 ## Configuration
 
@@ -87,24 +101,74 @@ Launcher session. One-time setup so the dev client can reuse your session:
 4. When done, delete `~/.runelite/credentials.properties` (it stores your session in plaintext), and
    you can hit **End sessions** on runescape.com to invalidate it.
 
+## Conventions and invariants
+
+Constraints that a fresh reader will not infer from the code, and that break something real if
+ignored.
+
+- **`./gradlew build` is the merge gate. This repo has no CI.** Nothing runs on push, so a green local
+  build before every commit is the whole of the automated safety net. One class:
+  `./gradlew test --tests com.bankstand.<Class>`.
+- **Never log the device token, the account hash, the display name, or a raw request body.** The token
+  is a credential; the other three identify a real person's account. The raw token is returned once by
+  the pairing exchange and stored, never printed.
+- **The contract fixtures mirror the server's.** `src/test/resources/contracts/*.json` correspond to
+  bankstand's `lib/plugin/contracts/*.json`, and the wire shape is fixed by the server. The rule is
+  **equivalence of the parsed JSON, not of the bytes**: `SubmitEnvelopeContractTest` parses both sides
+  with Gson and compares `JsonObject`s, so indentation and line endings are free (a Windows checkout
+  gets CRLF either way). Change one side without the other and the two stop agreeing about the wire.
+- **Zero third-party runtime dependencies.** Only `net.runelite:client` (compileOnly) and its
+  transitives, which is where Gson and OkHttp come from. JUnit is test-scope. Do not add a JSON, UUID
+  or HTTP library: `UuidV7` exists precisely so there is no dependency for it, and the Plugin Hub
+  reviews a `build=standard` plugin faster than one with custom dependencies to hash-verify.
+- **Capture reads run on the client thread.** `Quest.getState(Client)` and `getSkillExperience` read
+  varps and varbits and must not be called off it. Read every capability inside the one
+  `clientThread.invoke(...)` block so a submission is a single consistent snapshot.
+- **Only the main game counts.** Tournament, seasonal, deadman and PvP-arena worlds are skipped: their
+  XP is not the account's real progression.
+- **No em dashes** anywhere in code or comments. Use a comma, period, or parentheses.
+- **Comments** document the timeless why. No issue numbers, dates, or spec paths.
+- **Commits:** conventional `type(scope): subject`, subject-only, no body, no AI-attribution trailer.
+  The PR title (the squash subject) is a plain imperative sentence.
+
 ## Layout
 
 - `src/main/java/com/bankstand/PairingCodes.java` normalizes and validates the code (mirrors the
   server exactly).
-- `src/main/java/com/bankstand/BankstandClient.java` performs the pairing exchange and the identity
-  submit behind an `HttpTransport` seam, so the logic is unit-tested with no real socket.
-- `src/main/java/com/bankstand/http/OkHttpTransport.java` is the thin real transport over RuneLite's
-  OkHttpClient.
+- `src/main/java/com/bankstand/BankstandClient.java` performs the pairing exchange and the snapshot
+  and identity submits behind an `HttpTransport` seam, so the logic is unit-tested with no real
+  socket.
+- `src/main/java/com/bankstand/http/` holds the transport seam (`HttpTransport`, `HttpResponse`) and
+  `OkHttpTransport`, the thin real transport over RuneLite's OkHttpClient.
 - `src/main/java/com/bankstand/session/AccountSession.java` tracks the account hash across logins and
   whether identity has been submitted this session.
-- `src/main/java/com/bankstand/dto/` holds the `PairResponse` / `SubmitResponse` DTOs.
+- `src/main/java/com/bankstand/dto/` holds the `PairResponse`, `SubmitResponse` and
+  `SubmitSnapshotResponse` DTOs.
+- `src/main/java/com/bankstand/SubmitEnvelope.java` builds the v1 wire envelope, and
+  `src/main/java/com/bankstand/UuidV7.java` generates its time-ordered submission ids without a
+  dependency.
 - `src/main/java/com/bankstand/BankstandConfig.java` is the whole UI: a RuneLite config interface,
   where two of the items (pairing code, disconnect) are actions rather than settings.
 - `src/main/java/com/bankstand/BankstandKeys.java` holds the storage keys and the server-URL
   normalisation both sides share. The device token is deliberately not a config item.
 - `src/main/java/com/bankstand/NoticeGate.java` decides whether a submit outcome is worth a chat line,
   so a recurring failure is announced once rather than every capture cycle.
-- `src/main/java/com/bankstand/DiaryVarbits.java` maps diary wire keys to varbits (Karamja
-  easy/medium/hard are deliberately excluded, see the class doc).
+- `SkillBaseline`, `QuestBaseline`, `DiaryBaseline` and `CollectionLogBaseline` are the change gates:
+  each remembers the last acknowledged state for its capability so an unchanged capability is not
+  resubmitted. A capability's baseline only advances when the server acknowledges that block.
+- `src/main/java/com/bankstand/CollectionLogAccumulator.java` accumulates observed item ids rather
+  than replacing them, because the log is not resident in the client and an enumeration can be
+  partial. It cannot report absence, which is why the server treats an omitted item as "not observed"
+  and never as "does not have it".
+- `src/main/java/com/bankstand/DiaryVarbits.java` maps diary wire keys to the varbit carrying each
+  tier's completion flag. All 48 tiers are captured, Karamja included. The game keeps three varbits
+  per tier (`*_COMPLETE`, `*_REWARD`, `*_COUNT`) and this table reads only the first, so a tier that
+  is complete but unclaimed cannot be distinguished here.
+- `PairingException` and `SubmitException` carry the terminal-versus-retryable distinction.
 - `src/main/java/com/bankstand/BankstandPlugin.java` wires it into RuneLite.
-- Tests are under `src/test/java/com/bankstand/` and need only JUnit.
+- Tests are under `src/test/java/com/bankstand/` and need only JUnit. Fixtures live in
+  `src/test/resources/contracts/`.
+
+---
+
+_Last verified against `main` on 2026-08-07. Update this anchor when the plugin's behaviour changes._
