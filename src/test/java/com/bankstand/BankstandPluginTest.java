@@ -86,7 +86,7 @@ public class BankstandPluginTest {
   }
 
   @Test
-  public void ignoresAQuestChangeWhenSharingIsOff() {
+  public void ignoresAQuestChangeWhenQuestCaptureIsOff() {
     SkillBaseline skillBaseline = new SkillBaseline();
     skillBaseline.advance(skills("attack", 100));
     // Skills are unchanged and quests are null (opt-in off): a quest change can never
@@ -102,7 +102,7 @@ public class BankstandPluginTest {
   }
 
   @Test
-  public void submitsOnAQuestChangeAloneWhenSharingIsOn() {
+  public void submitsOnAQuestChangeAloneWhenQuestCaptureIsOn() {
     SkillBaseline skillBaseline = new SkillBaseline();
     skillBaseline.advance(skills("attack", 100));
     // Skills are identical to the baseline; only the quest state changed.
@@ -133,7 +133,7 @@ public class BankstandPluginTest {
   }
 
   @Test
-  public void ignoresADiaryChangeWhenSharingIsOff() {
+  public void ignoresADiaryChangeWhenDiaryCaptureIsOff() {
     SkillBaseline skillBaseline = new SkillBaseline();
     skillBaseline.advance(skills("attack", 100));
     // Skills and quests are unchanged and diaries are null (opt-in off): a diary
@@ -149,7 +149,7 @@ public class BankstandPluginTest {
   }
 
   @Test
-  public void submitsOnADiaryChangeAloneWhenSharingIsOn() {
+  public void submitsOnADiaryChangeAloneWhenDiaryCaptureIsOn() {
     SkillBaseline skillBaseline = new SkillBaseline();
     skillBaseline.advance(skills("attack", 100));
     // Skills are identical to the baseline; only the diary state changed.

@@ -185,7 +185,7 @@ public class BankstandPlugin extends Plugin {
    */
   @Subscribe
   public void onScriptPreFired(ScriptPreFired event) {
-    if (event.getScriptId() != COLLECTION_LOG_ITEM_SCRIPT || !isCollectionLogSharingEnabled()) {
+    if (event.getScriptId() != COLLECTION_LOG_ITEM_SCRIPT || !isCollectionLogCaptureEnabled()) {
       return;
     }
     Object[] args = event.getScriptEvent() == null ? null : event.getScriptEvent().getArguments();
@@ -207,7 +207,7 @@ public class BankstandPlugin extends Plugin {
    */
   @Subscribe
   public void onMenuOpened(MenuOpened event) {
-    if (!isCollectionLogSharingEnabled() || !isPaired()) {
+    if (!isCollectionLogCaptureEnabled() || !isPaired()) {
       return;
     }
     // Ask the client whether the log is on screen RIGHT NOW rather than tracking it.
@@ -241,8 +241,8 @@ public class BankstandPlugin extends Plugin {
     notice("Reading your collection log...");
   }
 
-  private boolean isCollectionLogSharingEnabled() {
-    return config.shareCollectionLog();
+  private boolean isCollectionLogCaptureEnabled() {
+    return config.collectCollectionLog();
   }
 
   @Subscribe
@@ -264,6 +264,12 @@ public class BankstandPlugin extends Plugin {
     if (pairingClient == null || !isPaired() || !session.isActive() || session.isSubmitted()) {
       return;
     }
+    // The identity submit sends the account hash and display name, which is the same
+    // class of data the skill capture sends and is covered by the same opt-in. A
+    // client with it off stays paired and stays silent.
+    if (!isSkillCaptureEnabled()) {
+      return;
+    }
     Player local = client.getLocalPlayer();
     if (local == null) {
       return;
@@ -282,6 +288,13 @@ public class BankstandPlugin extends Plugin {
   @Schedule(period = CAPTURE_INTERVAL_SECONDS, unit = ChronoUnit.SECONDS)
   public void captureSkills() {
     if (pairingClient == null || !isPaired() || !session.isActive()) {
+      return;
+    }
+    // Skills gate the whole capture, not just their own block. The v1 envelope makes
+    // `skills` required and quests, diaries and the collection log optional riders on
+    // it, so there is no submission to attach them to with this off. The config item
+    // says so rather than leaving a player wondering why their quest opt-in went quiet.
+    if (!isSkillCaptureEnabled()) {
       return;
     }
     if (client.getGameState() != GameState.LOGGED_IN) {
@@ -311,8 +324,8 @@ public class BankstandPlugin extends Plugin {
           // Quest and diary state are opt-in; read them in this same block so they are
           // one consistent snapshot with the skills, and leave each null (never sent)
           // when off.
-          Map<String, String> quests = isQuestSharingEnabled() ? readQuestStates() : null;
-          Map<String, String> diaries = isDiarySharingEnabled() ? readDiaryStates() : null;
+          Map<String, String> quests = isQuestCaptureEnabled() ? readQuestStates() : null;
+          Map<String, String> diaries = isDiaryCaptureEnabled() ? readDiaryStates() : null;
           onSkillsCaptured(accountHash, generation, name, skills, quests, diaries);
         });
   }
@@ -385,7 +398,7 @@ public class BankstandPlugin extends Plugin {
     // Only send the log once the player has opted in; the accumulator may hold items
     // observed before they did, and an opt-in is not retroactive.
     Set<Integer> clog =
-        isCollectionLogSharingEnabled() ? collectionLog.observed() : Collections.emptySet();
+        isCollectionLogCaptureEnabled() ? collectionLog.observed() : Collections.emptySet();
     if (!shouldSubmit(
         skillBaseline,
         skills,
@@ -542,12 +555,22 @@ public class BankstandPlugin extends Plugin {
   // Both default to false on the config item, so an unset key (never opted in) reads
   // as off. Quest and diary state are more sensitive than hiscore stats, so the
   // capture path must check these before reading or sending either.
-  private boolean isQuestSharingEnabled() {
-    return config.shareQuests();
+  private boolean isQuestCaptureEnabled() {
+    return config.collectQuests();
   }
 
-  private boolean isDiarySharingEnabled() {
-    return config.shareDiaries();
+  private boolean isDiaryCaptureEnabled() {
+    return config.collectDiaries();
+  }
+
+  // Unlike the three opt-ins this defaults to ON, because skill XP is already public
+  // on the hiscores and it carries the account hash and display name that identify the
+  // character. With it off a paired client has nothing to bind with, so the pairing
+  // does nothing. It exists as an option anyway for two reasons: the Plugin Hub wants
+  // the warning about what is sent to sit on the option that enables the sending, and
+  // a player who wants a paired client to go quiet should not have to unpair to do it.
+  private boolean isSkillCaptureEnabled() {
+    return config.collectSkills();
   }
 
   private void submitIdentity(long accountHash, int generation, String displayName) {
