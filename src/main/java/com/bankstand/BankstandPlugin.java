@@ -276,7 +276,9 @@ public class BankstandPlugin extends Plugin {
     }
     hideSyncInfoBox();
     if (outcome != null) {
-      notice(syncOutcomeMessage(outcome, collectionLog.size()));
+      // Slots filled, not ids held: two Prospector sets are eight items in four
+      // slots, and quoting the raw count read 193 where the log said 189.
+      notice(syncOutcomeMessage(outcome, VariantIds.countEntries(collectionLog.observed())));
     }
   }
 
@@ -291,12 +293,12 @@ public class BankstandPlugin extends Plugin {
    * ids submitted here. This is the count that was sent; the log's own figure is
    * Bankstand's to show.
    */
-  static String syncOutcomeMessage(CollectionLogSync.Outcome outcome, int captured) {
-    String entries = captured + (captured == 1 ? " entry" : " entries");
+  static String syncOutcomeMessage(CollectionLogSync.Outcome outcome, int entriesFilled) {
+    String entries = entriesFilled + (entriesFilled == 1 ? " entry" : " entries");
     if (outcome == CollectionLogSync.Outcome.COMPLETE) {
-      return "Collection log synced. " + entries + " captured.";
+      return "Collection log synced. " + entries + " logged.";
     }
-    return "Partial read of your collection log. " + entries + " captured so far.";
+    return "Partial read of your collection log. " + entries + " logged so far.";
   }
 
   /** True while the log's own search interface is on screen. */
