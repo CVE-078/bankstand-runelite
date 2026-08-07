@@ -9,17 +9,32 @@ package com.bankstand;
  */
 public class SubmitException extends Exception {
   private final boolean retryable;
+  private final boolean authFailure;
 
   public SubmitException(String message) {
     this(message, false);
   }
 
   public SubmitException(String message, boolean retryable) {
+    this(message, retryable, false);
+  }
+
+  public SubmitException(String message, boolean retryable, boolean authFailure) {
     super(message);
     this.retryable = retryable;
+    this.authFailure = authFailure;
   }
 
   public boolean isRetryable() {
     return retryable;
+  }
+
+  /**
+   * A rejected or revoked token (401/403). Distinct from an ordinary terminal failure
+   * because retrying never fixes it, only re-pairing does, so the caller has to stop
+   * submitting rather than try again next capture.
+   */
+  public boolean isAuthFailure() {
+    return authFailure;
   }
 }
