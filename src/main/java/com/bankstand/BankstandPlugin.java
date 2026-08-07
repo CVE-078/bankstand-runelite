@@ -276,8 +276,8 @@ public class BankstandPlugin extends Plugin {
     }
     hideSyncInfoBox();
     if (outcome != null) {
-      // Slots filled, not ids held: two Prospector sets are eight items in four
-      // slots, and quoting the raw count read 193 where the log said 189.
+      // Slots filled, not ids held. The accumulator keeps raw ids for submission,
+      // so it is canonicalised here; CollectionLogSync already counts that way.
       notice(syncOutcomeMessage(outcome, VariantIds.countEntries(collectionLog.observed())));
     }
   }

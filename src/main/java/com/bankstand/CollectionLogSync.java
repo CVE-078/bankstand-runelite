@@ -112,7 +112,9 @@ public class CollectionLogSync {
       sawSearch = true;
     }
     state = State.READING;
-    observed.add(itemId);
+    // Canonical, so the running count is slots filled rather than ids seen. The
+    // accumulator keeps the raw id; this set only ever feeds a number on screen.
+    observed.add(VariantIds.canonical(itemId));
     quietTicks = 0;
   }
 

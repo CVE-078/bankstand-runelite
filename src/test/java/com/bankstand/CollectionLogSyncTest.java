@@ -112,6 +112,17 @@ public class CollectionLogSyncTest {
    * of a session, and counting events reported "Synced 422 entries" for a log holding
    * 211. The accumulator was always right, being a set; the figure shown was not.
    */
+  /** Both Prospector sets are eight ids filling four slots, and the box says four. */
+  @Test
+  public void countsAVariantAsTheSlotItFills() {
+    CollectionLogSync sync = new CollectionLogSync();
+    for (int id : new int[] {12013, 12014, 12015, 12016, 29472, 29474, 29476, 29478}) {
+      sync.onItemObserved(id, true);
+    }
+
+    assertEquals(4, sync.observedCount());
+  }
+
   @Test
   public void countsDistinctEntriesRatherThanScriptFires() {
     CollectionLogSync sync = new CollectionLogSync();
