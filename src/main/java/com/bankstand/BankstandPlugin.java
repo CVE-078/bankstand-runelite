@@ -8,6 +8,7 @@ import com.bankstand.http.OkHttpTransport;
 import com.bankstand.session.AccountSession;
 import com.google.gson.Gson;
 import com.google.inject.Provides;
+import lombok.extern.slf4j.Slf4j;
 import java.awt.Color;
 import java.awt.image.BufferedImage;
 import java.io.File;
@@ -49,6 +50,7 @@ import net.runelite.client.ui.overlay.infobox.InfoBoxManager;
 import net.runelite.client.util.ImageUtil;
 import okhttp3.OkHttpClient;
 
+@Slf4j
 @PluginDescriptor(
     name = "Bankstand",
     description =
@@ -81,6 +83,10 @@ public class BankstandPlugin extends Plugin {
   // Its own directory, so a player can find and delete what the plugin keeps.
   private static final File ACKED_STATE_DIR = new File(RuneLite.RUNELITE_DIR, "bankstand");
   private static final String ACKED_STATE_FILE = "acked-state.json";
+
+  // Deep enough for the overview's tile-inside-container nesting, shallow enough
+  // that a malformed tree cannot walk forever.
+  private static final int MAX_WIDGET_DEPTH = 6;
 
   // Every chat line the plugin writes carries a coloured prefix, so a message is
   // attributable at a glance in a busy chat box: the panel used to give that context
@@ -275,7 +281,7 @@ public class BankstandPlugin extends Plugin {
     }
     hideSyncInfoBox();
     if (outcome != null) {
-      notice(syncOutcomeMessage(outcome, collectionLog.size(), readOverviewCounts()));
+      notice(syncOutcomeMessage(outcome, collectionLog.size(), overviewCounts));
     }
   }
 
@@ -301,25 +307,53 @@ public class BankstandPlugin extends Plugin {
   }
 
   /**
-   * The game's own per-category counts, read off the overview if it is on screen.
+   * The game's own per-category counts, remembered from the last time the overview was
+   * on screen.
    *
-   * <p>Returns a not-complete result whenever anything is missing, so a half-built
-   * interface never reports a smaller log. Every widget read here is defensive for the
-   * same reason the search check had to be fixed: the shape of this interface cannot be
-   * verified outside a running client.
+   * <p>Cached rather than read on demand, because by the time a sync finishes the player
+   * is looking at the **search results**, not the overview, so reading it then found
+   * nothing and quietly fell back to our own figure. Observed live: the message said
+   * "193 entries logged" where the overview had said 189.
+   *
+   * <p>Belongs to one character, so an account switch drops it.
    */
-  private OverviewCounts readOverviewCounts() {
-    Widget progress = client.getWidget(InterfaceID.CollectionOverview.SUBSECTION_PROGRESS);
-    if (progress == null) {
-      return OverviewCounts.of(Collections.emptyList());
+  private OverviewCounts overviewCounts;
+
+  /** Reads the overview if it is on screen, keeping the last complete read. */
+  private void pollOverviewCounts() {
+    Widget content = client.getWidget(InterfaceID.CollectionOverview.CONTENT);
+    if (content == null || content.isHidden()) {
+      return;
     }
     List<String> texts = new ArrayList<>();
-    collectText(progress, texts);
-    return OverviewCounts.of(texts);
+    collectText(content, texts, 0);
+    OverviewCounts read = OverviewCounts.of(texts);
+    if (read.isComplete()) {
+      overviewCounts = read;
+      return;
+    }
+    // Counts only, never the values: enough to tell "widget not found" from "found but
+    // the figures are nested somewhere else", which is the only thing still unverified
+    // about this read and cannot be checked outside a running client.
+    if (overviewCounts == null) {
+      log.debug(
+          "collection log overview: {} text nodes, {} parsed as a count",
+          texts.size(),
+          read.getCategories());
+    }
   }
 
-  private static void collectText(Widget widget, List<String> into) {
-    if (widget == null) {
+  /**
+   * Every string in the subtree, to a bounded depth.
+   *
+   * <p>Targeting {@code SUBSECTION_PROGRESS} directly did not find the figures, and the
+   * exact nesting cannot be checked outside a running client, so this walks instead of
+   * assuming. Safe to be broad: {@code parseProgress} takes only a bare "N/M", and the
+   * one other pair on the screen, "Collections Logged: 189/300", is rank progress and is
+   * rejected by its prefix.
+   */
+  private static void collectText(Widget widget, List<String> into, int depth) {
+    if (widget == null || depth > MAX_WIDGET_DEPTH) {
       return;
     }
     String text = widget.getText();
@@ -334,15 +368,7 @@ public class BankstandPlugin extends Plugin {
         continue;
       }
       for (Widget child : children) {
-        // One level down only. The figures sit directly on or under the progress
-        // widget, and walking the whole tree would scoop up unrelated numbers.
-        if (child == null) {
-          continue;
-        }
-        String childText = child.getText();
-        if (childText != null && !childText.isEmpty()) {
-          into.add(childText);
-        }
+        collectText(child, into, depth + 1);
       }
     }
   }
@@ -389,6 +415,7 @@ public class BankstandPlugin extends Plugin {
       // Abandoned rather than reported: an outcome nobody is there to read is noise.
       collectionLogSync.reset();
       hideSyncInfoBox();
+      overviewCounts = null;
     }
   }
 
@@ -397,6 +424,9 @@ public class BankstandPlugin extends Plugin {
     // Drive the guided read first and unconditionally. It has to be able to finish even
     // when the identity submit below has already run or is being skipped, or an armed
     // sync would hang with its infobox up.
+    // Read the overview whenever it is showing, so the figure survives the player
+    // moving to the search view where the sync actually finishes.
+    pollOverviewCounts();
     if (collectionLogSync.isActive()) {
       tickCollectionLogSync();
     }
