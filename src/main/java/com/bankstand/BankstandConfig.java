@@ -124,8 +124,7 @@ public interface BankstandConfig extends Config {
       description =
           "Sends which collection log slots you have filled. The game only reveals the log"
               + " while it is on screen, so browsing adds what you see. To read the whole"
-              + " log, right-click in it, pick Sync to Bankstand, then click the game's own"
-              + " Search.",
+              + " log in one go, open it and click Search.",
       section = collectSection,
       position = 4)
   default boolean collectCollectionLog() {
