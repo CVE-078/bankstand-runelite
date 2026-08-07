@@ -35,6 +35,7 @@ import net.runelite.api.events.ScriptPreFired;
 import net.runelite.api.gameval.InterfaceID;
 import net.runelite.api.widgets.Widget;
 import net.runelite.client.callback.ClientThread;
+import net.runelite.api.events.CommandExecuted;
 import net.runelite.client.chat.ChatMessageBuilder;
 import net.runelite.client.chat.ChatMessageManager;
 import net.runelite.client.chat.QueuedMessage;
@@ -151,6 +152,9 @@ public class BankstandPlugin extends Plugin {
   // The most recent trusted skill read, so the logout read can be checked against it
   // rather than trusted blind.
   private Map<String, Integer> lastSkillRead;
+  // Zero until something has actually reached the server, so status can say so
+  // rather than always claiming nothing has been sent.
+  private long lastSubmitAtMs;
   // The generation the baseline currently tracks; a change means the account switched
   // and the baseline must be forgotten so the new account submits afresh.
   private int baselineGeneration = -1;
@@ -176,6 +180,151 @@ public class BankstandPlugin extends Plugin {
     // disables Bankstand would otherwise sit on screen with nothing behind it.
     collectionLogSync.reset();
     hideSyncInfoBox();
+  }
+
+  /** The status lines, gathered from live state. */
+  private java.util.List<String> statusLines() {
+    Player local = client.getLocalPlayer();
+    String name = session.isActive() && local != null ? local.getName() : null;
+    return StatusReport.lines(
+        isPaired(),
+        savedServerUrl(),
+        name == null || name.isEmpty() ? null : name,
+        lastSubmitAtMs == 0L ? null : describeAge(System.currentTimeMillis() - lastSubmitAtMs),
+        submitGate.isHalted() ? "authentication failed, so submission is paused. Re-pair to resume." : null,
+        enabledCapabilities(),
+        collectionLog.isEmpty() ? -1 : collectionLog.size());
+  }
+
+  /** `4 minutes ago`, coarsely. Precision here would imply more than we know. */
+  private static String describeAge(long millis) {
+    long minutes = millis / 60_000L;
+    if (minutes < 1) {
+      return "less than a minute ago";
+    }
+    if (minutes == 1) {
+      return "1 minute ago";
+    }
+    if (minutes < 60) {
+      return minutes + " minutes ago";
+    }
+    long hours = minutes / 60;
+    return hours == 1 ? "1 hour ago" : hours + " hours ago";
+  }
+
+  /**
+   * A manual sync runs the scheduled capture, rather than reading and submitting on its
+   * own. A second submit path is how the two drift: this one inherits the change gate,
+   * the per-block acknowledgement, the world check, the backoff and the persistence.
+   */
+  private void requestManualCapture() {
+    if (submitGate.isHalted()) {
+      notice("Submission is paused after an authentication failure. Re-pair to resume.");
+      return;
+    }
+    captureSkills();
+  }
+
+  /**
+   * Re-runs the identity submit, ignoring the once-per-session flag.
+   *
+   * <p>This is the action that was impossible during the incident: identity is
+   * submitted once per login and marks itself done before dispatch, so a single
+   * failure was unrecoverable short of a relog.
+   */
+  private void relinkCharacter() {
+    if (!isPaired()) {
+      notice("Not paired. Paste a pairing code in the Bankstand settings first.");
+      return;
+    }
+    if (!session.isActive()) {
+      notice("Log in first, then run ::bankstand link.");
+      return;
+    }
+    if (!isSkillCaptureEnabled()) {
+      notice("Turn on skill capture first: it carries the name and hash that link a character.");
+      return;
+    }
+    clientThread.invoke(
+        () -> {
+          Player local = client.getLocalPlayer();
+          String name = local == null ? null : local.getName();
+          if (name == null || name.isEmpty()) {
+            notice("Could not read your character name. Try again in a moment.");
+            return;
+          }
+          notice("Linking " + name + "...");
+          submitIdentity(session.getAccountHash(), session.getGeneration(), name);
+        });
+  }
+
+  /**
+   * {@code ::bankstand} and its subcommands.
+   *
+   * <p>A chat command rather than a settings button, because RuneLite has no button:
+   * {@code @ConfigItem} carries only position, keyName, name, description, hidden,
+   * warning, secret and section, verified against the client jar. A boolean that
+   * resets itself is the alternative and it shows a checkbox pretending to be a
+   * control.
+   *
+   * <p>{@code ::} rather than {@code !}, deliberately. A {@code !} command goes
+   * through {@code ChatCommandManager} and is broadcast to everyone nearby; these are
+   * private actions about one player's own account and have no business in public
+   * chat.
+   *
+   * <p>Every action reports its outcome, because half the value of a manual trigger is
+   * seeing what it did. During the incident that prompted this there was no way to
+   * retry anything and no way to see why.
+   */
+  @Subscribe
+  public void onCommandExecuted(CommandExecuted event) {
+    if (!"bankstand".equalsIgnoreCase(event.getCommand())) {
+      return;
+    }
+    String[] args = event.getArguments();
+    String action = args.length > 0 ? args[0].toLowerCase(java.util.Locale.ROOT) : "status";
+    switch (action) {
+      case "status":
+        for (String line : statusLines()) {
+          notice(line);
+        }
+        break;
+      case "sync":
+        for (String line : StatusReport.syncLines(isPaired(), enabledCapabilities())) {
+          notice(line);
+        }
+        if (isPaired() && !enabledCapabilities().isEmpty()) {
+          // Re-reads and submits through the one existing path, so a manual sync
+          // inherits every rule an automatic one has rather than becoming a second
+          // submit route that can drift from it.
+          requestManualCapture();
+        }
+        break;
+      case "link":
+        relinkCharacter();
+        break;
+      default:
+        notice("Unknown command. Try ::bankstand, ::bankstand sync or ::bankstand link.");
+        break;
+    }
+  }
+
+  /** Capability names for the status and sync lines, in a stable display order. */
+  private java.util.List<String> enabledCapabilities() {
+    java.util.List<String> on = new java.util.ArrayList<>();
+    if (isSkillCaptureEnabled()) {
+      on.add("skills");
+    }
+    if (isQuestCaptureEnabled()) {
+      on.add("quests");
+    }
+    if (isDiaryCaptureEnabled()) {
+      on.add("diaries");
+    }
+    if (isCollectionLogCaptureEnabled()) {
+      on.add("collection log");
+    }
+    return on;
   }
 
   /**
@@ -825,6 +974,7 @@ public class BankstandPlugin extends Plugin {
             // is not something the player can act on. Only announce the recovery, so a
             // healthy client stays silent rather than narrating every 60 seconds.
             submitGate.onSuccess();
+            lastSubmitAtMs = System.currentTimeMillis();
             if (session.isCurrent(accountHash, generation) && noticeGate.onSuccess()) {
               notice("Reconnected. Your progress is syncing again.");
             }
