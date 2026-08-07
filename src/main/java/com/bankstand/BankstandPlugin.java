@@ -281,7 +281,7 @@ public class BankstandPlugin extends Plugin {
     }
     hideSyncInfoBox();
     if (outcome != null) {
-      notice(syncOutcomeMessage(outcome, collectionLog.size(), overviewCounts));
+      notice(syncOutcomeMessage(outcome, collectionLog.size(), logTotals));
     }
   }
 
@@ -290,15 +290,14 @@ public class BankstandPlugin extends Plugin {
   /**
    * Prefers the game's own figure over ours.
    *
-   * <p>Measured on a real account: our item-id matching said 193 where the overview said
-   * 189. The player recognises the game's number, so when the overview was readable that
-   * is what they are told, and ours is only a fallback for when it was not.
+   * <p>Measured: our item-id matching said 193 where the log title said 189. The player
+   * recognises the game's number, so that is what they are told when it was readable.
    */
   static String syncOutcomeMessage(
-      CollectionLogSync.Outcome outcome, int knownTotal, OverviewCounts counts) {
+      CollectionLogSync.Outcome outcome, int knownTotal, LogTotals totals) {
     String figure =
-        counts != null && counts.isComplete()
-            ? counts.getObtained() + " of " + counts.getTotal()
+        totals != null
+            ? totals.getObtained() + " of " + totals.getTotal()
             : knownTotal + (knownTotal == 1 ? " entry" : " entries");
     if (outcome == CollectionLogSync.Outcome.COMPLETE) {
       return "Collection log synced. " + figure + " logged.";
@@ -307,68 +306,25 @@ public class BankstandPlugin extends Plugin {
   }
 
   /**
-   * The game's own per-category counts, remembered from the last time the overview was
-   * on screen.
+   * The log's own obtained-over-total, remembered from its title bar.
    *
-   * <p>Cached rather than read on demand, because by the time a sync finishes the player
-   * is looking at the **search results**, not the overview, so reading it then found
-   * nothing and quietly fell back to our own figure. Observed live: the message said
-   * "193 entries logged" where the overview had said 189.
-   *
-   * <p>Belongs to one character, so an account switch drops it.
+   * <p>Cached because the title is only readable while the log is open, and the sync
+   * reports a few ticks after the search ends. Belongs to one character, so an account
+   * switch drops it.
    */
-  private OverviewCounts overviewCounts;
+  private LogTotals logTotals;
 
-  /** Reads the overview if it is on screen, keeping the last complete read. */
-  private void pollOverviewCounts() {
-    Widget content = client.getWidget(InterfaceID.CollectionOverview.CONTENT);
-    if (content == null || content.isHidden()) {
-      return;
-    }
-    List<String> texts = new ArrayList<>();
-    collectText(content, texts, 0);
-    OverviewCounts read = OverviewCounts.of(texts);
-    if (read.isComplete()) {
-      overviewCounts = read;
-      return;
-    }
-    // Counts only, never the values: enough to tell "widget not found" from "found but
-    // the figures are nested somewhere else", which is the only thing still unverified
-    // about this read and cannot be checked outside a running client.
-    if (overviewCounts == null) {
-      log.debug(
-          "collection log overview: {} text nodes, {} parsed as a count",
-          texts.size(),
-          read.getCategories());
-    }
-  }
-
-  /**
-   * Every string in the subtree, to a bounded depth.
-   *
-   * <p>Targeting {@code SUBSECTION_PROGRESS} directly did not find the figures, and the
-   * exact nesting cannot be checked outside a running client, so this walks instead of
-   * assuming. Safe to be broad: {@code parseProgress} takes only a bare "N/M", and the
-   * one other pair on the screen, "Collections Logged: 189/300", is rank progress and is
-   * rejected by its prefix.
-   */
-  private static void collectText(Widget widget, List<String> into, int depth) {
-    if (widget == null || depth > MAX_WIDGET_DEPTH) {
-      return;
-    }
-    String text = widget.getText();
-    if (text != null && !text.isEmpty()) {
-      into.add(text);
-    }
-    for (Widget[] children :
-        new Widget[][] {
-          widget.getDynamicChildren(), widget.getStaticChildren(), widget.getChildren()
-        }) {
-      if (children == null) {
+  /** Reads the log title if it is on screen, keeping the last usable read. */
+  private void pollLogTotals() {
+    for (int id : new int[] {InterfaceID.Collection.HEADER_TEXT, InterfaceID.Collection.HEADER}) {
+      Widget header = client.getWidget(id);
+      if (header == null) {
         continue;
       }
-      for (Widget child : children) {
-        collectText(child, into, depth + 1);
+      LogTotals read = LogTotals.fromTitle(header.getText());
+      if (read != null) {
+        logTotals = read;
+        return;
       }
     }
   }
@@ -415,7 +371,7 @@ public class BankstandPlugin extends Plugin {
       // Abandoned rather than reported: an outcome nobody is there to read is noise.
       collectionLogSync.reset();
       hideSyncInfoBox();
-      overviewCounts = null;
+      logTotals = null;
     }
   }
 
@@ -424,9 +380,9 @@ public class BankstandPlugin extends Plugin {
     // Drive the guided read first and unconditionally. It has to be able to finish even
     // when the identity submit below has already run or is being skipped, or an armed
     // sync would hang with its infobox up.
-    // Read the overview whenever it is showing, so the figure survives the player
-    // moving to the search view where the sync actually finishes.
-    pollOverviewCounts();
+    // Read the title whenever the log is open, so the figure survives the few ticks
+    // between the search ending and the sync reporting.
+    pollLogTotals();
     if (collectionLogSync.isActive()) {
       tickCollectionLogSync();
     }
