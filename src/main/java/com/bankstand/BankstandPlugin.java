@@ -314,19 +314,66 @@ public class BankstandPlugin extends Plugin {
    */
   private LogTotals logTotals;
 
-  /** Reads the log title if it is on screen, keeping the last usable read. */
+  /**
+   * Finds the log title by what it says, not by which widget holds it.
+   *
+   * <p>Two guesses at a constant both came back empty in a live client
+   * (`Collection.HEADER_TEXT`, then `Collection.HEADER`), so this stops guessing
+   * and searches. The title is the one string in the interface that names the
+   * log and carries a count, which makes it identifiable without knowing where
+   * it lives, and immune to the id moving in a game update.
+   *
+   * <p>Requiring "Collection" in the text is what keeps it off the detail
+   * panel's per-source counts: "Obtained: 1/9" is also a single pair, and
+   * reading that as the log total would report one boss's progress as the whole
+   * log.
+   */
   private void pollLogTotals() {
-    for (int id : new int[] {InterfaceID.Collection.HEADER_TEXT, InterfaceID.Collection.HEADER}) {
-      Widget header = client.getWidget(id);
-      if (header == null) {
-        continue;
-      }
-      LogTotals read = LogTotals.fromTitle(header.getText());
-      if (read != null) {
-        logTotals = read;
+    if (logTotals != null) {
+      return;
+    }
+    Widget[] roots = client.getWidgetRoots();
+    if (roots == null) {
+      return;
+    }
+    for (Widget root : roots) {
+      LogTotals found = findTitle(root, 0);
+      if (found != null) {
+        logTotals = found;
         return;
       }
     }
+  }
+
+  private LogTotals findTitle(Widget widget, int depth) {
+    if (widget == null || depth > MAX_WIDGET_DEPTH) {
+      return null;
+    }
+    String text = widget.getText();
+    if (text != null && text.contains("Collection")) {
+      LogTotals read = LogTotals.fromTitle(text);
+      if (read != null) {
+        // Logged once, and only the id: the next version can read it directly
+        // instead of walking. No player data in it.
+        log.debug("collection log title found on widget {}", widget.getId());
+        return read;
+      }
+    }
+    for (Widget[] children :
+        new Widget[][] {
+          widget.getDynamicChildren(), widget.getStaticChildren(), widget.getChildren()
+        }) {
+      if (children == null) {
+        continue;
+      }
+      for (Widget child : children) {
+        LogTotals found = findTitle(child, depth + 1);
+        if (found != null) {
+          return found;
+        }
+      }
+    }
+    return null;
   }
 
   /** True while the log's own search interface is on screen. */

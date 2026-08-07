@@ -11,9 +11,12 @@ import java.util.regex.Pattern;
  * that title was read from).
  *
  * <p>The title is the right source rather than the overview screen: the overview is a
- * separate interface with no Search on it, so it is never on screen during a sync. It is
- * also the right source rather than walking the log's widgets, because the detail panel
- * shows per-source pairs like "Obtained: 1/9" that would be swept up as totals.
+ * separate interface with no Search on it, so it is never on screen during a sync.
+ *
+ * <p>The plugin finds it by searching for text that names the log and carries a count,
+ * because two guesses at a widget constant both came back empty in a live client. The
+ * "more than one pair" rule below is what makes that search safe: the detail panel shows
+ * per-source counts like "Obtained: 1/9" which would otherwise be read as a log total.
  *
  * <p>Pure and deterministic.
  */
