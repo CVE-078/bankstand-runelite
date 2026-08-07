@@ -8,7 +8,6 @@ import com.bankstand.http.OkHttpTransport;
 import com.bankstand.session.AccountSession;
 import com.google.gson.Gson;
 import com.google.inject.Provides;
-import lombok.extern.slf4j.Slf4j;
 import java.awt.Color;
 import java.awt.image.BufferedImage;
 import java.io.File;
@@ -50,7 +49,6 @@ import net.runelite.client.ui.overlay.infobox.InfoBoxManager;
 import net.runelite.client.util.ImageUtil;
 import okhttp3.OkHttpClient;
 
-@Slf4j
 @PluginDescriptor(
     name = "Bankstand",
     description =
@@ -84,9 +82,6 @@ public class BankstandPlugin extends Plugin {
   private static final File ACKED_STATE_DIR = new File(RuneLite.RUNELITE_DIR, "bankstand");
   private static final String ACKED_STATE_FILE = "acked-state.json";
 
-  // Deep enough for the overview's tile-inside-container nesting, shallow enough
-  // that a malformed tree cannot walk forever.
-  private static final int MAX_WIDGET_DEPTH = 6;
 
   // Every chat line the plugin writes carries a coloured prefix, so a message is
   // attributable at a glance in a busy chat box: the panel used to give that context
@@ -281,99 +276,27 @@ public class BankstandPlugin extends Plugin {
     }
     hideSyncInfoBox();
     if (outcome != null) {
-      notice(syncOutcomeMessage(outcome, collectionLog.size(), logTotals));
+      notice(syncOutcomeMessage(outcome, collectionLog.size()));
     }
   }
 
   // Package-private and static so the wording is testable without a Client, the same
   // reason shouldSubmit and the shouldAdvance family are.
   /**
-   * Prefers the game's own figure over ours.
+   * Reports what the plugin captured, not what the log totals.
    *
-   * <p>Measured: our item-id matching said 193 where the log title said 189. The player
-   * recognises the game's number, so that is what they are told when it was readable.
+   * <p>It deliberately does not quote the game's own "189 of 1712": reading that
+   * off the interface failed three times against a live client, and it stopped
+   * being worth chasing once the server learned to derive both numbers from the
+   * ids submitted here. This is the count that was sent; the log's own figure is
+   * Bankstand's to show.
    */
-  static String syncOutcomeMessage(
-      CollectionLogSync.Outcome outcome, int knownTotal, LogTotals totals) {
-    String figure =
-        totals != null
-            ? totals.getObtained() + " of " + totals.getTotal()
-            : knownTotal + (knownTotal == 1 ? " entry" : " entries");
+  static String syncOutcomeMessage(CollectionLogSync.Outcome outcome, int captured) {
+    String entries = captured + (captured == 1 ? " entry" : " entries");
     if (outcome == CollectionLogSync.Outcome.COMPLETE) {
-      return "Collection log synced. " + figure + " logged.";
+      return "Collection log synced. " + entries + " captured.";
     }
-    return "Partial read of your collection log. " + figure + " logged so far.";
-  }
-
-  /**
-   * The log's own obtained-over-total, remembered from its title bar.
-   *
-   * <p>Cached because the title is only readable while the log is open, and the sync
-   * reports a few ticks after the search ends. Belongs to one character, so an account
-   * switch drops it.
-   */
-  private LogTotals logTotals;
-
-  /**
-   * Finds the log title by what it says, not by which widget holds it.
-   *
-   * <p>Two guesses at a constant both came back empty in a live client
-   * (`Collection.HEADER_TEXT`, then `Collection.HEADER`), so this stops guessing
-   * and searches. The title is the one string in the interface that names the
-   * log and carries a count, which makes it identifiable without knowing where
-   * it lives, and immune to the id moving in a game update.
-   *
-   * <p>Requiring "Collection" in the text is what keeps it off the detail
-   * panel's per-source counts: "Obtained: 1/9" is also a single pair, and
-   * reading that as the log total would report one boss's progress as the whole
-   * log.
-   */
-  private void pollLogTotals() {
-    if (logTotals != null) {
-      return;
-    }
-    Widget[] roots = client.getWidgetRoots();
-    if (roots == null) {
-      return;
-    }
-    for (Widget root : roots) {
-      LogTotals found = findTitle(root, 0);
-      if (found != null) {
-        logTotals = found;
-        return;
-      }
-    }
-  }
-
-  private LogTotals findTitle(Widget widget, int depth) {
-    if (widget == null || depth > MAX_WIDGET_DEPTH) {
-      return null;
-    }
-    String text = widget.getText();
-    if (text != null && text.contains("Collection")) {
-      LogTotals read = LogTotals.fromTitle(text);
-      if (read != null) {
-        // Logged once, and only the id: the next version can read it directly
-        // instead of walking. No player data in it.
-        log.debug("collection log title found on widget {}", widget.getId());
-        return read;
-      }
-    }
-    for (Widget[] children :
-        new Widget[][] {
-          widget.getDynamicChildren(), widget.getStaticChildren(), widget.getChildren()
-        }) {
-      if (children == null) {
-        continue;
-      }
-      for (Widget child : children) {
-        LogTotals found = findTitle(child, depth + 1);
-        if (found != null) {
-          return found;
-        }
-      }
-    }
-    return null;
+    return "Partial read of your collection log. " + entries + " captured so far.";
   }
 
   /** True while the log's own search interface is on screen. */
@@ -418,7 +341,6 @@ public class BankstandPlugin extends Plugin {
       // Abandoned rather than reported: an outcome nobody is there to read is noise.
       collectionLogSync.reset();
       hideSyncInfoBox();
-      logTotals = null;
     }
   }
 
@@ -427,9 +349,6 @@ public class BankstandPlugin extends Plugin {
     // Drive the guided read first and unconditionally. It has to be able to finish even
     // when the identity submit below has already run or is being skipped, or an armed
     // sync would hang with its infobox up.
-    // Read the title whenever the log is open, so the figure survives the few ticks
-    // between the search ending and the sync reporting.
-    pollLogTotals();
     if (collectionLogSync.isActive()) {
       tickCollectionLogSync();
     }

@@ -29,6 +29,9 @@ already ships (Gson and OkHttp are used as its transitives).
 - Takes one last capture as you log out, so the final minute of a session is not dropped by the 60s
   schedule. The read is checked before it is sent: a cleared client reads as zeroes, and sending
   those would look like losing XP. A rejected read costs nothing, since the next login re-reads live.
+- Reports what it captured, not the log's own "189 of 1712". Reading that off the interface failed
+  against a live client three times, and Bankstand derives both numbers from the submitted ids
+  anyway, so the plugin no longer tries.
 - Remembers what the server already accepted, per character, in
   `<RUNELITE_DIR>/bankstand/acked-state.json`, so restarting the client does not re-send everything.
   Delete the file and the next capture simply sends it all once.
