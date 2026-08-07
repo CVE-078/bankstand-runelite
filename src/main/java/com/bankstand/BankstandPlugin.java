@@ -147,6 +147,9 @@ public class BankstandPlugin extends Plugin {
   private final NoticeGate noticeGate = new NoticeGate();
   // Stops a revoked token retrying forever, and paces a capture against a down server.
   private final SubmitGate submitGate = new SubmitGate();
+  // The most recent trusted skill read, so the logout read can be checked against it
+  // rather than trusted blind.
+  private Map<String, Integer> lastSkillRead;
   // The generation the baseline currently tracks; a change means the account switched
   // and the baseline must be forgotten so the new account submits afresh.
   private int baselineGeneration = -1;
@@ -357,6 +360,8 @@ public class BankstandPlugin extends Plugin {
       // Adopts the account only if it changed; the -1 logged-out sentinel is ignored.
       session.onLogin(client.getAccountHash());
     } else if (state == GameState.LOGIN_SCREEN) {
+      // Before onLogout, which clears the session this needs to attribute the read to.
+      captureFinalSnapshot();
       session.onLogout();
       // A read belongs to the character that started it, and its interface is gone.
       // Abandoned rather than reported: an outcome nobody is there to read is noise.
@@ -400,6 +405,40 @@ public class BankstandPlugin extends Plugin {
     submitIdentity(session.getAccountHash(), session.getGeneration(), name);
   }
 
+  /**
+   * The last minute of a session, which the 60s schedule otherwise drops.
+   *
+   * <p>Goes through {@code onSkillsCaptured} like any other capture, so it inherits the
+   * change gate, the per-block acknowledgement, the retry and the persistence rather
+   * than becoming a second submit path with its own rules. It does not block: the
+   * submit is already handed to the executor, and this returns before the client has
+   * finished logging out.
+   *
+   * <p>Nothing is lost when the read is rejected or the submit never lands. The next
+   * login re-reads live state, which already contains these minutes.
+   */
+  private void captureFinalSnapshot() {
+    if (pairingClient == null || !isPaired() || !session.isActive() || !isSkillCaptureEnabled()) {
+      return;
+    }
+    if (!submitGate.allow()) {
+      return;
+    }
+    Map<String, Integer> skills = readSkillXp();
+    if (!isPlausibleFinalRead(lastSkillRead, skills)) {
+      return;
+    }
+    onSkillsCaptured(
+        session.getAccountHash(),
+        session.getGeneration(),
+        // The local player is already gone, so the name cannot be re-read here. The
+        // envelope treats it as optional and the server keeps the one it has.
+        null,
+        skills,
+        isQuestCaptureEnabled() ? readQuestStates() : null,
+        isDiaryCaptureEnabled() ? readDiaryStates() : null);
+  }
+
   @Schedule(period = CAPTURE_INTERVAL_SECONDS, unit = ChronoUnit.SECONDS)
   public void captureSkills() {
     if (pairingClient == null || !isPaired() || !session.isActive()) {
@@ -441,6 +480,7 @@ public class BankstandPlugin extends Plugin {
           long accountHash = session.getAccountHash();
           int generation = session.getGeneration();
           Map<String, Integer> skills = readSkillXp();
+          lastSkillRead = skills;
           // Quest and diary state are opt-in; read them in this same block so they are
           // one consistent snapshot with the skills, and leave each null (never sent)
           // when off.
@@ -692,6 +732,32 @@ public class BankstandPlugin extends Plugin {
   // capability's rollout flag is on (reason "not_applied"), which is exactly when a
   // first snapshot most needs to survive.
   //
+  /**
+   * Whether a read taken as the player logs out is worth submitting.
+   *
+   * <p>The read happens after the client has left the world, and whether skill XP is
+   * still readable there cannot be verified outside a running client. So it is checked
+   * rather than trusted: a cleared client reads as zeroes or as nothing, and submitting
+   * that is an XP regression. Discarding costs nothing, because the next login re-reads
+   * live state that already includes those minutes.
+   */
+  static boolean isPlausibleFinalRead(
+      Map<String, Integer> previous, Map<String, Integer> fresh) {
+    if (fresh == null || fresh.isEmpty()) {
+      return false;
+    }
+    if (previous == null) {
+      return true;
+    }
+    for (Map.Entry<String, Integer> before : previous.entrySet()) {
+      Integer now = fresh.get(before.getKey());
+      if (now == null || now < before.getValue()) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   // Package-private and static for the same reason as plan above.
   static boolean shouldAdvanceSkills(SubmitSnapshotResponse res) {
     return res.isBlockStored("skills");

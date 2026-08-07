@@ -26,6 +26,9 @@ already ships (Gson and OkHttp are used as its transitives).
 - Reads your collection log (opt-in) while the log interface enumerates its items, guided by you
   rather than automated. Unlike the others this ACCUMULATES: a partial read adds to what is known
   and never replaces it, because the game only reveals the log while you are looking at it.
+- Takes one last capture as you log out, so the final minute of a session is not dropped by the 60s
+  schedule. The read is checked before it is sent: a cleared client reads as zeroes, and sending
+  those would look like losing XP. A rejected read costs nothing, since the next login re-reads live.
 - Remembers what the server already accepted, per character, in
   `<RUNELITE_DIR>/bankstand/acked-state.json`, so restarting the client does not re-send everything.
   Delete the file and the next capture simply sends it all once.
