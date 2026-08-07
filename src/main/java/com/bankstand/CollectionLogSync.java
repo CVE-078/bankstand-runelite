@@ -1,5 +1,8 @@
 package com.bankstand;
 
+import java.util.LinkedHashSet;
+import java.util.Set;
+
 /**
  * The guided collection log read: what the plugin knows about a sync the player started,
  * and when that read is over.
@@ -51,7 +54,7 @@ public class CollectionLogSync {
 
     private int observed;
 
-    /** Entries seen during the read this outcome describes. */
+    /** Distinct entries seen during the read this outcome describes. */
     public int getObserved() {
       return observed;
     }
@@ -69,7 +72,7 @@ public class CollectionLogSync {
   }
 
   private State state = State.IDLE;
-  private int observed;
+  private final Set<Integer> observed = new LinkedHashSet<>();
   private int quietTicks;
   private int armedTicks;
   private boolean sawSearch;
@@ -77,7 +80,7 @@ public class CollectionLogSync {
   /** Starts a guided read. Arming again abandons whatever the last one had seen. */
   public void arm() {
     state = State.AWAITING_SEARCH;
-    observed = 0;
+    observed.clear();
     quietTicks = 0;
     armedTicks = 0;
     sawSearch = false;
@@ -86,13 +89,18 @@ public class CollectionLogSync {
   /**
    * Records one entry the client reported. Ignored unless a read is under way, so
    * ordinary browsing still reaches the accumulator without starting or extending one.
+   *
+   * <p>Counted by distinct id, not by event. A real enumeration fires the script twice
+   * per entry on the first read of a session, so counting events reported "Synced 422
+   * entries" for a log holding 211. The accumulator was always right, because it is a
+   * set; only the figure the player was shown was wrong.
    */
-  public void onItemObserved() {
+  public void onItemObserved(int itemId) {
     if (state == State.IDLE) {
       return;
     }
     state = State.READING;
-    observed++;
+    observed.add(itemId);
     quietTicks = 0;
   }
 
@@ -115,7 +123,7 @@ public class CollectionLogSync {
     // reporting; before any entry arrived there is nothing to report at all.
     if (!logOpen) {
       boolean reading = state == State.READING;
-      Outcome outcome = reading ? Outcome.PARTIAL.with(observed) : null;
+      Outcome outcome = reading ? Outcome.PARTIAL.with(observed.size()) : null;
       finish();
       return outcome;
     }
@@ -130,7 +138,7 @@ public class CollectionLogSync {
     if (quietTicks < QUIET_TICKS) {
       return null;
     }
-    Outcome outcome = (sawSearch ? Outcome.COMPLETE : Outcome.PARTIAL).with(observed);
+    Outcome outcome = (sawSearch ? Outcome.COMPLETE : Outcome.PARTIAL).with(observed.size());
     finish();
     return outcome;
   }
@@ -145,9 +153,9 @@ public class CollectionLogSync {
     return state == State.AWAITING_SEARCH;
   }
 
-  /** Entries seen so far in the current read. */
+  /** Distinct entries seen so far in the current read. */
   public int observedCount() {
-    return observed;
+    return observed.size();
   }
 
   /**
@@ -160,7 +168,7 @@ public class CollectionLogSync {
 
   private void finish() {
     state = State.IDLE;
-    observed = 0;
+    observed.clear();
     quietTicks = 0;
     armedTicks = 0;
     sawSearch = false;
