@@ -22,9 +22,9 @@ already ships (Gson and OkHttp are used as its transitives).
 - Every 60 seconds while logged in, captures skill XP and (behind their own opt-ins) quest and
   achievement diary state, submitting only when something changed since the last acknowledged submit.
   An idle account sends nothing.
-- Reads your collection log (opt-in) while the log interface enumerates its items. Unlike the
-  others this ACCUMULATES: a partial read adds to what is known and never replaces it, because
-  the game only reveals the log while you are looking at it.
+- Reads your collection log (opt-in) while the log interface enumerates its items, guided by you
+  rather than automated. Unlike the others this ACCUMULATES: a partial read adds to what is known
+  and never replaces it, because the game only reveals the log while you are looking at it.
 - Tracks the logged-in account hash per character, never carries state across an account switch, and
   never submits the logged-out sentinel (`-1`).
 - Skips non-standard worlds (tournament, seasonal, deadman, PvP arena), whose XP is not the account's
@@ -74,9 +74,13 @@ Every toggle names what it sends. Everything is private to your own Bankstand ac
 - **Collect quest progress** / **Collect achievement diary progress**: opt-in, both default off.
   Diaries are tier level only.
 - **Collect collection log**: opt-in, default off. The collection log is not held in the
-  client, so it is read while the log interface enumerates. That happens when you search
-  your log, and a **Sync to Bankstand** right-click entry triggers it for you. If another
-  plugin already makes your log enumerate, Bankstand picks it up from that too.
+  client, so it is read while the log interface enumerates, which is what searching your
+  log makes it do. The read is **guided, not automated**: a **Sync to Bankstand**
+  right-click entry inside the log arms the read and asks you to click the game's own
+  Search, and an infobox counts entries as they arrive. The plugin never drives the
+  interface itself (see the automation invariant below). If another plugin already makes
+  your log enumerate Bankstand picks that up too, and ordinary page browsing keeps
+  adding to what is known.
 
 These were called `shareQuests`, `shareDiaries` and `shareCollectionLog` before. They were renamed
 with no migration, so a client that paired earlier keeps its pairing and its server URL but reverts
@@ -127,9 +131,17 @@ Launcher session. One-time setup so the dev client can reuse your session:
 Constraints that a fresh reader will not infer from the code, and that break something real if
 ignored.
 
-- **`./gradlew build` is the merge gate. This repo has no CI.** Nothing runs on push, so a green local
-  build before every commit is the whole of the automated safety net. One class:
+- **`./gradlew build` is the merge gate**, and CI now runs the same build on every pull request and
+  on pushes to `main`. A green local build before every commit is still the fast path. One class:
   `./gradlew test --tests com.bankstand.<Class>`.
+- **The plugin observes the client. It never drives it.** Hub PR #11371 was closed with "use of
+  `client.menuAction` is not allowed", which is why the collection log read is guided: the player
+  clicks the game's own Search and the plugin watches script `4100`, which fires for every entry
+  whoever triggered it. The automated version was two lines and looked entirely reasonable, so
+  `NoAutomationApiTest` scans the source and fails the build if `client.menuAction`,
+  `client.runScript` or `client.invokeMenuAction` reappears outside a comment. `MenuAction.RUNELITE`
+  is fine and is not what the ban is about: it types a menu entry the player chooses to click.
+  Reintroducing a driving call costs a rejected Hub submission and another round of review latency.
 - **Never log the device token, the account hash, the display name, or a raw request body.** The token
   is a credential; the other three identify a real person's account. The raw token is returned once by
   the pairing exchange and stored, never printed.
