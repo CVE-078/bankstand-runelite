@@ -9,6 +9,7 @@ import com.bankstand.session.AccountSession;
 import com.google.gson.Gson;
 import com.google.inject.Provides;
 import java.awt.Color;
+import java.awt.image.BufferedImage;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.EnumSet;
@@ -42,6 +43,8 @@ import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
 import net.runelite.client.task.Schedule;
+import net.runelite.client.ui.overlay.infobox.InfoBoxManager;
+import net.runelite.client.util.ImageUtil;
 import okhttp3.OkHttpClient;
 
 @PluginDescriptor(
@@ -65,11 +68,12 @@ public class BankstandPlugin extends Plugin {
   // The collection log is not held in varbits: Jagex keeps it server-side and only
   // reveals it while the log interface enumerates its items. Script 4100 fires once
   // per item during that enumeration, carrying the item id as its second argument,
-  // which is what the harvest listens to. Searching the log is what
-  // makes it enumerate everything rather than one page, which is why the menu entry
-  // below triggers the log's own Search rather than trying to walk pages.
+  // which is what the harvest listens to. Searching the log is what makes it enumerate
+  // everything rather than one page, and the script fires for every entry whoever ran
+  // that Search, so watching a player-initiated one reads the whole log without the
+  // plugin triggering anything. The menu entry below arms that watch; it does not, and
+  // must not, drive the interface itself.
   private static final int COLLECTION_LOG_ITEM_SCRIPT = 4100;
-  private static final int COLLECTION_LOG_SEARCH_SCRIPT = 2240;
   private static final String SYNC_MENU_OPTION = "Sync to Bankstand";
 
   // Every chat line the plugin writes carries a coloured prefix, so a message is
@@ -122,6 +126,7 @@ public class BankstandPlugin extends Plugin {
   @Inject private ScheduledExecutorService executor;
   @Inject private ClientThread clientThread;
   @Inject private ChatMessageManager chatMessageManager;
+  @Inject private InfoBoxManager infoBoxManager;
 
   private final AccountSession session = new AccountSession();
   private final SkillBaseline skillBaseline = new SkillBaseline();
@@ -129,6 +134,8 @@ public class BankstandPlugin extends Plugin {
   private final DiaryBaseline diaryBaseline = new DiaryBaseline();
   private final CollectionLogAccumulator collectionLog = new CollectionLogAccumulator();
   private final CollectionLogBaseline collectionLogBaseline = new CollectionLogBaseline();
+  private final CollectionLogSync collectionLogSync = new CollectionLogSync();
+  private CollectionLogSyncInfoBox syncInfoBox;
   // Suppresses a recurring failure from printing every capture cycle.
   private final NoticeGate noticeGate = new NoticeGate();
   // The generation the baseline currently tracks; a change means the account switched
@@ -150,6 +157,10 @@ public class BankstandPlugin extends Plugin {
   @Override
   protected void shutDown() {
     pairingClient = null;
+    // An infobox outlives the plugin that added it, so a sync armed when the player
+    // disables Bankstand would otherwise sit on screen with nothing behind it.
+    collectionLogSync.reset();
+    hideSyncInfoBox();
   }
 
   /**
@@ -195,6 +206,10 @@ public class BankstandPlugin extends Plugin {
       return;
     }
     collectionLog.observe((Integer) args[1]);
+    // Passive browsing fires this script too. The sync ignores an entry unless a guided
+    // read is armed, so ordinary page-turning still enriches the accumulator without
+    // reporting itself as a whole-log sync.
+    collectionLogSync.onItemObserved();
   }
 
   /**
@@ -228,17 +243,96 @@ public class BankstandPlugin extends Plugin {
   }
 
   /**
-   * Makes the log enumerate everything by triggering its own Search, which is the only
-   * way to see the whole log without the player walking every page.
+   * Arms a guided read and tells the player the one thing they have to do.
+   *
+   * <p>An earlier version drove the log's own Search with {@code client.menuAction} and
+   * {@code client.runScript}, which saved the player a single click and is the exact
+   * call the Plugin Hub rejected on PR #11371. The item script fires for every entry
+   * whoever ran the Search, so a player-initiated one produces the identical read with
+   * no automation primitive in the plugin at all. That is the whole trade: one click,
+   * for a submission that can be accepted.
    */
   private void syncCollectionLog() {
-    clientThread.invoke(
-        () -> {
-          client.menuAction(
-              -1, InterfaceID.Collection.SEARCH_TOGGLE, MenuAction.CC_OP, 1, -1, "Search", null);
-          client.runScript(COLLECTION_LOG_SEARCH_SCRIPT);
-        });
-    notice("Reading your collection log...");
+    collectionLogSync.arm();
+    showSyncInfoBox();
+    notice("Click Search in your collection log to sync it.");
+  }
+
+  private void showSyncInfoBox() {
+    if (syncInfoBox != null) {
+      return;
+    }
+    syncInfoBox = new CollectionLogSyncInfoBox(icon(), this, collectionLogSync);
+    infoBoxManager.addInfoBox(syncInfoBox);
+  }
+
+  private void hideSyncInfoBox() {
+    if (syncInfoBox == null) {
+      return;
+    }
+    infoBoxManager.removeInfoBox(syncInfoBox);
+    syncInfoBox = null;
+  }
+
+  /**
+   * Advances an in-flight read by one tick and clears up after it when it ends.
+   *
+   * <p>The infobox is keyed on the sync still being active, NOT on there being an
+   * outcome. Those come apart in both directions and getting it wrong is invisible in
+   * the state machine's own tests: a read in progress returns no outcome every tick, so
+   * hiding on a null outcome would take the box away one tick after arming, and a read
+   * abandoned on the arm timeout ends with no outcome at all, so hiding only on a
+   * non-null one would leave the box up for good.
+   *
+   * <p>The count is reported either way, because the count is the fact. Whether the
+   * read saw the whole log is a separate and weaker claim, and the wording keeps them
+   * apart: a partial read says what to do about it rather than implying the sync
+   * failed, since everything it did read has still been kept.
+   */
+  private void tickCollectionLogSync() {
+    // Turning the capability off mid-read stops the entries arriving (the script
+    // handler is gated on it), which would otherwise look like a read that finished.
+    if (!isCollectionLogCaptureEnabled()) {
+      collectionLogSync.reset();
+      hideSyncInfoBox();
+      return;
+    }
+    CollectionLogSync.Outcome outcome =
+        collectionLogSync.onTick(isSearchOpen(), isCollectionLogOpen());
+    if (collectionLogSync.isActive()) {
+      return;
+    }
+    hideSyncInfoBox();
+    if (outcome != null) {
+      notice(syncOutcomeMessage(outcome));
+    }
+  }
+
+  // Package-private and static so the wording is testable without a Client, the same
+  // reason shouldSubmit and the shouldAdvance family are.
+  static String syncOutcomeMessage(CollectionLogSync.Outcome outcome) {
+    int observed = outcome.getObserved();
+    String entries = observed + (observed == 1 ? " entry" : " entries");
+    if (outcome == CollectionLogSync.Outcome.COMPLETE) {
+      return "Synced " + entries + " from your collection log.";
+    }
+    return "Partial sync, " + entries + " kept. Run Search again to finish.";
+  }
+
+  /** True while the log's own search interface is on screen. */
+  private boolean isSearchOpen() {
+    Widget results = client.getWidget(InterfaceID.Collection.SEARCH_RESULTS);
+    return results != null && !results.isHidden();
+  }
+
+  /** True while the collection log itself is on screen. */
+  private boolean isCollectionLogOpen() {
+    Widget log = client.getWidget(InterfaceID.Collection.UNIVERSE);
+    return log != null && !log.isHidden();
+  }
+
+  private BufferedImage icon() {
+    return ImageUtil.loadImageResource(BankstandPlugin.class, "icon.png");
   }
 
   private boolean isCollectionLogCaptureEnabled() {
@@ -253,11 +347,21 @@ public class BankstandPlugin extends Plugin {
       session.onLogin(client.getAccountHash());
     } else if (state == GameState.LOGIN_SCREEN) {
       session.onLogout();
+      // A read belongs to the character that started it, and its interface is gone.
+      // Abandoned rather than reported: an outcome nobody is there to read is noise.
+      collectionLogSync.reset();
+      hideSyncInfoBox();
     }
   }
 
   @Subscribe
   public void onGameTick(GameTick event) {
+    // Drive the guided read first and unconditionally. It has to be able to finish even
+    // when the identity submit below has already run or is being skipped, or an armed
+    // sync would hang with its infobox up.
+    if (collectionLogSync.isActive()) {
+      tickCollectionLogSync();
+    }
     // Submit the logged-in character's identity once per session, when paired. The
     // local player (and its name) is reliably available a tick after LOGGED_IN, which
     // is why this runs on the tick rather than directly on the state change.
