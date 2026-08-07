@@ -13,9 +13,11 @@ import java.awt.image.BufferedImage;
 import java.io.File;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ScheduledExecutorService;
@@ -272,18 +274,76 @@ public class BankstandPlugin extends Plugin {
     }
     hideSyncInfoBox();
     if (outcome != null) {
-      notice(syncOutcomeMessage(outcome, collectionLog.size()));
+      notice(syncOutcomeMessage(outcome, collectionLog.size(), readOverviewCounts()));
     }
   }
 
   // Package-private and static so the wording is testable without a Client, the same
   // reason shouldSubmit and the shouldAdvance family are.
-  static String syncOutcomeMessage(CollectionLogSync.Outcome outcome, int knownTotal) {
-    String entries = knownTotal + (knownTotal == 1 ? " entry" : " entries");
+  /**
+   * Prefers the game's own figure over ours.
+   *
+   * <p>Measured on a real account: our item-id matching said 193 where the overview said
+   * 189. The player recognises the game's number, so when the overview was readable that
+   * is what they are told, and ours is only a fallback for when it was not.
+   */
+  static String syncOutcomeMessage(
+      CollectionLogSync.Outcome outcome, int knownTotal, OverviewCounts counts) {
+    String figure =
+        counts != null && counts.isComplete()
+            ? counts.getObtained() + " of " + counts.getTotal()
+            : knownTotal + (knownTotal == 1 ? " entry" : " entries");
     if (outcome == CollectionLogSync.Outcome.COMPLETE) {
-      return "Collection log synced. " + entries + " known.";
+      return "Collection log synced. " + figure + " logged.";
     }
-    return "Partial read of your collection log. " + entries + " known so far.";
+    return "Partial read of your collection log. " + figure + " logged so far.";
+  }
+
+  /**
+   * The game's own per-category counts, read off the overview if it is on screen.
+   *
+   * <p>Returns a not-complete result whenever anything is missing, so a half-built
+   * interface never reports a smaller log. Every widget read here is defensive for the
+   * same reason the search check had to be fixed: the shape of this interface cannot be
+   * verified outside a running client.
+   */
+  private OverviewCounts readOverviewCounts() {
+    Widget progress = client.getWidget(InterfaceID.CollectionOverview.SUBSECTION_PROGRESS);
+    if (progress == null) {
+      return OverviewCounts.of(Collections.emptyList());
+    }
+    List<String> texts = new ArrayList<>();
+    collectText(progress, texts);
+    return OverviewCounts.of(texts);
+  }
+
+  private static void collectText(Widget widget, List<String> into) {
+    if (widget == null) {
+      return;
+    }
+    String text = widget.getText();
+    if (text != null && !text.isEmpty()) {
+      into.add(text);
+    }
+    for (Widget[] children :
+        new Widget[][] {
+          widget.getDynamicChildren(), widget.getStaticChildren(), widget.getChildren()
+        }) {
+      if (children == null) {
+        continue;
+      }
+      for (Widget child : children) {
+        // One level down only. The figures sit directly on or under the progress
+        // widget, and walking the whole tree would scoop up unrelated numbers.
+        if (child == null) {
+          continue;
+        }
+        String childText = child.getText();
+        if (childText != null && !childText.isEmpty()) {
+          into.add(childText);
+        }
+      }
+    }
   }
 
   /** True while the log's own search interface is on screen. */
