@@ -51,7 +51,8 @@ import okhttp3.OkHttpClient;
 
 @PluginDescriptor(
     name = "Bankstand",
-    description = "Pair this client with your Bankstand account for client-verified identity.",
+    description =
+        "Sync your skills, quests, diaries and collection log to your Bankstand account",
     tags = {"bankstand", "account", "progress", "external"})
 public class BankstandPlugin extends Plugin {
 
