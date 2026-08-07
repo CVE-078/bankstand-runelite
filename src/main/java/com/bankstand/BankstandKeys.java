@@ -3,8 +3,8 @@ package com.bankstand;
 /**
  * Storage keys and defaults for the plugin's persisted state.
  *
- * <p>The keys a player edits ({@code serverBaseUrl}, {@code shareQuests}, {@code
- * shareDiaries}) are declared again as items on {@link BankstandConfig} and are read
+ * <p>The keys a player edits ({@code serverBaseUrl}, {@code collectQuests}, {@code
+ * collectDiaries}) are declared again as items on {@link BankstandConfig} and are read
  * through it. They are still named here because the plugin also writes some of them
  * back through {@link net.runelite.client.config.ConfigManager} (clearing the pairing
  * code, resetting the disconnect toggle), and both sides have to agree on the key.
@@ -19,14 +19,26 @@ public final class BankstandKeys {
 
   public static final String GROUP = "bankstand";
 
-  // Keep the original key names so a client that paired with an earlier version keeps
-  // its settings. The URL in particular has now survived two UI redesigns.
+  // The connection keys keep their original names, so an existing pairing survives a
+  // rename untouched. The URL in particular has now survived three UI redesigns.
   public static final String KEY_SERVER_URL = "serverBaseUrl";
-  public static final String KEY_SHARE_QUESTS = "shareQuests";
-  public static final String KEY_SHARE_DIARIES = "shareDiaries";
-  public static final String KEY_SHARE_COLLECTION_LOG = "shareCollectionLog";
   public static final String KEY_PAIRING_CODE = "pairingCode";
   public static final String KEY_DISCONNECT = "disconnect";
+
+  // The capture keys are named collect, not share, because collection and visibility
+  // are separate decisions: this client decides what is READ, and the website decides
+  // who may SEE it. A key called share in a game client names the wrong one of the
+  // two, at exactly the moment a player is making the choice.
+  //
+  // Renamed from shareQuests, shareDiaries and shareCollectionLog with no migration,
+  // deliberately. A client that paired before the rename keeps its pairing and its
+  // server URL, and reverts these three opt-ins to off. Off is the safe direction to
+  // be wrong in, and the alternative was carrying legacy-key handling into a public
+  // release to spare a handful of dogfood clients one re-tick.
+  public static final String KEY_COLLECT_SKILLS = "collectSkills";
+  public static final String KEY_COLLECT_QUESTS = "collectQuests";
+  public static final String KEY_COLLECT_DIARIES = "collectDiaries";
+  public static final String KEY_COLLECT_COLLECTION_LOG = "collectCollectionLog";
 
   // Credentials, never surfaced as config items.
   public static final String KEY_DEVICE_TOKEN = "deviceToken";

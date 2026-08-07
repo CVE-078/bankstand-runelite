@@ -46,20 +46,41 @@ same as zero.
 
 ## Configuration
 
-All of it is under **RuneLite settings > Bankstand**.
+All of it is under **RuneLite settings > Bankstand**, in two sections.
+
+The split matters: **Connection** is which Bankstand account this client is tied to, and **Collect**
+is what this client reads and sends. Who may then *see* any of it is a third question, answered in
+your Bankstand privacy settings and deliberately not here. A setting in a game client cannot be the
+source of truth for a server-side audience, which is why nothing in this plugin is called "share".
+
+### Connection
 
 - **Server URL**: defaults to the live Bankstand site. Set it to `http://localhost:3000` (or whatever
   port your `pnpm dev` uses) to pair and submit against a local server. Stored under the
   `bankstand.serverBaseUrl` config key. **A stale value here makes every submit fail**, which is why
   it is a visible setting rather than hidden behind an advanced toggle.
-- **Share quest progress** / **Share achievement diary progress**: opt-in, both default off.
-- **Share collection log**: opt-in, default off. The collection log is not held in the
-  client, so it is read while the log interface enumerates. That happens when you search
-  your log, and a **Sync to Bankstand** right-click entry triggers it for you. If another
-  plugin already makes your log enumerate, Bankstand picks it up from that too.
 - **Pairing code**: paste a code to pair. Cleared automatically once used, successfully or not.
 - **Disconnect**: tick to forget this device's token. Unticks itself. To revoke server-side, use
   Bankstand > Account.
+
+### Collect
+
+Every toggle names what it sends. Everything is private to your own Bankstand account by default.
+
+- **Collect skill XP**: default **on**. Sends your XP per skill, your account hash and your display
+  name. It gates the whole capture rather than just its own block, because the v1 envelope makes
+  `skills` required and the rest optional riders on it, so with this off there is no submission for
+  them to attach to and a paired client goes quiet.
+- **Collect quest progress** / **Collect achievement diary progress**: opt-in, both default off.
+  Diaries are tier level only.
+- **Collect collection log**: opt-in, default off. The collection log is not held in the
+  client, so it is read while the log interface enumerates. That happens when you search
+  your log, and a **Sync to Bankstand** right-click entry triggers it for you. If another
+  plugin already makes your log enumerate, Bankstand picks it up from that too.
+
+These were called `shareQuests`, `shareDiaries` and `shareCollectionLog` before. They were renamed
+with no migration, so a client that paired earlier keeps its pairing and its server URL but reverts
+these three opt-ins to off. Re-tick them once.
 
 Outcomes are reported in the chat box, since there is no panel to hold a status line. A failure that
 repeats every capture cycle is announced once, not every 60 seconds, and the recovery is announced
