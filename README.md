@@ -83,12 +83,11 @@ Every toggle names what it sends. Everything is private to your own Bankstand ac
 - **Collect collection log**: opt-in, default off. The collection log is not held in the
   client, so it is read while the log interface enumerates, which is what searching your
   log makes it do. **Open your collection log and click Search. That is the whole flow**,
-  and an infobox counts entries as they arrive. There is a **Sync to Bankstand**
-  right-click entry inside the log, but it only tells you that; you do not have to use
-  it. The plugin never drives the interface itself (see the automation invariant below),
-  which is the one thing it cannot do and why the click is yours. If another plugin
-  already makes your log enumerate Bankstand picks that up too, and ordinary page
-  browsing keeps adding to what is known.
+  and an infobox counts entries as they arrive. There is no button and no menu entry: the
+  plugin cannot drive the interface itself (see the automation invariant below), which is
+  why the click is yours, and adding a right-click entry only put "Sync to Bankstand" on
+  every click in the game. If another plugin already makes your log enumerate Bankstand
+  picks that up too, and ordinary page browsing keeps adding to what is known.
 
 These were called `shareQuests`, `shareDiaries` and `shareCollectionLog` before. They were renamed
 with no migration, so a client that paired earlier keeps its pairing and its server URL but reverts

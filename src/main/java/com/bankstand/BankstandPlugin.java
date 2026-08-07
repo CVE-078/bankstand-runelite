@@ -27,10 +27,8 @@ import net.runelite.api.Player;
 import net.runelite.api.Quest;
 import net.runelite.api.Skill;
 import net.runelite.api.WorldType;
-import net.runelite.api.MenuAction;
 import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.GameTick;
-import net.runelite.api.events.MenuOpened;
 import net.runelite.api.events.ScriptPreFired;
 import net.runelite.api.gameval.InterfaceID;
 import net.runelite.api.widgets.Widget;
@@ -76,7 +74,6 @@ public class BankstandPlugin extends Plugin {
   // plugin triggering anything. The menu entry below arms that watch; it does not, and
   // must not, drive the interface itself.
   private static final int COLLECTION_LOG_ITEM_SCRIPT = 4100;
-  private static final String SYNC_MENU_OPTION = "Sync to Bankstand";
 
   // Its own directory, so a player can find and delete what the plugin keeps.
   private static final File ACKED_STATE_DIR = new File(RuneLite.RUNELITE_DIR, "bankstand");
@@ -224,49 +221,6 @@ public class BankstandPlugin extends Plugin {
     // read is armed, so ordinary page-turning still enriches the accumulator without
     // reporting itself as a whole-log sync.
     collectionLogSync.onItemObserved((Integer) args[1], isSearchOpen());
-  }
-
-  /**
-   * Offers the sync action as a menu entry rather than a drawn button.
-   *
-   * <p>A button would have to be positioned by hand against the log's own controls,
-   * which collides with any other plugin doing the same (WikiSync draws one there
-   * already) and breaks whenever the interface is reshuffled. A menu entry cannot
-   * collide, and costs a fraction of the code.
-   */
-  @Subscribe
-  public void onMenuOpened(MenuOpened event) {
-    if (!isCollectionLogCaptureEnabled() || !isPaired()) {
-      return;
-    }
-    // Ask the client whether the log is on screen RIGHT NOW rather than tracking it.
-    // A boolean set when the interface builds has no reliable clear: the first
-    // version set it on open and cleared it only on logout, so after one visit to
-    // the collection log the entry followed the player onto every right-click in the
-    // world. Widget presence cannot go stale.
-    Widget collectionLog = client.getWidget(InterfaceID.Collection.UNIVERSE);
-    if (collectionLog == null || collectionLog.isHidden()) {
-      return;
-    }
-    client
-        .createMenuEntry(-1)
-        .setOption(SYNC_MENU_OPTION)
-        .setTarget("")
-        .setType(MenuAction.RUNELITE)
-        .onClick(e -> syncCollectionLog());
-  }
-
-  /**
-   * A discovery hint, not a step. The search starts a read on its own, so this exists
-   * only to tell someone who does not know that clicking Search is the whole flow.
-   *
-   * <p>Driving the Search ourselves needs {@code client.menuAction}, the exact call the
-   * Hub rejected on PR #11371, which is why the player clicks it and we watch.
-   */
-  private void syncCollectionLog() {
-    collectionLogSync.arm();
-    showSyncInfoBox();
-    notice("Click Search in your collection log. That is all it takes.");
   }
 
   private void showSyncInfoBox() {
