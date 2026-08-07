@@ -223,7 +223,7 @@ public class BankstandPlugin extends Plugin {
     // Passive browsing fires this script too. The sync ignores an entry unless a guided
     // read is armed, so ordinary page-turning still enriches the accumulator without
     // reporting itself as a whole-log sync.
-    collectionLogSync.onItemObserved();
+    collectionLogSync.onItemObserved((Integer) args[1]);
   }
 
   /**
@@ -339,10 +339,18 @@ public class BankstandPlugin extends Plugin {
     return results != null && !results.isHidden();
   }
 
-  /** True while the collection log itself is on screen. */
+  /**
+   * True while the player is still in the collection log, search view included.
+   *
+   * <p>The search counts as still being in the log. Opening it can hide the log's own
+   * root widget, and treating that as "the player closed the log" cancelled the read at
+   * the exact moment the player did the one thing it was waiting for. Observed live: a
+   * sync armed at 12:04:38 died silently two seconds later, then the next attempt
+   * succeeded only because the search view was already open by then.
+   */
   private boolean isCollectionLogOpen() {
     Widget log = client.getWidget(InterfaceID.Collection.UNIVERSE);
-    return log != null && !log.isHidden();
+    return (log != null && !log.isHidden()) || isSearchOpen();
   }
 
   private BufferedImage icon() {

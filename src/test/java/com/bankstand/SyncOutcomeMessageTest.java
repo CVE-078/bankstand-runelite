@@ -15,7 +15,7 @@ public class SyncOutcomeMessageTest {
     boolean searchOpen = kind == Outcome.COMPLETE;
     sync.onTick(searchOpen, true);
     for (int i = 0; i < observed; i++) {
-      sync.onItemObserved();
+      sync.onItemObserved(i);
     }
     Outcome result = null;
     for (int i = 0; i < CollectionLogSync.QUIET_TICKS && result == null; i++) {
