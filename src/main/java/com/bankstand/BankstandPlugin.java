@@ -503,25 +503,97 @@ public class BankstandPlugin extends Plugin {
     // observed before they did, and an opt-in is not retroactive.
     Set<Integer> clog =
         isCollectionLogCaptureEnabled() ? collectionLog.observed() : Collections.emptySet();
-    if (!shouldSubmit(
-        skillBaseline,
-        skills,
-        questBaseline,
-        quests,
-        diaryBaseline,
-        diaries,
-        collectionLogBaseline,
-        clog.size())) {
+    SubmitPlan plan =
+        plan(
+            skillBaseline,
+            skills,
+            questBaseline,
+            quests,
+            diaryBaseline,
+            diaries,
+            collectionLogBaseline,
+            clog);
+    if (!plan.shouldSubmit()) {
       return;
     }
-    submitSnapshot(accountHash, generation, name, skills, quests, diaries, clog);
+    // An omitted rider is dropped to the same null or empty the opt-in-off case already
+    // uses, so submitSnapshot has exactly one notion of "was this block sent" and the
+    // per-block acknowledgement keeps keying off what actually went on the wire.
+    submitSnapshot(
+        accountHash,
+        generation,
+        name,
+        skills,
+        plan.includesQuests() ? quests : null,
+        plan.includesDiaries() ? diaries : null,
+        plan.includesCollectionLog() ? clog : Collections.emptySet());
   }
 
-  // A quest or diary change alone is enough to submit; a null map (the opt-in is off)
-  // never contributes. Package-private and static so it is unit-testable with real
-  // SkillBaseline/QuestBaseline/DiaryBaseline instances, without a Client or
-  // ConfigManager fake.
-  static boolean shouldSubmit(
+  /**
+   * Which blocks a capture puts on the wire.
+   *
+   * <p>Skills is not listed because it is not optional: the v1 envelope requires it, so
+   * every submission carries it and the only question is whether to submit at all.
+   */
+  static final class SubmitPlan {
+    private final boolean submit;
+    private final boolean quests;
+    private final boolean diaries;
+    private final boolean collectionLog;
+
+    private SubmitPlan(boolean submit, boolean quests, boolean diaries, boolean collectionLog) {
+      this.submit = submit;
+      this.quests = quests;
+      this.diaries = diaries;
+      this.collectionLog = collectionLog;
+    }
+
+    boolean shouldSubmit() {
+      return submit;
+    }
+
+    boolean includesQuests() {
+      return quests;
+    }
+
+    boolean includesDiaries() {
+      return diaries;
+    }
+
+    boolean includesCollectionLog() {
+      return collectionLog;
+    }
+  }
+
+  /**
+   * Decides what this capture sends, per capability rather than all or nothing.
+   *
+   * <p>The rule used to be "if anything changed, send everything", which meant a single
+   * xp drop re-sent the entire collection log, around seventeen hundred ids, every
+   * sixty seconds for as long as the player kept training. A capability now rides along
+   * only when that capability changed since the server last acknowledged it.
+   *
+   * <p><b>Whole blocks only, never a delta within one.</b> The server merges capability
+   * blocks with jsonb {@code ||}, a top-level replace, so a block carrying only its
+   * changed fields would erase every field it left out. Capability-level granularity is
+   * safe with that merge and field-level is silent data loss, which is why this decides
+   * whether to include a block and never what to put in one. The envelope has no way to
+   * express a partial block, so the unsafe granularity is unrepresentable rather than
+   * merely discouraged.
+   *
+   * <p>Omitting an unchanged block does not weaken the per-block acknowledgement rule
+   * that keeps an unstored block re-sending. A block the server never acknowledged has
+   * no baseline to match, so it reads as changed and keeps going out until it is
+   * stored.
+   *
+   * <p>An empty block is never sent whatever its baseline says: absent means "not
+   * observed" on this wire, and an empty map would instead assert the player has none.
+   * A null map is the opt-in being off, which never contributes and never sends.
+   *
+   * <p>Package-private and static so it is unit-testable with real baselines, without a
+   * Client or a ConfigManager fake.
+   */
+  static SubmitPlan plan(
       SkillBaseline skillBaseline,
       Map<String, Integer> skills,
       QuestBaseline questBaseline,
@@ -529,13 +601,20 @@ public class BankstandPlugin extends Plugin {
       DiaryBaseline diaryBaseline,
       Map<String, String> diaries,
       CollectionLogBaseline collectionLogBaseline,
-      int collectionLogCount) {
-    return skillBaseline.changedSince(skills)
-        || (quests != null && questBaseline.changedSince(quests))
-        || (diaries != null && diaryBaseline.changedSince(diaries))
-        // Without this, syncing a collection log would sit unsent until the player
-        // happened to gain xp, which is exactly when they are least likely to look.
-        || collectionLogBaseline.changedSince(collectionLogCount);
+      Set<Integer> collectionLogItems) {
+    boolean sendQuests =
+        quests != null && !quests.isEmpty() && questBaseline.changedSince(quests);
+    boolean sendDiaries =
+        diaries != null && !diaries.isEmpty() && diaryBaseline.changedSince(diaries);
+    // Without the collection log counting toward the decision, a freshly synced log
+    // would sit unsent until the player happened to gain xp, which is exactly when they
+    // are least likely to be looking at it.
+    boolean sendCollectionLog =
+        !collectionLogItems.isEmpty()
+            && collectionLogBaseline.changedSince(collectionLogItems.size());
+    boolean submit =
+        skillBaseline.changedSince(skills) || sendQuests || sendDiaries || sendCollectionLog;
+    return new SubmitPlan(submit, sendQuests, sendDiaries, sendCollectionLog);
   }
 
   // Every baseline, skills included, advances only on the server's own per-block
@@ -550,7 +629,7 @@ public class BankstandPlugin extends Plugin {
   // capability's rollout flag is on (reason "not_applied"), which is exactly when a
   // first snapshot most needs to survive.
   //
-  // Package-private and static for the same reason as shouldSubmit above.
+  // Package-private and static for the same reason as plan above.
   static boolean shouldAdvanceSkills(SubmitSnapshotResponse res) {
     return res.isBlockStored("skills");
   }
