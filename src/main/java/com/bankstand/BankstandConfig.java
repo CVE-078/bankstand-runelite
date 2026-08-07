@@ -106,7 +106,9 @@ public interface BankstandConfig extends Config {
 
   @ConfigItem(
       keyName = BankstandKeys.KEY_COLLECT_DIARIES,
-      name = "Collect achievement diary progress",
+      // "Collect achievement diary progress" is too long for the config panel and
+      // renders truncated. The description carries the full name instead.
+      name = "Collect diary progress",
       description =
           "Sends which achievement diary tiers you have completed. Tier level only: a tier"
               + " you are part way through is not yet distinguishable from an untouched one.",
@@ -120,8 +122,10 @@ public interface BankstandConfig extends Config {
       keyName = BankstandKeys.KEY_COLLECT_COLLECTION_LOG,
       name = "Collect collection log",
       description =
-          "Sends which collection log slots you have filled. Read only while the log is on"
-              + " screen, so it updates when you look at it and can be partial.",
+          "Sends which collection log slots you have filled. The game only reveals the log"
+              + " while it is on screen, so browsing adds what you see. To read the whole"
+              + " log, right-click in it, pick Sync to Bankstand, then click the game's own"
+              + " Search.",
       section = collectSection,
       position = 4)
   default boolean collectCollectionLog() {
