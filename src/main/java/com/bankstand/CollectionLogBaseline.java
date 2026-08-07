@@ -24,6 +24,26 @@ public class CollectionLogBaseline {
     acked = ackedNow;
   }
 
+  /**
+   * Restores a count read back from disk. Minus one means nothing is known.
+   *
+   * <p><b>Only ever alongside the accumulator it counts.</b> A count works as a gate
+   * because the observed set grows monotonically, which holds across a restart only if
+   * the set is restored too. Restore the count against an empty accumulator and the next
+   * partial browse reads as a change, sends, acks, and churns every session after.
+   * Derive the count from a restored set instead and a log whose submit failed is treated
+   * as delivered and never sent again. A baseline and what it measures need the same
+   * lifetime.
+   */
+  public void restore(int ackedNow) {
+    acked = ackedNow;
+  }
+
+  /** The acknowledged count, or -1 when nothing has been. */
+  public int ackedCount() {
+    return acked;
+  }
+
   public void reset() {
     acked = -1;
   }

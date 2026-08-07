@@ -43,6 +43,16 @@ public class CollectionLogAccumulator {
   }
 
   /**
+   * Restores items read back from disk. The one capability that must persist: the others
+   * are re-read live next capture, but the game reveals the log only while the player is
+   * looking at it, so an observation lost to a restart cannot be asked for again.
+   */
+  public void restore(Set<Integer> items) {
+    observed.clear();
+    observed.addAll(items);
+  }
+
+  /**
    * Forgets everything. Called on an account switch: a collection log belongs to one
    * character, and carrying it across would attribute one account's items to another.
    */

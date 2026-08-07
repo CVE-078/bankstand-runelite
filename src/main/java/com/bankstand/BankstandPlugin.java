@@ -10,6 +10,7 @@ import com.google.gson.Gson;
 import com.google.inject.Provides;
 import java.awt.Color;
 import java.awt.image.BufferedImage;
+import java.io.File;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.EnumSet;
@@ -40,6 +41,7 @@ import net.runelite.client.chat.QueuedMessage;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.events.ConfigChanged;
 import net.runelite.client.eventbus.Subscribe;
+import net.runelite.client.RuneLite;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
 import net.runelite.client.task.Schedule;
@@ -75,6 +77,10 @@ public class BankstandPlugin extends Plugin {
   // must not, drive the interface itself.
   private static final int COLLECTION_LOG_ITEM_SCRIPT = 4100;
   private static final String SYNC_MENU_OPTION = "Sync to Bankstand";
+
+  // Its own directory, so a player can find and delete what the plugin keeps.
+  private static final File ACKED_STATE_DIR = new File(RuneLite.RUNELITE_DIR, "bankstand");
+  private static final String ACKED_STATE_FILE = "acked-state.json";
 
   // Every chat line the plugin writes carries a coloured prefix, so a message is
   // attributable at a glance in a busy chat box: the panel used to give that context
@@ -136,6 +142,7 @@ public class BankstandPlugin extends Plugin {
   private final CollectionLogBaseline collectionLogBaseline = new CollectionLogBaseline();
   private final CollectionLogSync collectionLogSync = new CollectionLogSync();
   private CollectionLogSyncInfoBox syncInfoBox;
+  private AckedStateStore ackedStore;
   // Suppresses a recurring failure from printing every capture cycle.
   private final NoticeGate noticeGate = new NoticeGate();
   // The generation the baseline currently tracks; a change means the account switched
@@ -152,6 +159,8 @@ public class BankstandPlugin extends Plugin {
   protected void startUp() {
     HttpTransport transport = new OkHttpTransport(okHttpClient);
     pairingClient = new BankstandClient(transport, gson);
+    // A file, not ConfigManager. AckedStateStore says why that is not a preference.
+    ackedStore = new AckedStateStore(new File(ACKED_STATE_DIR, ACKED_STATE_FILE), gson);
   }
 
   @Override
@@ -488,7 +497,9 @@ public class BankstandPlugin extends Plugin {
       Map<String, Integer> skills,
       Map<String, String> quests,
       Map<String, String> diaries) {
-    // A change of account forgets every baseline so the new account submits afresh.
+    // Forget every baseline, then ask disk what this character already had accepted.
+    // Forgetting first is what lets the load be slow: a capture arriving before it just
+    // re-sends, which is what every client start did before any of this persisted.
     if (generation != baselineGeneration) {
       skillBaseline.reset();
       questBaseline.reset();
@@ -498,6 +509,7 @@ public class BankstandPlugin extends Plugin {
       collectionLog.reset();
       collectionLogBaseline.reset();
       baselineGeneration = generation;
+      loadAckedState(accountHash, generation);
     }
     // Only send the log once the player has opted in; the accumulator may hold items
     // observed before they did, and an opt-in is not retroactive.
@@ -527,6 +539,50 @@ public class BankstandPlugin extends Plugin {
         plan.includesQuests() ? quests : null,
         plan.includesDiaries() ? diaries : null,
         plan.includesCollectionLog() ? clog : Collections.emptySet());
+  }
+
+  /**
+   * Reads off the executor because the caller is the client thread, applies back on it
+   * because the baselines live there. The {@code isCurrent} guard stops a slow read for
+   * an account the player has already left landing on the one they are on now.
+   */
+  private void loadAckedState(long accountHash, int generation) {
+    if (ackedStore == null) {
+      return;
+    }
+    executor.submit(
+        () -> {
+          AckedState state = ackedStore.load(accountHash);
+          clientThread.invoke(
+              () -> {
+                if (!session.isCurrent(accountHash, generation)) {
+                  return;
+                }
+                skillBaseline.restore(state.getSkills());
+                questBaseline.restore(state.getQuests());
+                diaryBaseline.restore(state.getDiaries());
+                // Together, never one alone. CollectionLogBaseline.restore says why.
+                collectionLog.restore(state.getCollectionLogItems());
+                collectionLogBaseline.restore(state.getCollectionLogAcked());
+              });
+        });
+  }
+
+  /**
+   * Reads the baselines on the client thread and hands a finished document to the
+   * executor to write. Reading them on the executor would race the next capture.
+   */
+  private void saveAckedState(long accountHash) {
+    if (ackedStore == null) {
+      return;
+    }
+    AckedState state = AckedState.empty();
+    state.setSkills(skillBaseline.ackedDigest());
+    state.setQuests(questBaseline.ackedDigest());
+    state.setDiaries(diaryBaseline.ackedDigest());
+    state.setCollectionLogItems(collectionLog.observed());
+    state.setCollectionLogAcked(collectionLogBaseline.ackedCount());
+    executor.submit(() -> ackedStore.save(accountHash, state));
   }
 
   /**
@@ -710,6 +766,9 @@ public class BankstandPlugin extends Plugin {
                     if (shouldAdvanceCollectionLog(res, !collectionLogItems.isEmpty())) {
                       collectionLogBaseline.advance(collectionLogItems.size());
                     }
+                    // Unconditional, not only when a baseline advanced: passive browsing
+                    // can have grown the accumulator even on a submit that stored nothing.
+                    saveAckedState(accountHash);
                   }
                 });
             // A reached server is a success for notice purposes even when it stored
