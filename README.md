@@ -26,6 +26,9 @@ already ships (Gson and OkHttp are used as its transitives).
 - Reads your collection log (opt-in) while the log interface enumerates its items, guided by you
   rather than automated. Unlike the others this ACCUMULATES: a partial read adds to what is known
   and never replaces it, because the game only reveals the log while you are looking at it.
+- Remembers what the server already accepted, per character, in
+  `<RUNELITE_DIR>/bankstand/acked-state.json`, so restarting the client does not re-send everything.
+  Delete the file and the next capture simply sends it all once.
 - Tracks the logged-in account hash per character, never carries state across an account switch, and
   never submits the logged-out sentinel (`-1`).
 - Skips non-standard worlds (tournament, seasonal, deadman, PvP arena), whose XP is not the account's
@@ -142,6 +145,18 @@ ignored.
   granularity is unrepresentable rather than merely discouraged. Omitting an unchanged block is safe
   and does not weaken the per-block acknowledgement: a block the server never acknowledged has no
   baseline to match, reads as changed, and keeps going out until it is stored.
+- **Captured game data never goes through `ConfigManager`.** `saveConfiguration` checks
+  `ConfigProfile.isSync()` and, when the player has sync on, PATCHes the profile's whole changed key
+  set to RuneLite's own config service. There is no per-key exclusion, so a plugin cannot mark one
+  value local-only. Anything the plugin reads out of the game is the player's data and goes to
+  Bankstand alone, so it lives in `<RUNELITE_DIR>/bankstand/`, not in config. (The device token is
+  already in config and predates this rule; that is a known open question, not a precedent.)
+- **A baseline and the state it measures must have the same lifetime.** `CollectionLogBaseline` is a
+  count, valid as a change gate only because the observed set grows monotonically. Persist the count
+  while the accumulator resets and the next partial browse churns a short block every session;
+  persist the set but derive the count from it and a log whose submit failed is treated as delivered
+  and never sent again. They are written and restored together, and `AckedStateRestartTest` pins
+  both failure modes.
 - **The plugin observes the client. It never drives it.** Hub PR #11371 was closed with "use of
   `client.menuAction` is not allowed", which is why the collection log read is guided: the player
   clicks the game's own Search and the plugin watches script `4100`, which fires for every entry

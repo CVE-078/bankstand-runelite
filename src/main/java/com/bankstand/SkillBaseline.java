@@ -1,6 +1,5 @@
 package com.bankstand;
 
-import java.util.HashMap;
 import java.util.Map;
 
 /**
@@ -8,27 +7,34 @@ import java.util.Map;
  * capture loop only submits when something moved. The plugin resets this on an
  * account switch and advances it only when a submit is acknowledged, so a dropped
  * submit is retried on the next capture (the baseline never moved).
+ *
+ * <p>Held as a digest rather than a copy, so the same value can be written to disk and
+ * restored on the next start; without that, every start re-sends every block once. One
+ * representation is what lets memory and disk agree by construction.
  */
 public class SkillBaseline {
-  private final Map<String, Integer> acked = new HashMap<>();
+  private String acked;
 
-  /** True when any skill in {@code current} is new or differs from the baseline. */
+  /** True when {@code current} differs from what the server last acknowledged. */
   public boolean changedSince(Map<String, Integer> current) {
-    for (Map.Entry<String, Integer> e : current.entrySet()) {
-      Integer prev = acked.get(e.getKey());
-      if (prev == null || !prev.equals(e.getValue())) {
-        return true;
-      }
-    }
-    return false;
+    return !CapabilityDigest.of(current).equals(acked);
   }
 
   public void advance(Map<String, Integer> ackedNow) {
-    acked.clear();
-    acked.putAll(ackedNow);
+    acked = CapabilityDigest.of(ackedNow);
+  }
+
+  /** Restores a digest read back from disk. Null means nothing is known. */
+  public void restore(String digest) {
+    acked = digest;
+  }
+
+  /** The acknowledged digest, or null when nothing has been. */
+  public String ackedDigest() {
+    return acked;
   }
 
   public void reset() {
-    acked.clear();
+    acked = null;
   }
 }

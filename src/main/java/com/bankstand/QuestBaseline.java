@@ -1,6 +1,5 @@
 package com.bankstand;
 
-import java.util.HashMap;
 import java.util.Map;
 
 /**
@@ -8,27 +7,34 @@ import java.util.Map;
  * capture loop only submits when something moved. The plugin resets this on an
  * account switch and advances it only when a submit is acknowledged, so a dropped
  * submit is retried on the next capture (the baseline never moved).
+ *
+ * <p>Held as a digest rather than a copy of the vector, so the same value can be
+ * written to disk and restored on the next client start. See {@link SkillBaseline} for
+ * why one representation across memory and disk is worth a hash.
  */
 public class QuestBaseline {
-  private final Map<String, String> acked = new HashMap<>();
+  private String acked;
 
-  /** True when any quest in {@code current} is new or differs from the baseline. */
+  /** True when {@code current} differs from what the server last acknowledged. */
   public boolean changedSince(Map<String, String> current) {
-    for (Map.Entry<String, String> e : current.entrySet()) {
-      String prev = acked.get(e.getKey());
-      if (prev == null || !prev.equals(e.getValue())) {
-        return true;
-      }
-    }
-    return false;
+    return !CapabilityDigest.of(current).equals(acked);
   }
 
   public void advance(Map<String, String> ackedNow) {
-    acked.clear();
-    acked.putAll(ackedNow);
+    acked = CapabilityDigest.of(ackedNow);
+  }
+
+  /** Restores a digest read back from disk. Null means nothing is known. */
+  public void restore(String digest) {
+    acked = digest;
+  }
+
+  /** The acknowledged digest, or null when nothing has been. */
+  public String ackedDigest() {
+    return acked;
   }
 
   public void reset() {
-    acked.clear();
+    acked = null;
   }
 }
