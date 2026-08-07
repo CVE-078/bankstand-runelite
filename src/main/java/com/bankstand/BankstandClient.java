@@ -10,6 +10,7 @@ import com.google.gson.JsonSyntaxException;
 import java.io.IOException;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.concurrent.ThreadLocalRandom;
 
 /**
  * Talks to the Bankstand pairing endpoint. Given a raw pairing code and the
@@ -110,7 +111,7 @@ public class BankstandClient {
         // The device token is invalid or revoked; retrying will not help. Point the
         // user at the one action that fixes it rather than looping.
         throw new SubmitException(
-            "Bankstand rejected the device token. Re-pair in Account > Connect RuneLite.", false);
+            "Bankstand rejected the device token. Re-pair in Account > Connect RuneLite.", false, true);
       }
       if (status == 429 || status >= 500) {
         throw new SubmitException("Bankstand is busy.", true);
@@ -176,7 +177,7 @@ public class BankstandClient {
     if (status != 200) {
       if (status == 401 || status == 403) {
         throw new SubmitException(
-            "Bankstand rejected the device token. Re-pair in Account > Connect RuneLite.", false);
+            "Bankstand rejected the device token. Re-pair in Account > Connect RuneLite.", false, true);
       }
       if (status == 429 || status >= 500) {
         throw new SubmitException("Bankstand is busy.", true);
@@ -215,11 +216,27 @@ public class BankstandClient {
     T call() throws SubmitException;
   }
 
+  /** Longest a single backoff waits, whatever the attempt number. */
+  static final long MAX_BACKOFF_MILLIS = 8_000L;
+
+  /**
+   * Full jitter over a doubling window: a uniform pick from {@code [0, window)} rather
+   * than the window itself, so clients that failed together do not return together.
+   *
+   * <p>Takes the randomness rather than drawing it, because a backoff only ever observed
+   * as a sleep is a backoff nobody can test.
+   *
+   * @param randomFraction a value in {@code [0, 1)}
+   */
+  static long backoffMillis(int attempt, long baseDelayMillis, double randomFraction) {
+    long window = Math.min(MAX_BACKOFF_MILLIS, baseDelayMillis << (attempt - 1));
+    return (long) (window * randomFraction);
+  }
+
   /**
    * Generic bounded retry shared by every submit endpoint: retryable failures are
-   * retried up to {@code maxAttempts} with a linear backoff of
-   * {@code baseDelayMillis * attempt}; terminal failures fail fast. Blocks the
-   * calling thread during backoff, so it runs on the plugin's background executor.
+   * retried up to {@code maxAttempts}, terminal ones fail fast. Blocks the calling
+   * thread during backoff, so it runs on the plugin's background executor.
    */
   private static <T> T withRetry(SubmitCall<T> call, int maxAttempts, long baseDelayMillis)
       throws SubmitException {
@@ -232,7 +249,7 @@ public class BankstandClient {
         if (!e.isRetryable() || attempt == maxAttempts) {
           throw e;
         }
-        sleep(baseDelayMillis * attempt);
+        sleep(backoffMillis(attempt, baseDelayMillis, ThreadLocalRandom.current().nextDouble()));
       }
     }
     // Unreachable for maxAttempts >= 1: the final attempt always returns or throws.

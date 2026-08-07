@@ -94,6 +94,10 @@ Outcomes are reported in the chat box, since there is no panel to hold a status 
 repeats every capture cycle is announced once, not every 60 seconds, and the recovery is announced
 when it clears.
 
+A client that keeps failing also slows down, skipping captures on a doubling count up to about 16
+minutes, and resuming the moment one succeeds. **A rejected or revoked token stops it entirely**:
+retrying cannot fix that, so the plugin says so once and sends nothing until you re-pair.
+
 ## Build and run (developer mode)
 
 Requires JDK 11+ (17 works).

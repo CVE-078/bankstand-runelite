@@ -145,6 +145,8 @@ public class BankstandPlugin extends Plugin {
   private AckedStateStore ackedStore;
   // Suppresses a recurring failure from printing every capture cycle.
   private final NoticeGate noticeGate = new NoticeGate();
+  // Stops a revoked token retrying forever, and paces a capture against a down server.
+  private final SubmitGate submitGate = new SubmitGate();
   // The generation the baseline currently tracks; a change means the account switched
   // and the baseline must be forgotten so the new account submits afresh.
   private int baselineGeneration = -1;
@@ -401,6 +403,11 @@ public class BankstandPlugin extends Plugin {
   @Schedule(period = CAPTURE_INTERVAL_SECONDS, unit = ChronoUnit.SECONDS)
   public void captureSkills() {
     if (pairingClient == null || !isPaired() || !session.isActive()) {
+      return;
+    }
+    // Before reading anything: a halted or backing-off client should not be walking the
+    // varbits either, and consuming a skip here is what makes the backoff advance.
+    if (!submitGate.allow()) {
       return;
     }
     // Skills gate the whole capture, not just their own block. The v1 envelope makes
@@ -775,12 +782,23 @@ public class BankstandPlugin extends Plugin {
             // nothing: "stale" or "not_applied" is the server working as intended, and
             // is not something the player can act on. Only announce the recovery, so a
             // healthy client stays silent rather than narrating every 60 seconds.
+            submitGate.onSuccess();
             if (session.isCurrent(accountHash, generation) && noticeGate.onSuccess()) {
               notice("Reconnected. Your progress is syncing again.");
             }
           } catch (SubmitException e) {
             // Do not advance the baseline: the change is unsent, retry next cycle. The
             // token and account hash are never logged.
+            if (e.isAuthFailure()) {
+              // Retrying cannot fix a revoked token, so stop rather than fail every
+              // capture in silence. Announced by the gate, not NoticeGate, because this
+              // is the one failure the player has to act on.
+              if (submitGate.onAuthFailure()) {
+                notice("This client is no longer paired. Re-pair from your Bankstand account.");
+              }
+              return;
+            }
+            submitGate.onFailure();
             if (session.isCurrent(accountHash, generation) && noticeGate.onFailure(e.getMessage())) {
               notice("Could not sync your progress. " + e.getMessage());
             }
@@ -861,8 +879,10 @@ public class BankstandPlugin extends Plugin {
             PairResponse res = pairingClient.exchangePairingCode(url, rawCode);
             storeToken(res);
             // A fresh pairing is a clean slate: an outstanding failure against the old
-            // credentials must not suppress the first notice against the new ones.
+            // credentials must not suppress the first notice against the new ones, and
+            // re-pairing is the only thing that lifts a halt for a revoked token.
             noticeGate.onSuccess();
+            submitGate.resume();
             notice("Connected. Your progress will sync from now on.");
           } catch (PairingException e) {
             // The message is generic and safe; the raw code and token are never logged.
