@@ -18,18 +18,48 @@ public class CollectionLogSyncTest {
   }
 
   @Test
-  public void startsIdleAndIgnoresItemsUntilArmed() {
+  public void ignoresOrdinaryPageBrowsing() {
     CollectionLogSync sync = new CollectionLogSync();
 
     assertFalse(sync.isActive());
-    // Passive browsing fires the same script. It must enrich the accumulator without
-    // starting a guided sync or reporting an outcome nobody asked for.
-    sync.onItemObserved(1);
-    sync.onItemObserved(2);
+    // The same script fires when the player just turns a page. It must reach the
+    // accumulator without reporting itself as a whole-log sync.
+    sync.onItemObserved(1, false);
+    sync.onItemObserved(2, false);
 
     assertFalse(sync.isActive());
     assertEquals(0, sync.observedCount());
     assertNull(sync.onTick(false, true));
+  }
+
+  /**
+   * The reason arming is no longer required. WikiSync is one button because it drives
+   * the Search with a call the Hub bans us from; the fewest actions left to us is the
+   * player clicking the game's own Search, so that alone has to be enough.
+   */
+  @Test
+  public void aSearchStartsAReadWithNothingArmed() {
+    CollectionLogSync sync = new CollectionLogSync();
+
+    sync.onItemObserved(1, true);
+    sync.onItemObserved(2, true);
+
+    assertTrue(sync.isActive());
+    assertFalse(sync.isAwaitingSearch());
+    assertEquals(2, sync.observedCount());
+  }
+
+  @Test
+  public void anUnarmedSearchStillReportsComplete() {
+    CollectionLogSync sync = new CollectionLogSync();
+    sync.onItemObserved(1, true);
+
+    Outcome outcome = null;
+    for (int i = 0; i < CollectionLogSync.QUIET_TICKS && outcome == null; i++) {
+      outcome = sync.onTick(true, true);
+    }
+
+    assertEquals(Outcome.COMPLETE, outcome);
   }
 
   @Test
@@ -49,9 +79,9 @@ public class CollectionLogSyncTest {
     sync.arm();
 
     assertNull(sync.onTick(true, true));
-    sync.onItemObserved(3);
-    sync.onItemObserved(4);
-    sync.onItemObserved(5);
+    sync.onItemObserved(3, true);
+    sync.onItemObserved(4, true);
+    sync.onItemObserved(5, true);
 
     assertFalse(sync.isAwaitingSearch());
     assertEquals(3, sync.observedCount());
@@ -62,8 +92,8 @@ public class CollectionLogSyncTest {
     CollectionLogSync sync = new CollectionLogSync();
     sync.arm();
     assertNull(sync.onTick(true, true));
-    sync.onItemObserved(6);
-    sync.onItemObserved(7);
+    sync.onItemObserved(6, true);
+    sync.onItemObserved(7, true);
 
     Outcome outcome = null;
     for (int i = 0; i < CollectionLogSync.QUIET_TICKS && outcome == null; i++) {
@@ -90,7 +120,7 @@ public class CollectionLogSyncTest {
 
     for (int repeat = 0; repeat < 2; repeat++) {
       for (int id = 1; id <= 211; id++) {
-        sync.onItemObserved(id);
+        sync.onItemObserved(id, true);
       }
     }
 
@@ -105,7 +135,7 @@ public class CollectionLogSyncTest {
 
     // An item on every tick keeps the stream alive well past the quiet threshold.
     for (int i = 0; i < CollectionLogSync.QUIET_TICKS * 3; i++) {
-      sync.onItemObserved(100 + i);
+      sync.onItemObserved(100 + i, true);
       assertNull(sync.onTick(true, true));
     }
 
@@ -118,9 +148,9 @@ public class CollectionLogSyncTest {
     CollectionLogSync sync = new CollectionLogSync();
     sync.arm();
     assertNull(sync.onTick(true, true));
-    sync.onItemObserved(9);
-    sync.onItemObserved(10);
-    sync.onItemObserved(11);
+    sync.onItemObserved(9, true);
+    sync.onItemObserved(10, true);
+    sync.onItemObserved(11, true);
 
     Outcome outcome = sync.onTick(true, false);
 
@@ -138,7 +168,7 @@ public class CollectionLogSyncTest {
   public void reportsPartialWhenItemsArrivedWithoutTheSearchEverBeingSeen() {
     CollectionLogSync sync = new CollectionLogSync();
     sync.arm();
-    sync.onItemObserved(12);
+    sync.onItemObserved(12, true);
 
     Outcome outcome = null;
     for (int i = 0; i < CollectionLogSync.QUIET_TICKS && outcome == null; i++) {
@@ -180,7 +210,7 @@ public class CollectionLogSyncTest {
 
     // A read that starts on the last possible tick still gets its full quiet window,
     // rather than being cut off by a timeout meant for a sync that never began.
-    sync.onItemObserved(13);
+    sync.onItemObserved(13, true);
     assertNull(sync.onTick(true, true));
     assertTrue(sync.isActive());
     assertEquals(1, sync.observedCount());
@@ -191,8 +221,8 @@ public class CollectionLogSyncTest {
     CollectionLogSync sync = new CollectionLogSync();
     sync.arm();
     assertNull(sync.onTick(true, true));
-    sync.onItemObserved(14);
-    sync.onItemObserved(15);
+    sync.onItemObserved(14, true);
+    sync.onItemObserved(15, true);
 
     sync.arm();
 
@@ -204,7 +234,7 @@ public class CollectionLogSyncTest {
   public void resetAbandonsAnythingInFlight() {
     CollectionLogSync sync = new CollectionLogSync();
     sync.arm();
-    sync.onItemObserved(16);
+    sync.onItemObserved(16, true);
 
     // An account switch or a logout: the read belongs to the character that started it.
     sync.reset();
