@@ -223,7 +223,7 @@ public class BankstandPlugin extends Plugin {
     // Passive browsing fires this script too. The sync ignores an entry unless a guided
     // read is armed, so ordinary page-turning still enriches the accumulator without
     // reporting itself as a whole-log sync.
-    collectionLogSync.onItemObserved((Integer) args[1]);
+    collectionLogSync.onItemObserved((Integer) args[1], isSearchOpen());
   }
 
   /**
@@ -257,19 +257,16 @@ public class BankstandPlugin extends Plugin {
   }
 
   /**
-   * Arms a guided read and tells the player the one thing they have to do.
+   * A discovery hint, not a step. The search starts a read on its own, so this exists
+   * only to tell someone who does not know that clicking Search is the whole flow.
    *
-   * <p>An earlier version drove the log's own Search with {@code client.menuAction} and
-   * {@code client.runScript}, which saved the player a single click and is the exact
-   * call the Plugin Hub rejected on PR #11371. The item script fires for every entry
-   * whoever ran the Search, so a player-initiated one produces the identical read with
-   * no automation primitive in the plugin at all. That is the whole trade: one click,
-   * for a submission that can be accepted.
+   * <p>Driving the Search ourselves needs {@code client.menuAction}, the exact call the
+   * Hub rejected on PR #11371, which is why the player clicks it and we watch.
    */
   private void syncCollectionLog() {
     collectionLogSync.arm();
     showSyncInfoBox();
-    notice("Click Search in your collection log to sync it.");
+    notice("Click Search in your collection log. That is all it takes.");
   }
 
   private void showSyncInfoBox() {
@@ -311,6 +308,9 @@ public class BankstandPlugin extends Plugin {
       hideSyncInfoBox();
       return;
     }
+    // A search starts a read with nobody having armed it, so the box is raised here
+    // rather than only where the menu entry arms one. Idempotent.
+    showSyncInfoBox();
     CollectionLogSync.Outcome outcome =
         collectionLogSync.onTick(isSearchOpen(), isCollectionLogOpen());
     if (collectionLogSync.isActive()) {
@@ -318,19 +318,18 @@ public class BankstandPlugin extends Plugin {
     }
     hideSyncInfoBox();
     if (outcome != null) {
-      notice(syncOutcomeMessage(outcome));
+      notice(syncOutcomeMessage(outcome, collectionLog.size()));
     }
   }
 
   // Package-private and static so the wording is testable without a Client, the same
   // reason shouldSubmit and the shouldAdvance family are.
-  static String syncOutcomeMessage(CollectionLogSync.Outcome outcome) {
-    int observed = outcome.getObserved();
-    String entries = observed + (observed == 1 ? " entry" : " entries");
+  static String syncOutcomeMessage(CollectionLogSync.Outcome outcome, int knownTotal) {
+    String entries = knownTotal + (knownTotal == 1 ? " entry" : " entries");
     if (outcome == CollectionLogSync.Outcome.COMPLETE) {
-      return "Synced " + entries + " from your collection log.";
+      return "Collection log synced. " + entries + " known.";
     }
-    return "Partial sync, " + entries + " kept. Run Search again to finish.";
+    return "Partial read of your collection log. " + entries + " known so far.";
   }
 
   /** True while the log's own search interface is on screen. */

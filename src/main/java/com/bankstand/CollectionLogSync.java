@@ -87,17 +87,29 @@ public class CollectionLogSync {
   }
 
   /**
-   * Records one entry the client reported. Ignored unless a read is under way, so
-   * ordinary browsing still reaches the accumulator without starting or extending one.
+   * Records one entry the client reported.
+   *
+   * <p><b>A search starts a read on its own.</b> Arming was never a gate on capture,
+   * only on reporting, so requiring it made the player click twice before the one click
+   * that actually does the work. WikiSync gets away with a single button because it
+   * drives the Search with {@code client.menuAction}; the Hub does not allow us that, so
+   * the fewest possible actions is the player clicking the game's own Search, and that
+   * is now the whole flow. The menu entry stays as a hint for anyone who does not know.
+   *
+   * <p>Entries arriving with the search closed are ordinary page browsing. They still
+   * reach the accumulator, but they must not start or extend a read, or turning one page
+   * would report itself as a whole-log sync.
    *
    * <p>Counted by distinct id, not by event. A real enumeration fires the script twice
    * per entry on the first read of a session, so counting events reported "Synced 422
-   * entries" for a log holding 211. The accumulator was always right, because it is a
-   * set; only the figure the player was shown was wrong.
+   * entries" for a log holding 211.
    */
-  public void onItemObserved(int itemId) {
+  public void onItemObserved(int itemId, boolean searchOpen) {
     if (state == State.IDLE) {
-      return;
+      if (!searchOpen) {
+        return;
+      }
+      sawSearch = true;
     }
     state = State.READING;
     observed.add(itemId);
