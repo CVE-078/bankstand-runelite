@@ -6,7 +6,9 @@ import static org.junit.Assert.assertTrue;
 import com.bankstand.dto.SubmitSnapshotResponse;
 import com.google.gson.Gson;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.Map;
+import java.util.Set;
 import net.runelite.client.RuneLite;
 import net.runelite.client.externalplugins.ExternalPluginManager;
 import org.junit.Test;
@@ -48,6 +50,45 @@ public class BankstandPluginTest {
     return m;
   }
 
+  /** A set of {@code count} distinct observed item ids. */
+  private static Set<Integer> logItems(int count) {
+    Set<Integer> ids = new LinkedHashSet<>();
+    for (int i = 1; i <= count; i++) {
+      ids.add(i);
+    }
+    return ids;
+  }
+
+  /**
+   * The submit decision alone, which is what every test below this line is about.
+   *
+   * <p>{@code plan} now answers two questions at once: whether to submit, and which
+   * optional blocks ride along. The per-block choice is covered by {@link
+   * SubmitPlanTest}; these cases predate it and are the regression net for the decision
+   * itself, so they are left asserting exactly what they always asserted rather than
+   * being rewritten around the wider return type.
+   */
+  private static boolean shouldSubmit(
+      SkillBaseline skillBaseline,
+      Map<String, Integer> skills,
+      QuestBaseline questBaseline,
+      Map<String, String> quests,
+      DiaryBaseline diaryBaseline,
+      Map<String, String> diaries,
+      CollectionLogBaseline collectionLogBaseline,
+      int collectionLogCount) {
+    return BankstandPlugin.plan(
+            skillBaseline,
+            skills,
+            questBaseline,
+            quests,
+            diaryBaseline,
+            diaries,
+            collectionLogBaseline,
+            logItems(collectionLogCount))
+        .shouldSubmit();
+  }
+
   private static SubmitSnapshotResponse response(boolean accepted, boolean stored, String reason) {
     String json =
         String.format(
@@ -76,7 +117,7 @@ public class BankstandPluginTest {
     // The opt-in is off: the capture path passes a null quests map. A skill change
     // alone is still enough to submit.
     assertTrue(
-        BankstandPlugin.shouldSubmit(
+        shouldSubmit(
             new SkillBaseline(),
             skills("attack", 100),
             new QuestBaseline(),
@@ -92,7 +133,7 @@ public class BankstandPluginTest {
     // Skills are unchanged and quests are null (opt-in off): a quest change can never
     // be observed, so nothing should trigger a submit.
     assertFalse(
-        BankstandPlugin.shouldSubmit(
+        shouldSubmit(
             skillBaseline,
             skills("attack", 100),
             new QuestBaseline(),
@@ -107,7 +148,7 @@ public class BankstandPluginTest {
     skillBaseline.advance(skills("attack", 100));
     // Skills are identical to the baseline; only the quest state changed.
     assertTrue(
-        BankstandPlugin.shouldSubmit(
+        shouldSubmit(
             skillBaseline,
             skills("attack", 100),
             new QuestBaseline(),
@@ -123,7 +164,7 @@ public class BankstandPluginTest {
     QuestBaseline questBaseline = new QuestBaseline();
     questBaseline.advance(quests("COOKS_ASSISTANT", "IN_PROGRESS"));
     assertFalse(
-        BankstandPlugin.shouldSubmit(
+        shouldSubmit(
             skillBaseline,
             skills("attack", 100),
             questBaseline,
@@ -139,7 +180,7 @@ public class BankstandPluginTest {
     // Skills and quests are unchanged and diaries are null (opt-in off): a diary
     // change can never be observed, so nothing should trigger a submit.
     assertFalse(
-        BankstandPlugin.shouldSubmit(
+        shouldSubmit(
             skillBaseline,
             skills("attack", 100),
             new QuestBaseline(),
@@ -154,7 +195,7 @@ public class BankstandPluginTest {
     skillBaseline.advance(skills("attack", 100));
     // Skills are identical to the baseline; only the diary state changed.
     assertTrue(
-        BankstandPlugin.shouldSubmit(
+        shouldSubmit(
             skillBaseline,
             skills("attack", 100),
             new QuestBaseline(),
@@ -173,7 +214,7 @@ public class BankstandPluginTest {
     SkillBaseline skillBaseline = new SkillBaseline();
     skillBaseline.advance(skills("attack", 100));
     assertTrue(
-        BankstandPlugin.shouldSubmit(
+        shouldSubmit(
             skillBaseline,
             skills("attack", 100),
             new QuestBaseline(),
@@ -191,7 +232,7 @@ public class BankstandPluginTest {
     SkillBaseline skillBaseline = new SkillBaseline();
     skillBaseline.advance(skills("attack", 100));
     assertFalse(
-        BankstandPlugin.shouldSubmit(
+        shouldSubmit(
             skillBaseline,
             skills("attack", 100),
             new QuestBaseline(),
@@ -211,7 +252,7 @@ public class BankstandPluginTest {
     DiaryBaseline diaryBaseline = new DiaryBaseline();
     diaryBaseline.advance(diaries("ARDOUGNE_EASY", "COMPLETE"));
     assertFalse(
-        BankstandPlugin.shouldSubmit(
+        shouldSubmit(
             skillBaseline,
             skills("attack", 100),
             questBaseline,

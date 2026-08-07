@@ -21,7 +21,8 @@ already ships (Gson and OkHttp are used as its transitives).
   `<name>`** in chat; otherwise it says the character is not claimed yet.
 - Every 60 seconds while logged in, captures skill XP and (behind their own opt-ins) quest and
   achievement diary state, submitting only when something changed since the last acknowledged submit.
-  An idle account sends nothing.
+  An idle account sends nothing, and a submission carries only the capabilities that actually moved:
+  an XP gain sends skill XP alone, not your whole collection log along with it.
 - Reads your collection log (opt-in) while the log interface enumerates its items, guided by you
   rather than automated. Unlike the others this ACCUMULATES: a partial read adds to what is known
   and never replaces it, because the game only reveals the log while you are looking at it.
@@ -134,6 +135,13 @@ ignored.
 - **`./gradlew build` is the merge gate**, and CI now runs the same build on every pull request and
   on pushes to `main`. A green local build before every commit is still the fast path. One class:
   `./gradlew test --tests com.bankstand.<Class>`.
+- **A capability is sent whole or not at all, never as a delta within a block.** The server merges
+  blocks with jsonb `||`, a top-level replace, so a block carrying only its changed fields would
+  erase every field it left out. `plan` therefore decides *whether* to include a block and never
+  *what* to put in one, and `SubmitEnvelope` has no way to express a partial block, so the unsafe
+  granularity is unrepresentable rather than merely discouraged. Omitting an unchanged block is safe
+  and does not weaken the per-block acknowledgement: a block the server never acknowledged has no
+  baseline to match, reads as changed, and keeps going out until it is stored.
 - **The plugin observes the client. It never drives it.** Hub PR #11371 was closed with "use of
   `client.menuAction` is not allowed", which is why the collection log read is guided: the player
   clicks the game's own Search and the plugin watches script `4100`, which fires for every entry
