@@ -51,6 +51,11 @@ public class SubmitSnapshotResponse {
    * server returns; treating an unknown ack as "not written" makes the client re-send
    * rather than silently lose a one-shot fact like a diary tier completing.
    */
+  /** Never null, so a caller does not have to decide what an absent list means. */
+  public List<String> getStoredBlocks() {
+    return storedBlocks == null ? java.util.Collections.emptyList() : storedBlocks;
+  }
+
   public boolean isBlockStored(String block) {
     return storedBlocks != null && storedBlocks.contains(block);
   }
