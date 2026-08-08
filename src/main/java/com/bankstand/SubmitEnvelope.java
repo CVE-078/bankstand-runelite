@@ -69,6 +69,23 @@ public final class SubmitEnvelope {
       Map<String, String> questStates,
       Map<String, String> diaryStates,
       Collection<Integer> collectionLogItems) {
+    return body(
+        submissionId, schemaVersion, pluginVersion, capturedAt, accountHash, displayName, skillXp,
+        questStates, diaryStates, collectionLogItems, null);
+  }
+
+  public static Map<String, Object> body(
+      String submissionId,
+      int schemaVersion,
+      String pluginVersion,
+      String capturedAt,
+      long accountHash,
+      String displayName,
+      Map<String, Integer> skillXp,
+      Map<String, String> questStates,
+      Map<String, String> diaryStates,
+      Collection<Integer> collectionLogItems,
+      Map<String, Integer> combatAchievementCounts) {
     Map<String, Object> body = new LinkedHashMap<>();
     body.put("submissionId", submissionId);
     body.put("schemaVersion", schemaVersion);
@@ -97,6 +114,12 @@ public final class SubmitEnvelope {
     // to distinguish that from "owns nothing".
     if (collectionLogItems != null && !collectionLogItems.isEmpty()) {
       body.put("collectionLog", new ArrayList<>(collectionLogItems));
+    }
+    // Per-tier completed COUNTS, which is all the game exposes. Omitted when empty
+    // for the same reason as every other block: an empty block means "not observed",
+    // and the server treats a present-but-empty one as an erase.
+    if (combatAchievementCounts != null && !combatAchievementCounts.isEmpty()) {
+      body.put("combatAchievements", new LinkedHashMap<>(combatAchievementCounts));
     }
     return body;
   }

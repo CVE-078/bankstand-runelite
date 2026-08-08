@@ -140,6 +140,8 @@ public class BankstandPlugin extends Plugin {
   private final SkillBaseline skillBaseline = new SkillBaseline();
   private final QuestBaseline questBaseline = new QuestBaseline();
   private final DiaryBaseline diaryBaseline = new DiaryBaseline();
+  private final CombatAchievementBaseline combatAchievementBaseline =
+      new CombatAchievementBaseline();
   private final CollectionLogAccumulator collectionLog = new CollectionLogAccumulator();
   private final CollectionLogBaseline collectionLogBaseline = new CollectionLogBaseline();
   private final CollectionLogSync collectionLogSync = new CollectionLogSync();
@@ -662,6 +664,21 @@ public class BankstandPlugin extends Plugin {
     return diaries;
   }
 
+  // Reads how many combat achievement tasks are done per tier, keyed by the server's
+  // wire key (see CombatAchievementVarbits). Client thread, like every other varbit
+  // read here.
+  //
+  // COUNTS ONLY. The game exposes no per-task state, so this cannot say which tasks
+  // are done and the website's task grid stays on placeholders. A zero is kept rather
+  // than dropped: a tier really can be 0/41, and that is a fact, not an absence.
+  private Map<String, Integer> readCombatAchievementCounts() {
+    Map<String, Integer> counts = new LinkedHashMap<>();
+    for (Map.Entry<String, Integer> e : CombatAchievementVarbits.ALL.entrySet()) {
+      counts.put(e.getKey(), client.getVarbitValue(e.getValue()));
+    }
+    return counts;
+  }
+
   private void onSkillsCaptured(
       long accountHash,
       int generation,
@@ -676,6 +693,7 @@ public class BankstandPlugin extends Plugin {
       skillBaseline.reset();
       questBaseline.reset();
       diaryBaseline.reset();
+      combatAchievementBaseline.reset();
       // A collection log belongs to one character; carrying it across an account
       // switch would attribute one account's items to another.
       collectionLog.reset();
@@ -687,6 +705,7 @@ public class BankstandPlugin extends Plugin {
     // observed before they did, and an opt-in is not retroactive.
     Set<Integer> clog =
         isCollectionLogCaptureEnabled() ? collectionLog.observed() : Collections.emptySet();
+    Map<String, Integer> combatAchievements = readCombatAchievementCounts();
     SubmitPlan plan =
         plan(
             skillBaseline,
@@ -696,7 +715,9 @@ public class BankstandPlugin extends Plugin {
             diaryBaseline,
             diaries,
             collectionLogBaseline,
-            clog);
+            clog,
+            combatAchievementBaseline,
+            combatAchievements);
     if (!plan.shouldSubmit()) {
       return;
     }
@@ -704,6 +725,7 @@ public class BankstandPlugin extends Plugin {
     // uses, so submitSnapshot has exactly one notion of "was this block sent" and the
     // per-block acknowledgement keeps keying off what actually went on the wire.
     submitSnapshot(
+        plan.includesCombatAchievements() ? combatAchievements : null,
         accountHash,
         generation,
         name,
@@ -733,6 +755,7 @@ public class BankstandPlugin extends Plugin {
                 skillBaseline.restore(state.getSkills());
                 questBaseline.restore(state.getQuests());
                 diaryBaseline.restore(state.getDiaries());
+                combatAchievementBaseline.restore(state.getCombatAchievements());
                 // Together, never one alone. CollectionLogBaseline.restore says why.
                 collectionLog.restore(state.getCollectionLogItems());
                 collectionLogBaseline.restore(state.getCollectionLogAcked());
@@ -752,6 +775,7 @@ public class BankstandPlugin extends Plugin {
     state.setSkills(skillBaseline.ackedDigest());
     state.setQuests(questBaseline.ackedDigest());
     state.setDiaries(diaryBaseline.ackedDigest());
+    state.setCombatAchievements(combatAchievementBaseline.ackedDigest());
     state.setCollectionLogItems(collectionLog.observed());
     state.setCollectionLogAcked(collectionLogBaseline.ackedCount());
     executor.submit(() -> ackedStore.save(accountHash, state));
@@ -768,12 +792,19 @@ public class BankstandPlugin extends Plugin {
     private final boolean quests;
     private final boolean diaries;
     private final boolean collectionLog;
+    private final boolean combatAchievements;
 
-    private SubmitPlan(boolean submit, boolean quests, boolean diaries, boolean collectionLog) {
+    private SubmitPlan(
+        boolean submit,
+        boolean quests,
+        boolean diaries,
+        boolean collectionLog,
+        boolean combatAchievements) {
       this.submit = submit;
       this.quests = quests;
       this.diaries = diaries;
       this.collectionLog = collectionLog;
+      this.combatAchievements = combatAchievements;
     }
 
     boolean shouldSubmit() {
@@ -790,6 +821,10 @@ public class BankstandPlugin extends Plugin {
 
     boolean includesCollectionLog() {
       return collectionLog;
+    }
+
+    boolean includesCombatAchievements() {
+      return combatAchievements;
     }
   }
 
@@ -821,6 +856,7 @@ public class BankstandPlugin extends Plugin {
    * <p>Package-private and static so it is unit-testable with real baselines, without a
    * Client or a ConfigManager fake.
    */
+  /** Without combat achievements, which every caller predating them omits. */
   static SubmitPlan plan(
       SkillBaseline skillBaseline,
       Map<String, Integer> skills,
@@ -830,6 +866,30 @@ public class BankstandPlugin extends Plugin {
       Map<String, String> diaries,
       CollectionLogBaseline collectionLogBaseline,
       Set<Integer> collectionLogItems) {
+    return plan(
+        skillBaseline,
+        skills,
+        questBaseline,
+        quests,
+        diaryBaseline,
+        diaries,
+        collectionLogBaseline,
+        collectionLogItems,
+        new CombatAchievementBaseline(),
+        null);
+  }
+
+  static SubmitPlan plan(
+      SkillBaseline skillBaseline,
+      Map<String, Integer> skills,
+      QuestBaseline questBaseline,
+      Map<String, String> quests,
+      DiaryBaseline diaryBaseline,
+      Map<String, String> diaries,
+      CollectionLogBaseline collectionLogBaseline,
+      Set<Integer> collectionLogItems,
+      CombatAchievementBaseline combatAchievementBaseline,
+      Map<String, Integer> combatAchievements) {
     boolean sendQuests =
         quests != null && !quests.isEmpty() && questBaseline.changedSince(quests);
     boolean sendDiaries =
@@ -840,9 +900,18 @@ public class BankstandPlugin extends Plugin {
     boolean sendCollectionLog =
         !collectionLogItems.isEmpty()
             && collectionLogBaseline.changedSince(collectionLogItems.size());
+    boolean sendCombatAchievements =
+        combatAchievements != null
+            && !combatAchievements.isEmpty()
+            && combatAchievementBaseline.changedSince(combatAchievements);
     boolean submit =
-        skillBaseline.changedSince(skills) || sendQuests || sendDiaries || sendCollectionLog;
-    return new SubmitPlan(submit, sendQuests, sendDiaries, sendCollectionLog);
+        skillBaseline.changedSince(skills)
+            || sendQuests
+            || sendDiaries
+            || sendCollectionLog
+            || sendCombatAchievements;
+    return new SubmitPlan(
+        submit, sendQuests, sendDiaries, sendCollectionLog, sendCombatAchievements);
   }
 
   // Every baseline, skills included, advances only on the server's own per-block
@@ -911,7 +980,17 @@ public class BankstandPlugin extends Plugin {
     return included && res.isBlockStored("collectionLog");
   }
 
+  // Per capability, like the rest. A whole-submission verdict cannot express that this
+  // block was dropped by its own rollout flag while the submission still succeeded, so
+  // gating on that would advance the baseline for data the server discarded and the
+  // client would not resend until the counts changed on their own.
+  static boolean shouldAdvanceCombatAchievements(
+      SubmitSnapshotResponse res, boolean included) {
+    return included && res.isBlockStored("combatAchievements");
+  }
+
   private void submitSnapshot(
+      Map<String, Integer> combatAchievementCounts,
       long accountHash,
       int generation,
       String name,
@@ -935,7 +1014,8 @@ public class BankstandPlugin extends Plugin {
             skills,
             quests,
             diaries,
-            collectionLogItems);
+            collectionLogItems,
+            combatAchievementCounts);
     executor.submit(
         () -> {
           try {
@@ -963,6 +1043,10 @@ public class BankstandPlugin extends Plugin {
                     }
                     if (shouldAdvanceCollectionLog(res, !collectionLogItems.isEmpty())) {
                       collectionLogBaseline.advance(collectionLogItems.size());
+                    }
+                    if (shouldAdvanceCombatAchievements(
+                        res, combatAchievementCounts != null)) {
+                      combatAchievementBaseline.advance(combatAchievementCounts);
                     }
                     // Unconditional, not only when a baseline advanced: passive browsing
                     // can have grown the accumulator even on a submit that stored nothing.
