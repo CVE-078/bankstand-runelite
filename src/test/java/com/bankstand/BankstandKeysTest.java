@@ -6,6 +6,15 @@ import org.junit.Test;
 
 public class BankstandKeysTest {
 
+  // Every test below asserts against the default rather than a literal, which would
+  // pass just as happily if the default pointed somewhere nobody deploys. This is the
+  // one that reads it, and it is worth pinning: a wrong host is invisible to the
+  // player, who sees only that Bankstand stopped updating.
+  @Test
+  public void defaultsToTheCanonicalOrigin() {
+    assertEquals("https://bankstand.gg", BankstandKeys.DEFAULT_SERVER_URL);
+  }
+
   @Test
   public void fallsBackToTheDefaultWhenUnset() {
     assertEquals(BankstandKeys.DEFAULT_SERVER_URL, BankstandKeys.normaliseServerUrl(null));

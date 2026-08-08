@@ -55,13 +55,22 @@ public final class BankstandKeys {
   public static final String KEY_COLLECT_QUESTS = "collectQuests";
   public static final String KEY_COLLECT_DIARIES = "collectDiaries";
   public static final String KEY_COLLECT_COLLECTION_LOG = "collectCollectionLog";
+  public static final String KEY_COLLECT_COMBAT_ACHIEVEMENTS = "collectCombatAchievements";
 
   // Credentials, never surfaced as config items.
   public static final String KEY_DEVICE_TOKEN = "deviceToken";
   public static final String KEY_DEVICE_ID = "deviceId";
   public static final String KEY_TOKEN_EXPIRES_AT = "tokenExpiresAt";
 
-  public static final String DEFAULT_SERVER_URL = "https://bankstand.christiaanvaneijnsbergen.nl";
+  /**
+   * The canonical origin, and the one a fresh install pairs against.
+   *
+   * A stale value here is not cosmetic: pairing and every submit go to a host that
+   * may redirect, refuse, or answer for a different deployment, and the player sees
+   * only that Bankstand stopped updating. An already-paired client keeps whatever it
+   * stored, so changing this reaches new installs only.
+   */
+  public static final String DEFAULT_SERVER_URL = "https://bankstand.gg";
 
   /**
    * The server URL to actually call: trimmed, or the default when unset or blank.
