@@ -103,6 +103,14 @@ Requires JDK 11 or later.
 That compiles the plugin and runs the tests, and it is the same command CI runs on every pull
 request.
 
+## Reporting a problem
+
+[Open an issue](https://github.com/CVE-078/bankstand-runelite/issues/new/choose). Include the
+plugin version and whatever the chat box said, which is usually enough to answer it.
+
+**Never paste your pairing code or device token.** The code is single use and the token is a
+credential. The plugin logs neither, so an ordinary log is safe to share.
+
 ## Contributing
 
 The development rules, the invariants behind the design and the module layout are maintained in the

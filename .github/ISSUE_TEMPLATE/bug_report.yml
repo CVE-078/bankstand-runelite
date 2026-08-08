@@ -1,0 +1,54 @@
+name: Bug report
+description: Something in the plugin is not working
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. The plugin reports what it is doing in the chat box, so
+        whatever it said there is usually the fastest route to an answer.
+
+        **Do not paste your pairing code or device token.** A pairing code is single use
+        and a token is a credential. The plugin never logs either, so a normal log is
+        safe to share, but a screenshot of your settings panel is not.
+
+  - type: input
+    id: version
+    attributes:
+      label: Plugin version
+      description: Shown in RuneLite's plugin list, next to Bankstand.
+      placeholder: "0.1.0"
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what the plugin did instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: chat-output
+    attributes:
+      label: What the chat box said
+      description: >-
+        Any Bankstand line in your chat box, and the output of `::bstand` if you can
+        still run it. Paste as text rather than a screenshot where you can.
+      render: text
+
+  - type: dropdown
+    id: capability
+    attributes:
+      label: Which part
+      options:
+        - Pairing or linking a character
+        - Skill XP
+        - Quests
+        - Achievement diaries
+        - Combat achievements
+        - Collection log
+        - Something else, or not sure
+    validations:
+      required: true
