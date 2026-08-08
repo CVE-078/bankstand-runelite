@@ -83,6 +83,7 @@ public class BankstandPlugin extends Plugin {
   // Its own directory, so a player can find and delete what the plugin keeps.
   private static final File ACKED_STATE_DIR = new File(RuneLite.RUNELITE_DIR, "bankstand");
   private static final String ACKED_STATE_FILE = "acked-state.json";
+  private static final String DEVICE_FILE = "device.json";
 
 
   // Every chat line the plugin writes carries a coloured prefix, so a message is
@@ -148,6 +149,7 @@ public class BankstandPlugin extends Plugin {
   private final CollectionLogSync collectionLogSync = new CollectionLogSync();
   private CollectionLogSyncInfoBox syncInfoBox;
   private AckedStateStore ackedStore;
+  private DeviceCredentialStore deviceStore;
   // Suppresses a recurring failure from printing every capture cycle.
   private final NoticeGate noticeGate = new NoticeGate();
   // Stops a revoked token retrying forever, and paces a capture against a down server.
@@ -174,6 +176,8 @@ public class BankstandPlugin extends Plugin {
     pairingClient = new BankstandClient(transport, gson);
     // A file, not ConfigManager. AckedStateStore says why that is not a preference.
     ackedStore = new AckedStateStore(new File(ACKED_STATE_DIR, ACKED_STATE_FILE), gson);
+    deviceStore = new DeviceCredentialStore(new File(ACKED_STATE_DIR, DEVICE_FILE), gson);
+    migrateCredentialsOutOfConfig();
   }
 
   @Override
@@ -1041,8 +1045,7 @@ public class BankstandPlugin extends Plugin {
       Map<String, String> diaries,
       Set<Integer> collectionLogItems) {
     String url = savedServerUrl();
-    String token =
-        configManager.getConfiguration(BankstandKeys.GROUP, BankstandKeys.KEY_DEVICE_TOKEN);
+    String token = deviceStore.load().getToken();
     String version = getClass().getPackage().getImplementationVersion();
     String pluginVersion = version != null ? version : "dev";
     Map<String, Object> body =
@@ -1125,8 +1128,7 @@ public class BankstandPlugin extends Plugin {
   }
 
   private boolean isPaired() {
-    String token =
-        configManager.getConfiguration(BankstandKeys.GROUP, BankstandKeys.KEY_DEVICE_TOKEN);
+    String token = deviceStore.load().getToken();
     return token != null && !token.trim().isEmpty();
   }
 
@@ -1153,8 +1155,7 @@ public class BankstandPlugin extends Plugin {
 
   private void submitIdentity(long accountHash, int generation, String displayName) {
     String url = savedServerUrl();
-    String token =
-        configManager.getConfiguration(BankstandKeys.GROUP, BankstandKeys.KEY_DEVICE_TOKEN);
+    String token = deviceStore.load().getToken();
     executor.submit(
         () -> {
           try {
@@ -1214,9 +1215,10 @@ public class BankstandPlugin extends Plugin {
   }
 
   private void disconnect() {
-    configManager.unsetConfiguration(BankstandKeys.GROUP, BankstandKeys.KEY_DEVICE_TOKEN);
-    configManager.unsetConfiguration(BankstandKeys.GROUP, BankstandKeys.KEY_DEVICE_ID);
-    configManager.unsetConfiguration(BankstandKeys.GROUP, BankstandKeys.KEY_TOKEN_EXPIRES_AT);
+    deviceStore.clear();
+    // Unset the legacy config keys too. A profile that synced them still holds the
+    // token upstream, and unsetting is what PATCHes the removal.
+    forgetLegacyCredentialKeys();
     // Untick the toggle so it reads as an action taken rather than a state entered,
     // and so ticking it again later fires this handler afresh.
     configManager.setConfiguration(
@@ -1266,17 +1268,52 @@ public class BankstandPlugin extends Plugin {
     return new ChatMessageBuilder().append(BRAND, NOTICE_PREFIX).append(message).build();
   }
 
+  /**
+   * Moves a pairing made before credentials left {@code ConfigManager}.
+   *
+   * <p>Runs once per start and is a no-op after the first. Without it, everyone paired
+   * before this change silently stops submitting and has to work out why; with it, the
+   * pairing survives and the copy RuneLite holds is removed.
+   *
+   * <p><b>The unset is the half that matters.</b> Writing the file only stops the token
+   * being uploaded again. Unsetting the config keys is what PATCHes the deletion to
+   * RuneLite's config service on a synced profile, so the credential stops being stored
+   * by a third party rather than merely stopping being sent to one.
+   *
+   * <p>The file wins if both exist. A file means this already ran, and a stale config
+   * value from another machine's sync must not overwrite a newer local pairing.
+   */
+  private void migrateCredentialsOutOfConfig() {
+    String legacyToken =
+        configManager.getConfiguration(BankstandKeys.GROUP, BankstandKeys.KEY_DEVICE_TOKEN);
+    if (legacyToken == null || legacyToken.trim().isEmpty()) {
+      return;
+    }
+    if (!deviceStore.load().isPaired()) {
+      DeviceCredentials migrated = new DeviceCredentials();
+      migrated.setToken(legacyToken);
+      migrated.setDeviceId(
+          configManager.getConfiguration(BankstandKeys.GROUP, BankstandKeys.KEY_DEVICE_ID));
+      migrated.setExpiresAt(
+          configManager.getConfiguration(BankstandKeys.GROUP, BankstandKeys.KEY_TOKEN_EXPIRES_AT));
+      deviceStore.save(migrated);
+    }
+    forgetLegacyCredentialKeys();
+  }
+
+  /** Clears the pre-file credential keys, and on a synced profile the upstream copy. */
+  private void forgetLegacyCredentialKeys() {
+    configManager.unsetConfiguration(BankstandKeys.GROUP, BankstandKeys.KEY_DEVICE_TOKEN);
+    configManager.unsetConfiguration(BankstandKeys.GROUP, BankstandKeys.KEY_DEVICE_ID);
+    configManager.unsetConfiguration(BankstandKeys.GROUP, BankstandKeys.KEY_TOKEN_EXPIRES_AT);
+  }
+
   private void storeToken(PairResponse res) {
-    configManager.setConfiguration(
-        BankstandKeys.GROUP, BankstandKeys.KEY_DEVICE_TOKEN, res.getDeviceToken());
-    if (res.getDeviceId() != null) {
-      configManager.setConfiguration(
-          BankstandKeys.GROUP, BankstandKeys.KEY_DEVICE_ID, res.getDeviceId());
-    }
-    if (res.getExpiresAt() != null) {
-      configManager.setConfiguration(
-          BankstandKeys.GROUP, BankstandKeys.KEY_TOKEN_EXPIRES_AT, res.getExpiresAt());
-    }
+    DeviceCredentials credentials = new DeviceCredentials();
+    credentials.setToken(res.getDeviceToken());
+    credentials.setDeviceId(res.getDeviceId());
+    credentials.setExpiresAt(res.getExpiresAt());
+    deviceStore.save(credentials);
   }
 
   // Read through the config item so an unset key falls back to the same default the
