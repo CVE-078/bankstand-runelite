@@ -4,7 +4,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * The lines {@code ::bankstand} prints, built from plain values.
+ * The lines {@code ::bstand} prints, built from plain values.
  *
  * <p>Separated from the plugin so the wording is testable without a client. Half the value of a
  * manual trigger is being able to see what it did, and during the #606 incident there was no way
@@ -49,7 +49,7 @@ public final class StatusReport {
     out.add("Paired with " + serverUrl + ".");
     out.add(
         linkedName == null
-            ? "No character linked yet. Log in and it links on the next tick, or run ::bankstand link."
+            ? "No character linked yet. Log in and it links on the next tick, or run ::bstand link."
             : "Linked character: " + linkedName + ".");
 
     out.add(
@@ -69,18 +69,25 @@ public final class StatusReport {
     // The collection log is the one capability a manual sync cannot refresh, so it
     // gets its own line whether or not it has ever been read. Without this a player
     // runs a sync, sees no new slots and concludes the whole thing is broken.
+    //
+    // **"items", not "entries".** This counts distinct item ids observed, and the
+    // game counts ENTRIES, which is a different number: one account read 193 ids
+    // for the 189 entries the client displayed, because several ids are variant
+    // forms of a slot already owned under another id. The plugin has no manifest
+    // and cannot resolve one into the other, so it names what it actually counted.
+    // Saying "entries" put 193 beside the game's 189 in the same chat window.
     out.add(
         collectionLogSlots < 0
             ? "Collection log not read yet. Open it in game and use its Search to read the whole log."
             : "Collection log: "
                 + collectionLogSlots
-                + " entries from the last read. Use the log's own Search to read it again.");
+                + " items from the last read. Use the log's own Search to read it again.");
 
     return out;
   }
 
   /**
-   * What {@code ::bankstand sync} reports.
+   * What {@code ::bstand sync} reports.
    *
    * <p>States plainly that the collection log is not included. A sync that silently leaves it out
    * looks like a sync that did not work, because the log is the capability a player is most likely

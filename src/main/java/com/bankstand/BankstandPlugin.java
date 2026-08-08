@@ -238,7 +238,7 @@ public class BankstandPlugin extends Plugin {
       return;
     }
     if (!session.isActive()) {
-      notice("Log in first, then run ::bankstand link.");
+      notice("Log in first, then run ::bstand link.");
       return;
     }
     if (!isSkillCaptureEnabled()) {
@@ -278,7 +278,9 @@ public class BankstandPlugin extends Plugin {
    */
   @Subscribe
   public void onCommandExecuted(CommandExecuted event) {
-    if (!"bankstand".equalsIgnoreCase(event.getCommand())) {
+    String command = event.getCommand();
+    if (!BankstandKeys.COMMAND.equalsIgnoreCase(command)
+        && !BankstandKeys.COMMAND_ALIAS.equalsIgnoreCase(command)) {
       return;
     }
     String[] args = event.getArguments();
@@ -304,7 +306,7 @@ public class BankstandPlugin extends Plugin {
         relinkCharacter();
         break;
       default:
-        notice("Unknown command. Try ::bankstand, ::bankstand sync or ::bankstand link.");
+        notice("Unknown command. Try ::bstand, ::bstand sync or ::bstand link.");
         break;
     }
   }
@@ -592,7 +594,15 @@ public class BankstandPlugin extends Plugin {
     }
     // Read the skills and the identity on the client thread, into one consistent
     // snapshot, then dispatch the submit off-thread.
-    clientThread.invoke(
+    //
+    // **invokeLater, never invoke.** `invoke` runs the runnable INLINE when the caller
+    // is already on the client thread, and one caller is: the `::` command handler
+    // fires from inside `onScriptCallbackEvent`, so it is already inside a running
+    // script. `readQuestStates` calls `Quest.getState`, which runs a script, and the
+    // client asserts "scripts are not reentrant" and dies. That killed the manual sync
+    // the first time anyone ran it. Deferring by a tick costs nothing for a snapshot
+    // and makes the reentrant case unreachable rather than merely unlikely.
+    clientThread.invokeLater(
         () -> {
           Player local = client.getLocalPlayer();
           if (local == null) {
