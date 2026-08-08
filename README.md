@@ -141,101 +141,28 @@ Launcher session. One-time setup so the dev client can reuse your session:
 4. When done, delete `~/.runelite/credentials.properties` (it stores your session in plaintext), and
    you can hit **End sessions** on runescape.com to invalidate it.
 
-## Conventions and invariants
+## Contributing
 
-Constraints that a fresh reader will not infer from the code, and that break something real if
-ignored.
+Development rules, the invariants behind the design, and the module layout are
+maintained in the Bankstand project repository rather than here. If you are
+working on this plugin and need them, ask.
 
-- **`./gradlew build` is the merge gate**, and CI now runs the same build on every pull request and
-  on pushes to `main`. A green local build before every commit is still the fast path. One class:
-  `./gradlew test --tests com.bankstand.<Class>`.
-- **A capability is sent whole or not at all, never as a delta within a block.** The server merges
-  blocks with jsonb `||`, a top-level replace, so a block carrying only its changed fields would
-  erase every field it left out. `plan` therefore decides *whether* to include a block and never
-  *what* to put in one, and `SubmitEnvelope` has no way to express a partial block, so the unsafe
-  granularity is unrepresentable rather than merely discouraged. Omitting an unchanged block is safe
-  and does not weaken the per-block acknowledgement: a block the server never acknowledged has no
-  baseline to match, reads as changed, and keeps going out until it is stored.
-- **Captured game data never goes through `ConfigManager`.** `saveConfiguration` checks
-  `ConfigProfile.isSync()` and, when the player has sync on, PATCHes the profile's whole changed key
-  set to RuneLite's own config service. There is no per-key exclusion, so a plugin cannot mark one
-  value local-only. Anything the plugin reads out of the game is the player's data and goes to
-  Bankstand alone, so it lives in `<RUNELITE_DIR>/bankstand/`, not in config. (The device token is
-  already in config and predates this rule; that is a known open question, not a precedent.)
-- **A baseline and the state it measures must have the same lifetime.** `CollectionLogBaseline` is a
-  count, valid as a change gate only because the observed set grows monotonically. Persist the count
-  while the accumulator resets and the next partial browse churns a short block every session;
-  persist the set but derive the count from it and a log whose submit failed is treated as delivered
-  and never sent again. They are written and restored together, and `AckedStateRestartTest` pins
-  both failure modes.
-- **The plugin observes the client. It never drives it.** Hub PR #11371 was closed with "use of
-  `client.menuAction` is not allowed", which is why the collection log read is guided: the player
-  clicks the game's own Search and the plugin watches script `4100`, which fires for every entry
-  whoever triggered it. The automated version was two lines and looked entirely reasonable, so
-  `NoAutomationApiTest` scans the source and fails the build if `client.menuAction`,
-  `client.runScript` or `client.invokeMenuAction` reappears outside a comment. `MenuAction.RUNELITE`
-  is fine and is not what the ban is about: it types a menu entry the player chooses to click.
-  Reintroducing a driving call costs a rejected Hub submission and another round of review latency.
-- **Never log the device token, the account hash, the display name, or a raw request body.** The token
-  is a credential; the other three identify a real person's account. The raw token is returned once by
-  the pairing exchange and stored, never printed.
-- **The contract fixtures mirror the server's.** `src/test/resources/contracts/*.json` correspond to
-  bankstand's `lib/plugin/contracts/*.json`, and the wire shape is fixed by the server. The rule is
-  **equivalence of the parsed JSON, not of the bytes**: `SubmitEnvelopeContractTest` parses both sides
-  with Gson and compares `JsonObject`s, so indentation and line endings are free (a Windows checkout
-  gets CRLF either way). Change one side without the other and the two stop agreeing about the wire.
-- **Zero third-party runtime dependencies.** Only `net.runelite:client` (compileOnly) and its
-  transitives, which is where Gson and OkHttp come from. JUnit is test-scope. Do not add a JSON, UUID
-  or HTTP library: `UuidV7` exists precisely so there is no dependency for it, and the Plugin Hub
-  reviews a `build=standard` plugin faster than one with custom dependencies to hash-verify.
-- **Capture reads run on the client thread.** `Quest.getState(Client)` and `getSkillExperience` read
-  varps and varbits and must not be called off it. Read every capability inside the one
-  `clientThread.invoke(...)` block so a submission is a single consistent snapshot.
-- **Only the main game counts.** Tournament, seasonal, deadman and PvP-arena worlds are skipped: their
-  XP is not the account's real progression.
-- **No em dashes** anywhere in code or comments. Use a comma, period, or parentheses.
-- **Comments** document the timeless why. No issue numbers, dates, or spec paths.
-- **Commits:** conventional `type(scope): subject`, subject-only, no body, no AI-attribution trailer.
-  The PR title (the squash subject) is a plain imperative sentence.
+Two constraints are worth stating up front because breaking either fails review
+rather than a test:
 
-## Layout
+- **The plugin observes the client. It never drives it.** `client.menuAction`,
+  `client.runScript` and `client.invokeMenuAction` are banned, and
+  `NoAutomationApiTest` fails the build if one reappears. Hub PR #11371 was
+  closed over exactly this.
+- **Never log the device token, the account hash, the display name, or a raw
+  request body.** The first is a credential; the rest identify a real account.
 
-- `src/main/java/com/bankstand/PairingCodes.java` normalizes and validates the code (mirrors the
-  server exactly).
-- `src/main/java/com/bankstand/BankstandClient.java` performs the pairing exchange and the snapshot
-  and identity submits behind an `HttpTransport` seam, so the logic is unit-tested with no real
-  socket.
-- `src/main/java/com/bankstand/http/` holds the transport seam (`HttpTransport`, `HttpResponse`) and
-  `OkHttpTransport`, the thin real transport over RuneLite's OkHttpClient.
-- `src/main/java/com/bankstand/session/AccountSession.java` tracks the account hash across logins and
-  whether identity has been submitted this session.
-- `src/main/java/com/bankstand/dto/` holds the `PairResponse`, `SubmitResponse` and
-  `SubmitSnapshotResponse` DTOs.
-- `src/main/java/com/bankstand/SubmitEnvelope.java` builds the v1 wire envelope, and
-  `src/main/java/com/bankstand/UuidV7.java` generates its time-ordered submission ids without a
-  dependency.
-- `src/main/java/com/bankstand/BankstandConfig.java` is the whole UI: a RuneLite config interface,
-  where two of the items (pairing code, disconnect) are actions rather than settings.
-- `src/main/java/com/bankstand/BankstandKeys.java` holds the storage keys and the server-URL
-  normalisation both sides share. The device token is deliberately not a config item.
-- `src/main/java/com/bankstand/NoticeGate.java` decides whether a submit outcome is worth a chat line,
-  so a recurring failure is announced once rather than every capture cycle.
-- `SkillBaseline`, `QuestBaseline`, `DiaryBaseline` and `CollectionLogBaseline` are the change gates:
-  each remembers the last acknowledged state for its capability so an unchanged capability is not
-  resubmitted. A capability's baseline only advances when the server acknowledges that block.
-- `src/main/java/com/bankstand/CollectionLogAccumulator.java` accumulates observed item ids rather
-  than replacing them, because the log is not resident in the client and an enumeration can be
-  partial. It cannot report absence, which is why the server treats an omitted item as "not observed"
-  and never as "does not have it".
-- `src/main/java/com/bankstand/DiaryVarbits.java` maps diary wire keys to the varbit carrying each
-  tier's completion flag. All 48 tiers are captured, Karamja included. The game keeps three varbits
-  per tier (`*_COMPLETE`, `*_REWARD`, `*_COUNT`) and this table reads only the first, so a tier that
-  is complete but unclaimed cannot be distinguished here.
-- `PairingException` and `SubmitException` carry the terminal-versus-retryable distinction.
-- `src/main/java/com/bankstand/BankstandPlugin.java` wires it into RuneLite.
-- Tests are under `src/test/java/com/bankstand/` and need only JUnit. Fixtures live in
-  `src/test/resources/contracts/`.
+`./gradlew build` is the merge gate and runs on every pull request.
 
----
+## Licence
 
-_Last verified against `main` on 2026-08-07. Update this anchor when the plugin's behaviour changes._
+BSD 2-Clause. See `LICENSE`.
+
+Bankstand is an independent project and is not affiliated with, endorsed by or
+sponsored by Jagex Ltd or the RuneLite project. Old School RuneScape is a
+trademark of Jagex Ltd.
