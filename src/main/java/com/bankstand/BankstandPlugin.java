@@ -482,6 +482,10 @@ public class BankstandPlugin extends Plugin {
     return config.collectCollectionLog();
   }
 
+  private boolean isCombatAchievementCaptureEnabled() {
+    return config.collectCombatAchievements();
+  }
+
   @Subscribe
   public void onGameStateChanged(GameStateChanged event) {
     GameState state = event.getGameState();
@@ -715,7 +719,13 @@ public class BankstandPlugin extends Plugin {
     // observed before they did, and an opt-in is not retroactive.
     Set<Integer> clog =
         isCollectionLogCaptureEnabled() ? collectionLog.observed() : Collections.emptySet();
-    Map<String, Integer> combatAchievements = readCombatAchievementCounts();
+    // Not read at all when the opt-in is off, rather than read and dropped later. An
+    // opt-in is about what leaves the client, and the cheapest way to keep that true is
+    // to never hold the numbers in the first place.
+    Map<String, Integer> combatAchievements =
+        isCombatAchievementCaptureEnabled()
+            ? readCombatAchievementCounts()
+            : Collections.emptyMap();
     SubmitPlan plan =
         plan(
             skillBaseline,

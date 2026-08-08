@@ -133,4 +133,17 @@ public interface BankstandConfig extends Config {
   default boolean collectCollectionLog() {
     return false;
   }
+
+  @ConfigItem(
+      keyName = BankstandKeys.KEY_COLLECT_COMBAT_ACHIEVEMENTS,
+      name = "Collect combat achievements",
+      description =
+          "Sends how many combat achievement tasks you have completed in each tier. Counts"
+              + " only: the client does not expose which tasks, so a tier at 23 of 41 cannot"
+              + " say which 23.",
+      section = collectSection,
+      position = 5)
+  default boolean collectCombatAchievements() {
+    return false;
+  }
 }
