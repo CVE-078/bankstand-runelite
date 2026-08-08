@@ -21,6 +21,19 @@ public class StatusReportTest {
   }
 
   @Test
+  public void namesWhatItActuallyCounted() {
+    // The plugin counts distinct item ids; the game counts entries. On a real
+    // account those were 193 and 189, and calling ids "entries" put both numbers
+    // in one chat window disagreeing with each other. The plugin has no manifest
+    // and cannot resolve one into the other, so it names what it counted.
+    List<String> lines =
+        StatusReport.lines(
+            true, "https://x", "Zezima", "just now", null, Arrays.asList("skills"), 193);
+    assertTrue(mentions(lines, "193 items"));
+    assertFalse(mentions(lines, "193 entries"));
+  }
+
+  @Test
   public void unpairedSaysOnlyThat() {
     // Every other line describes a pairing that does not exist. Printing them
     // reads as though something is configured when nothing is.
