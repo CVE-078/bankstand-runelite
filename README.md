@@ -65,6 +65,10 @@ of truth for a server-side audience, which is why nothing in this plugin is call
 - **Disconnect.** Tick to forget this device's token. Unticks itself. To revoke it server-side, use
   **Bankstand > Account**.
 
+Your pairing is stored in `<RUNELITE_DIR>/bankstand/device.json`, not in RuneLite's plugin
+configuration, so it is never uploaded by config sync. **Each machine pairs separately**, and each
+appears as its own device on Bankstand with its own name and its own revoke button.
+
 ### Collect
 
 One toggle per capability, as listed above. **Collect skill XP** gates the whole capture rather than
