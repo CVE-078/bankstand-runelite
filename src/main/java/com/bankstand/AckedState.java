@@ -28,6 +28,7 @@ public class AckedState {
   private String skills;
   private String quests;
   private String diaries;
+  private String combatAchievements;
   private Set<Integer> collectionLogItems;
   private int collectionLogAcked;
 
@@ -61,6 +62,14 @@ public class AckedState {
 
   public void setDiaries(String diaries) {
     this.diaries = diaries;
+  }
+
+  public String getCombatAchievements() {
+    return combatAchievements;
+  }
+
+  public void setCombatAchievements(String combatAchievements) {
+    this.combatAchievements = combatAchievements;
   }
 
   /**
