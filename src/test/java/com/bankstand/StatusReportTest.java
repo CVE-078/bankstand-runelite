@@ -45,7 +45,7 @@ public class StatusReportTest {
     List<String> lines =
         StatusReport.lines(true, "https://x", null, null, null, Arrays.asList("skills"), -1);
     assertTrue(mentions(lines, "No character linked"));
-    assertTrue(mentions(lines, "::bankstand link"));
+    assertTrue(mentions(lines, "::bstand link"));
   }
 
   @Test

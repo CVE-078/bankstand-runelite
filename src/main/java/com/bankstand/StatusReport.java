@@ -4,7 +4,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * The lines {@code ::bankstand} prints, built from plain values.
+ * The lines {@code ::bstand} prints, built from plain values.
  *
  * <p>Separated from the plugin so the wording is testable without a client. Half the value of a
  * manual trigger is being able to see what it did, and during the #606 incident there was no way
@@ -49,7 +49,7 @@ public final class StatusReport {
     out.add("Paired with " + serverUrl + ".");
     out.add(
         linkedName == null
-            ? "No character linked yet. Log in and it links on the next tick, or run ::bankstand link."
+            ? "No character linked yet. Log in and it links on the next tick, or run ::bstand link."
             : "Linked character: " + linkedName + ".");
 
     out.add(
@@ -80,7 +80,7 @@ public final class StatusReport {
   }
 
   /**
-   * What {@code ::bankstand sync} reports.
+   * What {@code ::bstand sync} reports.
    *
    * <p>States plainly that the collection log is not included. A sync that silently leaves it out
    * looks like a sync that did not work, because the log is the capability a player is most likely

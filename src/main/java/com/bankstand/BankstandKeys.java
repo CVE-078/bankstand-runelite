@@ -19,6 +19,22 @@ public final class BankstandKeys {
 
   public static final String GROUP = "bankstand";
 
+  /**
+   * The chat command, and its shorter alias.
+   *
+   * **Not "bankstand".** The game matches its own {@code ::bank} on the prefix, so
+   * every {@code ::bankstand ...} made the player say "Hey, everyone, I just tried
+   * to do something very silly!" in PUBLIC chat. That is the exact outcome {@code ::}
+   * was chosen over {@code !} to avoid: these are private actions about one
+   * player's own account. Anything beginning with "bank" is unusable here.
+   *
+   * Both forms are accepted so nobody has to remember which we picked; {@code bstand}
+   * is the one the config and the unknown-command line name.
+   */
+  public static final String COMMAND = "bstand";
+
+  public static final String COMMAND_ALIAS = "stand";
+
   // The connection keys keep their original names, so an existing pairing survives a
   // rename untouched. The URL in particular has now survived three UI redesigns.
   public static final String KEY_SERVER_URL = "serverBaseUrl";

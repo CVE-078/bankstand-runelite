@@ -31,7 +31,10 @@ public interface BankstandConfig extends Config {
 
   @ConfigSection(
       name = "Connection",
-      description = "Which Bankstand account this client is paired with.",
+      description =
+          "Which Bankstand account this client is paired with. Type ::bstand in game for"
+              + " status, ::bstand sync to send now, or ::bstand link to re-link this"
+              + " character.",
       position = 10)
   String connectionSection = "connection";
 
