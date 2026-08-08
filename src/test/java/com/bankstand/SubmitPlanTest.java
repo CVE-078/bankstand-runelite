@@ -217,4 +217,36 @@ public class SubmitPlanTest {
     assertFalse(plan.includesDiaries());
     assertTrue(plan.includesCollectionLog());
   }
+
+  /**
+   * The combat achievement opt-in is enforced by never reading the counts, so a capture
+   * with it off passes an empty map here. Two things must hold for that to be safe.
+   *
+   * <p>It must not read as "every tier went to zero", and it must not put an empty block
+   * on the wire: the server drops an empty block without acknowledging it, so a client
+   * that sent one would never advance its baseline and would resubmit forever. The rest
+   * of the capture carries on regardless, which is the point of a per-capability opt-in.
+   */
+  @Test
+  public void leavesCombatAchievementsOutWhileTheOptInIsOff() {
+    Acked acked = new Acked();
+    CombatAchievementBaseline combat = new CombatAchievementBaseline();
+    combat.advance(skills("easy", 23));
+
+    BankstandPlugin.SubmitPlan plan =
+        BankstandPlugin.plan(
+            acked.skills,
+            skills("attack", 200),
+            acked.quests,
+            null,
+            acked.diaries,
+            null,
+            acked.log,
+            NO_LOG,
+            combat,
+            Collections.emptyMap());
+
+    assertFalse(plan.includesCombatAchievements());
+    assertTrue(plan.shouldSubmit());
+  }
 }
