@@ -53,7 +53,8 @@ import okhttp3.OkHttpClient;
 @PluginDescriptor(
     name = "Bankstand",
     description =
-        "Sync your skills, quests, diaries and collection log to your Bankstand account",
+        "Sync your skills, quests, diaries, combat achievements and collection log to your"
+            + " Bankstand account",
     tags = {"bankstand", "account", "progress", "external"})
 public class BankstandPlugin extends Plugin {
 
@@ -313,20 +314,41 @@ public class BankstandPlugin extends Plugin {
     }
   }
 
-  /** Capability names for the status and sync lines, in a stable display order. */
   private java.util.List<String> enabledCapabilities() {
+    return capabilityNames(
+        isSkillCaptureEnabled(),
+        isQuestCaptureEnabled(),
+        isDiaryCaptureEnabled(),
+        isCollectionLogCaptureEnabled(),
+        isCombatAchievementCaptureEnabled());
+  }
+
+  /**
+   * Capability names for the status and sync lines, in a stable display order.
+   *
+   * <p>Static and taking plain flags so it can be tested, because the failure it guards
+   * is silent: a capability added to the wire but not to this list makes the plugin
+   * under-report what it is sending, and the only symptom is a chat line that reads
+   * fine. Combat achievements shipped that way, captured and stored correctly while
+   * every status line denied it existed.
+   */
+  static java.util.List<String> capabilityNames(
+      boolean skills, boolean quests, boolean diaries, boolean collectionLog, boolean combat) {
     java.util.List<String> on = new java.util.ArrayList<>();
-    if (isSkillCaptureEnabled()) {
+    if (skills) {
       on.add("skills");
     }
-    if (isQuestCaptureEnabled()) {
+    if (quests) {
       on.add("quests");
     }
-    if (isDiaryCaptureEnabled()) {
+    if (diaries) {
       on.add("diaries");
     }
-    if (isCollectionLogCaptureEnabled()) {
+    if (collectionLog) {
       on.add("collection log");
+    }
+    if (combat) {
+      on.add("combat achievements");
     }
     return on;
   }
