@@ -48,8 +48,10 @@ import net.runelite.client.plugins.PluginDescriptor;
 import net.runelite.client.task.Schedule;
 import net.runelite.client.ui.overlay.infobox.InfoBoxManager;
 import net.runelite.client.util.ImageUtil;
+import lombok.extern.slf4j.Slf4j;
 import okhttp3.OkHttpClient;
 
+@Slf4j
 @PluginDescriptor(
     name = "Bankstand",
     description =
@@ -1104,6 +1106,14 @@ public class BankstandPlugin extends Plugin {
             // healthy client stays silent rather than narrating every 60 seconds.
             submitGate.onSuccess();
             lastSubmitAtMs = System.currentTimeMillis();
+            // Which blocks the server actually wrote, which is the one thing a
+            // report cannot tell us and the baselines key off. Never the body: it
+            // carries the account hash, the display name and the whole capture.
+            log.debug(
+                "submit {}: reason={} storedBlocks=[{}]",
+                res.isStored() ? "stored" : "accepted",
+                res.getReason(),
+                String.join(",", res.getStoredBlocks()));
             if (session.isCurrent(accountHash, generation) && noticeGate.onSuccess()) {
               notice("Reconnected. Your progress is syncing again.");
             }
@@ -1114,11 +1124,15 @@ public class BankstandPlugin extends Plugin {
               // Retrying cannot fix a revoked token, so stop rather than fail every
               // capture in silence. Announced by the gate, not NoticeGate, because this
               // is the one failure the player has to act on.
+              log.debug("submit refused: token rejected, halting until re-paired");
               if (submitGate.onAuthFailure()) {
                 notice("This client is no longer paired. Re-pair from your Bankstand account.");
               }
               return;
             }
+            // The message, never the body: a body carries the account hash, the
+            // display name and the whole capture.
+            log.debug("submit failed: {}", e.getMessage());
             submitGate.onFailure();
             if (session.isCurrent(accountHash, generation) && noticeGate.onFailure(e.getMessage())) {
               notice("Could not sync your progress. " + e.getMessage());
