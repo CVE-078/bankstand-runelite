@@ -261,7 +261,7 @@ public class BankstandPlugin extends Plugin {
    * Re-runs the identity submit, ignoring the once-per-session flag.
    *
    * <p>This is the action that was impossible during the incident: identity is
-   * submitted once per login and marks itself done before dispatch, so a single
+   * submitted once per login and marks itself in flight before dispatch, so a single
    * failure was unrecoverable short of a relog.
    */
   private void relinkCharacter() {
@@ -582,10 +582,12 @@ public class BankstandPlugin extends Plugin {
     if (name == null || name.isEmpty()) {
       return;
     }
-    // Mark before dispatching so a slow submit does not fire again on the next tick.
-    // One attempt per account per session; a relog retries. The generation pins this
-    // submit to this login instance so a stale result cannot overwrite a later one.
-    session.markSubmitted();
+    // Marked in flight before dispatching, so a slow submit does not fire again on the
+    // next tick, and released again on failure so a later tick can retry. The generation
+    // pins this submit to this login instance so a stale result cannot overwrite a later
+    // one, and so a late failure cannot re-arm a submit for a character who has since
+    // logged out.
+    session.markSubmitInFlight();
     submitIdentity(session.getAccountHash(), session.getGeneration(), name);
   }
 
@@ -1247,9 +1249,18 @@ public class BankstandPlugin extends Plugin {
                           + " Claim it on your account page.");
             }
           } catch (SubmitException e) {
-            // A transient failure has already been retried to the cap; surface the
-            // reason rather than failing silently. A relog retries afresh. The token
-            // and account hash are never logged.
+            // A transient failure has already been retried to the cap. Release the
+            // in-flight mark so a later tick can try the whole thing again, rather than
+            // leaving the session permanently unbound: the identity submit is what binds
+            // the account hash, and every capture path refuses until it has. Without
+            // this, a server that recovers a minute later goes on refusing this client
+            // until the player logs out and back in, which is exactly what happened.
+            //
+            // Guarded on the login instance so a late failure cannot re-arm a submit for
+            // a character who has since switched or logged out.
+            session.markSubmitFailed(accountHash, generation);
+            // Surface the reason rather than failing silently. The token and account
+            // hash are never logged.
             if (session.isCurrent(accountHash, generation)) {
               notice("Could not verify this character. " + e.getMessage());
             }

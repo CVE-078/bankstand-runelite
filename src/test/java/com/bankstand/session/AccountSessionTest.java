@@ -120,7 +120,7 @@ public class AccountSessionTest {
     AccountSession s = new AccountSession();
     s.onLogin(123L);
     assertFalse(s.isSubmitted());
-    s.markSubmitted();
+    s.markSubmitInFlight();
     assertTrue(s.isSubmitted());
 
     // Same account stays submitted; a switch resets it; so does logout.
@@ -129,8 +129,56 @@ public class AccountSessionTest {
     assertTrue(s.onLogin(456L));
     assertFalse(s.isSubmitted());
 
-    s.markSubmitted();
+    s.markSubmitInFlight();
     s.onLogout();
     assertFalse(s.isSubmitted());
+  }
+
+  @Test
+  public void releasesTheMarkWhenASubmitFails() {
+    // The bug this exists to stop: a failed identity submit used to leave the session
+    // marked forever, so nothing retried and every later capture was refused until the
+    // player logged out and back in. A failure must leave the session able to try again.
+    AccountSession s = new AccountSession();
+    s.onLogin(42L);
+    s.markSubmitInFlight();
+    assertTrue(s.isSubmitted());
+
+    s.markSubmitFailed(42L, s.getGeneration());
+    assertFalse(s.isSubmitted());
+  }
+
+  @Test
+  public void ignoresAFailureFromASupersededLogin() {
+    // A failure can arrive after the player has switched character, because the submit
+    // retries with backoff for several seconds. Re-arming a submit for an account that is
+    // no longer logged in would fire one against the wrong session.
+    AccountSession s = new AccountSession();
+    s.onLogin(42L);
+    s.markSubmitInFlight();
+    int staleGeneration = s.getGeneration();
+
+    s.onLogin(99L);
+    s.markSubmitInFlight();
+    s.markSubmitFailed(42L, staleGeneration);
+
+    assertTrue("a stale failure must not re-arm the current session", s.isSubmitted());
+  }
+
+  @Test
+  public void ignoresAFailureFromAnEarlierGenerationOfTheSameAccount() {
+    // A logout and relog to the SAME account advances the generation, so the hash alone
+    // is not enough to tell the two apart.
+    AccountSession s = new AccountSession();
+    s.onLogin(42L);
+    s.markSubmitInFlight();
+    int staleGeneration = s.getGeneration();
+
+    s.onLogout();
+    s.onLogin(42L);
+    s.markSubmitInFlight();
+    s.markSubmitFailed(42L, staleGeneration);
+
+    assertTrue(s.isSubmitted());
   }
 }
