@@ -28,7 +28,7 @@ public class StatusReportTest {
     // and cannot resolve one into the other, so it names what it counted.
     List<String> lines =
         StatusReport.lines(
-            true, "https://x", "Zezima", "just now", null, Arrays.asList("skills"), 193, null);
+            true, "https://x", "Zezima", "just now", null, Arrays.asList("skills"), 193, null, null);
     assertTrue(mentions(lines, "193 items"));
     assertFalse(mentions(lines, "193 entries"));
   }
@@ -38,7 +38,7 @@ public class StatusReportTest {
     // Every other line describes a pairing that does not exist. Printing them
     // reads as though something is configured when nothing is.
     List<String> lines =
-        StatusReport.lines(false, "https://x", "Zezima", "just now", null, Arrays.asList("skills"), 12, null);
+        StatusReport.lines(false, "https://x", "Zezima", "just now", null, Arrays.asList("skills"), 12, null, null);
     assertEquals(1, lines.size());
     assertTrue(lines.get(0).contains("Not paired"));
   }
@@ -47,7 +47,7 @@ public class StatusReportTest {
   public void namesTheServerBecauseAWrongOneIsOtherwiseSilent() {
     List<String> lines =
         StatusReport.lines(
-            true, "https://example.test", "Zezima", "just now", null, Arrays.asList("skills"), 12, null);
+            true, "https://example.test", "Zezima", "just now", null, Arrays.asList("skills"), 12, null, null);
     assertTrue(mentions(lines, "https://example.test"));
   }
 
@@ -56,7 +56,7 @@ public class StatusReportTest {
     // The exact state that cost two hours: identity submitted once, failed, and
     // nothing in the client could be asked to try again.
     List<String> lines =
-        StatusReport.lines(true, "https://x", null, null, null, Arrays.asList("skills"), -1, null);
+        StatusReport.lines(true, "https://x", null, null, null, Arrays.asList("skills"), -1, null, null);
     assertTrue(mentions(lines, "No character linked"));
     assertTrue(mentions(lines, "::bstand link"));
   }
@@ -64,14 +64,14 @@ public class StatusReportTest {
   @Test
   public void namesTheLinkedCharacter() {
     List<String> lines =
-        StatusReport.lines(true, "https://x", "Zezima", "just now", null, Arrays.asList("skills"), 5, null);
+        StatusReport.lines(true, "https://x", "Zezima", "just now", null, Arrays.asList("skills"), 5, null, null);
     assertTrue(mentions(lines, "Zezima"));
   }
 
   @Test
   public void saysWhenNothingIsSwitchedOn() {
     List<String> lines =
-        StatusReport.lines(true, "https://x", "Zezima", null, null, Collections.emptyList(), -1, null);
+        StatusReport.lines(true, "https://x", "Zezima", null, null, Collections.emptyList(), -1, null, null);
     assertTrue(mentions(lines, "No capabilities switched on"));
   }
 
@@ -79,11 +79,11 @@ public class StatusReportTest {
   public void reportsTheLastFailureOnlyWhenThereIsOne() {
     List<String> withFailure =
         StatusReport.lines(
-            true, "https://x", "Zezima", "5m ago", "401 unauthorised", Arrays.asList("skills"), 5, null);
+            true, "https://x", "Zezima", "5m ago", "401 unauthorised", Arrays.asList("skills"), 5, null, null);
     assertTrue(mentions(withFailure, "401 unauthorised"));
 
     List<String> clean =
-        StatusReport.lines(true, "https://x", "Zezima", "5m ago", null, Arrays.asList("skills"), 5, null);
+        StatusReport.lines(true, "https://x", "Zezima", "5m ago", null, Arrays.asList("skills"), 5, null, null);
     assertFalse(mentions(clean, "Last failure"));
   }
 
@@ -92,12 +92,12 @@ public class StatusReportTest {
     // Read or not, it gets a line. It is the one capability a manual sync cannot
     // refresh, and silence about it is what makes a working sync look broken.
     List<String> neverRead =
-        StatusReport.lines(true, "https://x", "Zezima", "5m ago", null, Arrays.asList("skills"), -1, null);
+        StatusReport.lines(true, "https://x", "Zezima", "5m ago", null, Arrays.asList("skills"), -1, null, null);
     assertTrue(mentions(neverRead, "Search"));
     assertFalse(mentions(neverRead, "-1"));
 
     List<String> read =
-        StatusReport.lines(true, "https://x", "Zezima", "5m ago", null, Arrays.asList("skills"), 189, null);
+        StatusReport.lines(true, "https://x", "Zezima", "5m ago", null, Arrays.asList("skills"), 189, null, null);
     assertTrue(mentions(read, "189"));
     assertTrue(mentions(read, "Search"));
   }
@@ -129,7 +129,7 @@ public class StatusReportTest {
             null,
             Arrays.asList("skills"),
             5,
-            "Account type: group (varbit 1777 = 4).");
+            "Account type: group (varbit 1777 = 4).", null);
     assertTrue(mentions(lines, "Account type: group"));
   }
 
@@ -140,7 +140,7 @@ public class StatusReportTest {
     // missing one, so the caller passes null and the line is simply absent.
     List<String> lines =
         StatusReport.lines(
-            true, "https://x", null, "just now", null, Arrays.asList("skills"), 5, null);
+            true, "https://x", null, "just now", null, Arrays.asList("skills"), 5, null, null);
     assertFalse(mentions(lines, "Account type"));
   }
 }

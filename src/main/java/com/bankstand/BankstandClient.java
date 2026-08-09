@@ -24,6 +24,7 @@ public class BankstandClient {
 
   private static final String PAIR_PATH = "/api/plugin/v1/pair";
   private static final String SUBMIT_PATH = "/api/plugin/v1/submit";
+  private static final String MANIFEST_PATH = "/api/plugin/v1/manifest";
   private static final String USER_AGENT = "Bankstand-RuneLite";
   private static final String GENERIC_FAILURE = "Pairing failed. Check the code and try again.";
 
@@ -270,6 +271,32 @@ public class BankstandClient {
 
   private static boolean isBlank(String value) {
     return value == null || value.trim().isEmpty();
+  }
+
+  /**
+   * Fetches the capability manifest, or returns null if anything at all goes wrong.
+   *
+   * <p>Null, never an exception. The manifest is an optimisation: it tells the client
+   * which capabilities are worth uploading. A client that cannot fetch one keeps its last
+   * known good copy, or the compiled-in bundle, and carries on working. A manifest outage
+   * must never take a paired client down with it.
+   *
+   * <p>Unauthenticated, because the document is public and inert and a client may need it
+   * before it has a device token.
+   */
+  public CapabilityManifest.RawManifest fetchManifest(String baseUrl) {
+    Map<String, String> headers = new LinkedHashMap<>();
+    headers.put("Accept", "application/json");
+    headers.put("User-Agent", USER_AGENT);
+    try {
+      HttpResponse response = transport.get(trimTrailingSlash(baseUrl) + MANIFEST_PATH, headers);
+      if (response.getStatus() != 200) {
+        return null;
+      }
+      return gson.fromJson(response.getBody(), CapabilityManifest.RawManifest.class);
+    } catch (IOException | JsonSyntaxException e) {
+      return null;
+    }
   }
 
   private static String trimTrailingSlash(String url) {

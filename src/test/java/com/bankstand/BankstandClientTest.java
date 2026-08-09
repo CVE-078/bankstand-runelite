@@ -2,6 +2,8 @@ package com.bankstand;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotEquals;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
@@ -50,6 +52,17 @@ public class BankstandClientTest {
       }
       return response;
     }
+
+    @Override
+    public HttpResponse get(String url, Map<String, String> headers) throws IOException {
+      this.called = true;
+      this.url = url;
+      this.headers = headers;
+      if (toThrow != null) {
+        throw toThrow;
+      }
+      return response;
+    }
   }
 
   /** Returns a scripted sequence of responses/errors and counts calls, for retry tests. */
@@ -59,6 +72,11 @@ public class BankstandClientTest {
 
     SequencedTransport(Object... steps) {
       java.util.Collections.addAll(this.steps, steps);
+    }
+
+    @Override
+    public HttpResponse get(String url, Map<String, String> headers) throws IOException {
+      return post(url, "", headers);
     }
 
     @Override
@@ -356,5 +374,46 @@ public class BankstandClientTest {
   private static void assertFalseCalled(FakeTransport t) {
     assertNull(t.url);
     org.junit.Assert.assertFalse(t.called);
+  }
+
+  @Test
+  public void fetchesTheManifestFromTheVersionedPath() {
+    FakeTransport transport =
+        new FakeTransport(
+            new HttpResponse(
+                200,
+                "{\"schemaVersion\":1,\"capabilities\":[\"skills\"],\"uploadIntervalSeconds\":300}"));
+    CapabilityManifest.RawManifest raw =
+        new BankstandClient(transport, new Gson()).fetchManifest(BASE);
+
+    assertEquals(BASE + "/api/plugin/v1/manifest", transport.url);
+    assertEquals(1, raw.schemaVersion);
+    assertNotNull(CapabilityManifest.validate(raw));
+  }
+
+  @Test
+  public void treatsAnyManifestFailureAsNoManifest() {
+    // Null, never an exception. The manifest is an optimisation and a client that cannot
+    // fetch one falls back to its cache or its bundle and carries on working.
+    assertNull(
+        new BankstandClient(new FakeTransport(null, new IOException("offline")), new Gson())
+            .fetchManifest(BASE));
+    assertNull(
+        new BankstandClient(new FakeTransport(new HttpResponse(500, "")), new Gson())
+            .fetchManifest(BASE));
+    assertNull(
+        new BankstandClient(new FakeTransport(new HttpResponse(200, "<html>")), new Gson())
+            .fetchManifest(BASE));
+  }
+
+  @Test
+  public void sendsNoCredentialWhenFetchingTheManifest() {
+    // The document is public and inert, and a client may need it before it has a token.
+    // Sending one anyway would put a credential on a request that does not need it.
+    FakeTransport transport = new FakeTransport(new HttpResponse(200, "{\"schemaVersion\":1}"));
+    new BankstandClient(transport, new Gson()).fetchManifest(BASE);
+    for (String key : transport.headers.keySet()) {
+      assertNotEquals("Authorization", key);
+    }
   }
 }

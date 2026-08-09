@@ -39,4 +39,16 @@ public class OkHttpTransport implements HttpTransport {
       return new HttpResponse(response.code(), body != null ? body.string() : "");
     }
   }
+
+  @Override
+  public HttpResponse get(String url, Map<String, String> headers) throws IOException {
+    Request.Builder builder = new Request.Builder().url(url).get();
+    for (Map.Entry<String, String> header : headers.entrySet()) {
+      builder.header(header.getKey(), header.getValue());
+    }
+    try (Response response = client.newCall(builder.build()).execute()) {
+      ResponseBody body = response.body();
+      return new HttpResponse(response.code(), body != null ? body.string() : "");
+    }
+  }
 }
