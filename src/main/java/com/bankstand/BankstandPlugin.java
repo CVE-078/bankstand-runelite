@@ -145,6 +145,7 @@ public class BankstandPlugin extends Plugin {
   private final SkillBaseline skillBaseline = new SkillBaseline();
   private final QuestBaseline questBaseline = new QuestBaseline();
   private final DiaryBaseline diaryBaseline = new DiaryBaseline();
+  private final AccountTypeBaseline accountTypeBaseline = new AccountTypeBaseline();
   private final CombatAchievementBaseline combatAchievementBaseline =
       new CombatAchievementBaseline();
   private final CollectionLogAccumulator collectionLog = new CollectionLogAccumulator();
@@ -349,7 +350,8 @@ public class BankstandPlugin extends Plugin {
         isQuestCaptureEnabled(),
         isDiaryCaptureEnabled(),
         isCollectionLogCaptureEnabled(),
-        isCombatAchievementCaptureEnabled());
+        isCombatAchievementCaptureEnabled(),
+        isAccountTypeCaptureEnabled());
   }
 
   /**
@@ -362,7 +364,12 @@ public class BankstandPlugin extends Plugin {
    * every status line denied it existed.
    */
   static java.util.List<String> capabilityNames(
-      boolean skills, boolean quests, boolean diaries, boolean collectionLog, boolean combat) {
+      boolean skills,
+      boolean quests,
+      boolean diaries,
+      boolean collectionLog,
+      boolean combat,
+      boolean accountType) {
     java.util.List<String> on = new java.util.ArrayList<>();
     if (skills) {
       on.add("skills");
@@ -378,6 +385,9 @@ public class BankstandPlugin extends Plugin {
     }
     if (combat) {
       on.add("combat achievements");
+    }
+    if (accountType) {
+      on.add("account type");
     }
     return on;
   }
@@ -535,6 +545,10 @@ public class BankstandPlugin extends Plugin {
 
   private boolean isCombatAchievementCaptureEnabled() {
     return config.collectCombatAchievements() && manifest.allows("combatAchievements");
+  }
+
+  private boolean isAccountTypeCaptureEnabled() {
+    return config.collectAccountType() && manifest.allows("accountType");
   }
 
   @Subscribe
@@ -780,6 +794,7 @@ public class BankstandPlugin extends Plugin {
       questBaseline.reset();
       diaryBaseline.reset();
       combatAchievementBaseline.reset();
+      accountTypeBaseline.reset();
       // A collection log belongs to one character; carrying it across an account
       // switch would attribute one account's items to another.
       collectionLog.reset();
@@ -798,6 +813,13 @@ public class BankstandPlugin extends Plugin {
         isCombatAchievementCaptureEnabled()
             ? readCombatAchievementCounts()
             : Collections.emptyMap();
+    // Null rather than empty when the opt-in is off, matching the scalar's own absent
+    // shape. Null also when the varbit holds a value this build has no name for: a wrong
+    // type is worse than none, because it is the badge on the player's own profile.
+    String accountType =
+        isAccountTypeCaptureEnabled()
+            ? AccountTypes.keyFor(client.getVarbitValue(AccountTypes.ACCOUNT_TYPE_VARBIT))
+            : null;
     SubmitPlan plan =
         plan(
             skillBaseline,
@@ -809,7 +831,9 @@ public class BankstandPlugin extends Plugin {
             collectionLogBaseline,
             clog,
             combatAchievementBaseline,
-            combatAchievements);
+            combatAchievements,
+            accountTypeBaseline,
+            accountType);
     if (!plan.shouldSubmit()) {
       return;
     }
@@ -829,7 +853,8 @@ public class BankstandPlugin extends Plugin {
         // whose count moved while its completion flag did not is the normal case rather
         // than the exception, so the counts would then be the half that never went.
         plan.includesDiaries() ? diaryTaskCounts : null,
-        plan.includesCollectionLog() ? clog : Collections.emptySet());
+        plan.includesCollectionLog() ? clog : Collections.emptySet(),
+        plan.includesAccountType() ? accountType : null);
   }
 
   /**
@@ -853,6 +878,7 @@ public class BankstandPlugin extends Plugin {
                 questBaseline.restore(state.getQuests());
                 diaryBaseline.restore(state.getDiaries());
                 combatAchievementBaseline.restore(state.getCombatAchievements());
+                accountTypeBaseline.restore(state.getAccountType());
                 // Together, never one alone. CollectionLogBaseline.restore says why.
                 collectionLog.restore(state.getCollectionLogItems());
                 collectionLogBaseline.restore(state.getCollectionLogAcked());
@@ -873,6 +899,7 @@ public class BankstandPlugin extends Plugin {
     state.setQuests(questBaseline.ackedDigest());
     state.setDiaries(diaryBaseline.ackedDigest());
     state.setCombatAchievements(combatAchievementBaseline.ackedDigest());
+    state.setAccountType(accountTypeBaseline.ackedValue());
     state.setCollectionLogItems(collectionLog.observed());
     state.setCollectionLogAcked(collectionLogBaseline.ackedCount());
     executor.submit(() -> ackedStore.save(accountHash, state));
@@ -890,18 +917,21 @@ public class BankstandPlugin extends Plugin {
     private final boolean diaries;
     private final boolean collectionLog;
     private final boolean combatAchievements;
+    private final boolean accountType;
 
     private SubmitPlan(
         boolean submit,
         boolean quests,
         boolean diaries,
         boolean collectionLog,
-        boolean combatAchievements) {
+        boolean combatAchievements,
+        boolean accountType) {
       this.submit = submit;
       this.quests = quests;
       this.diaries = diaries;
       this.collectionLog = collectionLog;
       this.combatAchievements = combatAchievements;
+      this.accountType = accountType;
     }
 
     boolean shouldSubmit() {
@@ -922,6 +952,10 @@ public class BankstandPlugin extends Plugin {
 
     boolean includesCombatAchievements() {
       return combatAchievements;
+    }
+
+    boolean includesAccountType() {
+      return accountType;
     }
   }
 
@@ -973,6 +1007,35 @@ public class BankstandPlugin extends Plugin {
         collectionLogBaseline,
         collectionLogItems,
         new CombatAchievementBaseline(),
+        null,
+        new AccountTypeBaseline(),
+        null);
+  }
+
+  /** Without the account type, which every caller predating it omits. */
+  static SubmitPlan plan(
+      SkillBaseline skillBaseline,
+      Map<String, Integer> skills,
+      QuestBaseline questBaseline,
+      Map<String, String> quests,
+      DiaryBaseline diaryBaseline,
+      Map<String, String> diaries,
+      CollectionLogBaseline collectionLogBaseline,
+      Set<Integer> collectionLogItems,
+      CombatAchievementBaseline combatAchievementBaseline,
+      Map<String, Integer> combatAchievements) {
+    return plan(
+        skillBaseline,
+        skills,
+        questBaseline,
+        quests,
+        diaryBaseline,
+        diaries,
+        collectionLogBaseline,
+        collectionLogItems,
+        combatAchievementBaseline,
+        combatAchievements,
+        new AccountTypeBaseline(),
         null);
   }
 
@@ -986,7 +1049,9 @@ public class BankstandPlugin extends Plugin {
       CollectionLogBaseline collectionLogBaseline,
       Set<Integer> collectionLogItems,
       CombatAchievementBaseline combatAchievementBaseline,
-      Map<String, Integer> combatAchievements) {
+      Map<String, Integer> combatAchievements,
+      AccountTypeBaseline accountTypeBaseline,
+      String accountType) {
     boolean sendQuests =
         quests != null && !quests.isEmpty() && questBaseline.changedSince(quests);
     boolean sendDiaries =
@@ -1001,14 +1066,27 @@ public class BankstandPlugin extends Plugin {
         combatAchievements != null
             && !combatAchievements.isEmpty()
             && combatAchievementBaseline.changedSince(combatAchievements);
+    // Counts toward the decision on its own, and has to: the type is read once at login
+    // and then never changes, so a capture waiting on xp to move would leave a Group
+    // Ironman reading as a main until they happened to train something.
+    boolean sendAccountType =
+        accountType != null
+            && !accountType.isEmpty()
+            && accountTypeBaseline.changedSince(accountType);
     boolean submit =
         skillBaseline.changedSince(skills)
             || sendQuests
             || sendDiaries
             || sendCollectionLog
-            || sendCombatAchievements;
+            || sendCombatAchievements
+            || sendAccountType;
     return new SubmitPlan(
-        submit, sendQuests, sendDiaries, sendCollectionLog, sendCombatAchievements);
+        submit,
+        sendQuests,
+        sendDiaries,
+        sendCollectionLog,
+        sendCombatAchievements,
+        sendAccountType);
   }
 
   // Every baseline, skills included, advances only on the server's own per-block
@@ -1086,6 +1164,14 @@ public class BankstandPlugin extends Plugin {
     return included && res.isBlockStored("combatAchievements");
   }
 
+  // The one where a false acknowledgement can never self-heal. Every other capability
+  // describes something that moves again later, so a baseline advanced in error is
+  // corrected by the next real change. An account's type changes once if ever, so if
+  // this advances on a block the server did not store, the fact is simply lost.
+  static boolean shouldAdvanceAccountType(SubmitSnapshotResponse res, boolean included) {
+    return included && res.isBlockStored("accountType");
+  }
+
   private void submitSnapshot(
       Map<String, Integer> combatAchievementCounts,
       long accountHash,
@@ -1095,7 +1181,8 @@ public class BankstandPlugin extends Plugin {
       Map<String, String> quests,
       Map<String, String> diaries,
       Map<String, Integer> diaryTaskCounts,
-      Set<Integer> collectionLogItems) {
+      Set<Integer> collectionLogItems,
+      String accountType) {
     String url = savedServerUrl();
     String token = deviceStore.load().getToken();
     String version = getClass().getPackage().getImplementationVersion();
@@ -1113,7 +1200,8 @@ public class BankstandPlugin extends Plugin {
             diaries,
             collectionLogItems,
             combatAchievementCounts,
-            diaryTaskCounts);
+            diaryTaskCounts,
+            accountType);
     executor.submit(
         () -> {
           try {
@@ -1145,6 +1233,9 @@ public class BankstandPlugin extends Plugin {
                     if (shouldAdvanceCombatAchievements(
                         res, combatAchievementCounts != null)) {
                       combatAchievementBaseline.advance(combatAchievementCounts);
+                    }
+                    if (shouldAdvanceAccountType(res, accountType != null)) {
+                      accountTypeBaseline.advance(accountType);
                     }
                     // Unconditional, not only when a baseline advanced: passive browsing
                     // can have grown the accumulator even on a submit that stored nothing.

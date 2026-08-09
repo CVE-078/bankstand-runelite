@@ -56,6 +56,7 @@ public final class BankstandKeys {
   public static final String KEY_COLLECT_DIARIES = "collectDiaries";
   public static final String KEY_COLLECT_COLLECTION_LOG = "collectCollectionLog";
   public static final String KEY_COLLECT_COMBAT_ACHIEVEMENTS = "collectCombatAchievements";
+  public static final String KEY_COLLECT_ACCOUNT_TYPE = "collectAccountType";
 
   // Credentials, never surfaced as config items.
   public static final String KEY_DEVICE_TOKEN = "deviceToken";
