@@ -202,7 +202,12 @@ public class BankstandPlugin extends Plugin {
         lastSubmitAtMs == 0L ? null : describeAge(System.currentTimeMillis() - lastSubmitAtMs),
         submitGate.isHalted() ? "authentication failed, so submission is paused. Re-pair to resume." : null,
         enabledCapabilities(),
-        collectionLog.isEmpty() ? -1 : collectionLog.size());
+        collectionLog.isEmpty() ? -1 : collectionLog.size(),
+        // Only with an account actually loaded. The varbit reads 0 when logged
+        // out, which is the same value as a regular account.
+        name == null || name.isEmpty()
+            ? null
+            : AccountTypes.describe(client.getVarbitValue(AccountTypes.ACCOUNT_TYPE_VARBIT)));
   }
 
   /** `4 minutes ago`, coarsely. Precision here would imply more than we know. */
