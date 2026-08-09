@@ -28,6 +28,7 @@ public final class StatusReport {
    * @param lastFailure the last failure reason, or null when the last attempt succeeded
    * @param enabled which capability names are switched on, in display order
    * @param collectionLogSlots how many slots the last guided read saw, or -1 when never read
+   * @param accountTypeLine what the game reports this account to be, or null when logged out
    */
   public static List<String> lines(
       boolean paired,
@@ -36,7 +37,8 @@ public final class StatusReport {
       String lastSubmitDescription,
       String lastFailure,
       List<String> enabled,
-      int collectionLogSlots) {
+      int collectionLogSlots,
+      String accountTypeLine) {
     List<String> out = new ArrayList<>();
 
     if (!paired) {
@@ -82,6 +84,14 @@ public final class StatusReport {
             : "Collection log: "
                 + collectionLogSlots
                 + " items from the last read. Use the log's own Search to read it again.");
+
+    // Read from the game rather than from the hiscores, which cannot see Group
+    // Ironman at all. Null while logged out: the varbit reads 0 with no account
+    // loaded, and printing "regular" for a logged-out client would be a wrong
+    // answer rather than a missing one.
+    if (accountTypeLine != null) {
+      out.add(accountTypeLine);
+    }
 
     return out;
   }
