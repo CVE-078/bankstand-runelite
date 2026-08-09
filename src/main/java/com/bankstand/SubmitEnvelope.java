@@ -55,7 +55,7 @@ public final class SubmitEnvelope {
       Map<String, String> diaryStates) {
     return body(
         submissionId, schemaVersion, pluginVersion, capturedAt, accountHash, displayName, skillXp,
-        questStates, diaryStates, null);
+        questStates, diaryStates, null, null, null);
   }
 
   public static Map<String, Object> body(
@@ -71,7 +71,7 @@ public final class SubmitEnvelope {
       Collection<Integer> collectionLogItems) {
     return body(
         submissionId, schemaVersion, pluginVersion, capturedAt, accountHash, displayName, skillXp,
-        questStates, diaryStates, collectionLogItems, null);
+        questStates, diaryStates, collectionLogItems, null, null);
   }
 
   public static Map<String, Object> body(
@@ -85,7 +85,8 @@ public final class SubmitEnvelope {
       Map<String, String> questStates,
       Map<String, String> diaryStates,
       Collection<Integer> collectionLogItems,
-      Map<String, Integer> combatAchievementCounts) {
+      Map<String, Integer> combatAchievementCounts,
+      Map<String, Integer> diaryTaskCounts) {
     Map<String, Object> body = new LinkedHashMap<>();
     body.put("submissionId", submissionId);
     body.put("schemaVersion", schemaVersion);
@@ -107,6 +108,14 @@ public final class SubmitEnvelope {
     }
     if (diaryStates != null && !diaryStates.isEmpty()) {
       body.put("diaries", new LinkedHashMap<>(diaryStates));
+    }
+    // How many of each tier's tasks are done, which is what makes a tier at 21 of 22
+    // expressible at all: the completion flag above is true only when every task is
+    // done, so a partly finished tier has been reporting as nothing. Counts, never
+    // task identities. Omitted when empty like every other block, and for the same
+    // reason: empty means "not observed", not "none done".
+    if (diaryTaskCounts != null && !diaryTaskCounts.isEmpty()) {
+      body.put("diaryTasks", new LinkedHashMap<>(diaryTaskCounts));
     }
     // An array, not a map: this capability records presence only. Omitted when empty
     // for the same reason as every other block, and the reason is load-bearing here
