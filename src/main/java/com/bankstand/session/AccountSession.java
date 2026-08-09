@@ -47,14 +47,41 @@ public class AccountSession {
     return isActive() && accountHash == hash && generation == gen;
   }
 
-  /** True once this account's identity has been submitted, so it is not resent every tick. */
+  /**
+   * True while this account's identity submit is in flight or has succeeded, so it is
+   * not resent every tick.
+   *
+   * <p>Named for the question the caller asks ("should I dispatch one?"), which covers
+   * both states, because the caller cannot act differently on them.
+   */
   public boolean isSubmitted() {
     return submitted;
   }
 
-  /** Mark the current account's identity as submitted for this session. */
-  public void markSubmitted() {
+  /**
+   * Mark an identity submit as in flight, so the next tick does not fire a second one.
+   *
+   * <p><b>In flight, not done.</b> These were the same thing, and the difference cost a
+   * player their whole session: a submit that failed was never retried, because the flag
+   * was set before dispatch and nothing ever cleared it. The server was fixed four
+   * minutes later and the client went on being refused until a full logout and login.
+   * "Do not double-fire" and "never retry" are not the same requirement.
+   */
+  public void markSubmitInFlight() {
     submitted = true;
+  }
+
+  /**
+   * Release the mark after a failed submit, so a later tick can try again.
+   *
+   * <p>Guarded on the login instance for the same reason the success path is: a failure
+   * arriving after the player has switched character must not re-arm a submit for an
+   * account that is no longer logged in.
+   */
+  public void markSubmitFailed(long hash, int gen) {
+    if (isCurrent(hash, gen)) {
+      submitted = false;
+    }
   }
 
   /**
