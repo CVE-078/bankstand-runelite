@@ -29,6 +29,7 @@ public final class StatusReport {
    * @param enabled which capability names are switched on, in display order
    * @param collectionLogSlots how many slots the last guided read saw, or -1 when never read
    * @param accountTypeLine what the game reports this account to be, or null when logged out
+   * @param manifestLine the capability manifest in use, so it is never a guess in a bug report
    */
   public static List<String> lines(
       boolean paired,
@@ -38,7 +39,8 @@ public final class StatusReport {
       String lastFailure,
       List<String> enabled,
       int collectionLogSlots,
-      String accountTypeLine) {
+      String accountTypeLine,
+      String manifestLine) {
     List<String> out = new ArrayList<>();
 
     if (!paired) {
@@ -91,6 +93,13 @@ public final class StatusReport {
     // answer rather than a missing one.
     if (accountTypeLine != null) {
       out.add(accountTypeLine);
+    }
+
+    // Which capabilities the server currently ingests, and how often it wants them. The
+    // gates above are an intersection of this and the player's own toggles, so without it
+    // a capability switched on in the config but absent from the manifest reads as a bug.
+    if (manifestLine != null) {
+      out.add(manifestLine);
     }
 
     return out;

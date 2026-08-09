@@ -86,6 +86,7 @@ public class BankstandPlugin extends Plugin {
   private static final File ACKED_STATE_DIR = new File(RuneLite.RUNELITE_DIR, "bankstand");
   private static final String ACKED_STATE_FILE = "acked-state.json";
   private static final String DEVICE_FILE = "device.json";
+  private static final String MANIFEST_FILE = "manifest.json";
 
 
   // Every chat line the plugin writes carries a coloured prefix, so a message is
@@ -151,6 +152,17 @@ public class BankstandPlugin extends Plugin {
   private final CollectionLogSync collectionLogSync = new CollectionLogSync();
   private CollectionLogSyncInfoBox syncInfoBox;
   private AckedStateStore ackedStore;
+  private ManifestStore manifestStore;
+
+  /**
+   * What the server currently ingests.
+   *
+   * <p>Never null once {@code startUp} has run: the store falls back to the last cached
+   * manifest and then to the compiled-in one, so there is no state in which a manifest
+   * problem stops a paired client working. Refreshed in the background, so a fetch never
+   * sits in front of a capture.
+   */
+  private volatile CapabilityManifest manifest = CapabilityManifest.bundled();
   private DeviceCredentialStore deviceStore;
   // Suppresses a recurring failure from printing every capture cycle.
   private final NoticeGate noticeGate = new NoticeGate();
@@ -178,6 +190,11 @@ public class BankstandPlugin extends Plugin {
     pairingClient = new BankstandClient(transport, gson);
     // A file, not ConfigManager. AckedStateStore says why that is not a preference.
     ackedStore = new AckedStateStore(new File(ACKED_STATE_DIR, ACKED_STATE_FILE), gson);
+    manifestStore = new ManifestStore(new File(ACKED_STATE_DIR, MANIFEST_FILE), gson);
+    // The cached copy immediately, so the first capture of a session is never gated on a
+    // network round trip, then a refresh in the background.
+    manifest = manifestStore.current(null);
+    refreshManifest();
     deviceStore = new DeviceCredentialStore(new File(ACKED_STATE_DIR, DEVICE_FILE), gson);
     migrateCredentialsOutOfConfig();
   }
@@ -207,7 +224,8 @@ public class BankstandPlugin extends Plugin {
         // out, which is the same value as a regular account.
         name == null || name.isEmpty()
             ? null
-            : AccountTypes.describe(client.getVarbitValue(AccountTypes.ACCOUNT_TYPE_VARBIT)));
+            : AccountTypes.describe(client.getVarbitValue(AccountTypes.ACCOUNT_TYPE_VARBIT)),
+        "Server accepts: " + manifest.describe() + ".");
   }
 
   /** `4 minutes ago`, coarsely. Precision here would imply more than we know. */
@@ -512,11 +530,11 @@ public class BankstandPlugin extends Plugin {
   }
 
   private boolean isCollectionLogCaptureEnabled() {
-    return config.collectCollectionLog();
+    return config.collectCollectionLog() && manifest.allows("collectionLog");
   }
 
   private boolean isCombatAchievementCaptureEnabled() {
-    return config.collectCombatAchievements();
+    return config.collectCombatAchievements() && manifest.allows("combatAchievements");
   }
 
   @Subscribe
@@ -1154,12 +1172,19 @@ public class BankstandPlugin extends Plugin {
   // Both default to false on the config item, so an unset key (never opted in) reads
   // as off. Quest and diary state are more sensitive than hiscore stats, so the
   // capture path must check these before reading or sending either.
+  //
+  // **Every gate is an intersection of two things, and they are not the same thing.**
+  // `config` is the player's consent and is the only one that can say yes. The manifest
+  // is the server saying it will actually ingest that block, and can only ever narrow the
+  // answer. So a capability the player switched off is never sent whatever the server
+  // asks for, and a capability the server has stopped ingesting stops being uploaded
+  // without waiting for a plugin release, which is the whole reason the manifest exists.
   private boolean isQuestCaptureEnabled() {
-    return config.collectQuests();
+    return config.collectQuests() && manifest.allows("quests");
   }
 
   private boolean isDiaryCaptureEnabled() {
-    return config.collectDiaries();
+    return config.collectDiaries() && manifest.allows("diaries");
   }
 
   // Unlike the three opt-ins this defaults to ON, because skill XP is already public
@@ -1169,7 +1194,31 @@ public class BankstandPlugin extends Plugin {
   // the warning about what is sent to sit on the option that enables the sending, and
   // a player who wants a paired client to go quiet should not have to unpair to do it.
   private boolean isSkillCaptureEnabled() {
-    return config.collectSkills();
+    return config.collectSkills() && manifest.allows("skills");
+  }
+
+  /**
+   * Pulls the manifest in the background and caches it if it validates.
+   *
+   * <p>Every failure is silent and leaves the current manifest in place. The player can
+   * do nothing about a manifest fetch, so telling them about one would be noise in a chat
+   * box; the active manifest is in {@code ::bstand} for when it matters.
+   */
+  private void refreshManifest() {
+    if (pairingClient == null || manifestStore == null) {
+      return;
+    }
+    String url = savedServerUrl();
+    executor.submit(
+        () -> {
+          CapabilityManifest.RawManifest raw = pairingClient.fetchManifest(url);
+          CapabilityManifest validated = CapabilityManifest.validate(raw);
+          if (validated != null) {
+            manifestStore.save(raw);
+          }
+          manifest = manifestStore.current(validated);
+          log.debug("manifest in use: {}", manifest.describe());
+        });
   }
 
   private void submitIdentity(long accountHash, int generation, String displayName) {
