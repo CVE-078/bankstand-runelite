@@ -63,4 +63,42 @@ public class SubmitEnvelopeTest {
             "id", 1, "1.0.0", "t", 1L, "Zezima", skills(), null, new LinkedHashMap<>());
     assertFalse(new Gson().toJsonTree(body).getAsJsonObject().has("diaries"));
   }
+
+  @Test
+  public void carriesDiaryTaskCountsWhenThereAreAny() {
+    java.util.Map<String, Integer> counts = new java.util.LinkedHashMap<>();
+    counts.put("ARDOUGNE_EASY", 9);
+    counts.put("ARDOUGNE_MEDIUM", 0);
+    Map<String, Object> body =
+        SubmitEnvelope.body(
+            "id", 1, "1.0.0", "2026-08-09T10:00:00Z", 42L, "Zezima",
+            java.util.Collections.singletonMap("attack", 100),
+            null, null, null, null, counts);
+
+    @SuppressWarnings("unchecked")
+    Map<String, Object> sent = (Map<String, Object>) body.get("diaryTasks");
+    assertEquals(Integer.valueOf(9), sent.get("ARDOUGNE_EASY"));
+    // Zero is a real reading and must survive. A tier with none done is a different
+    // fact from a tier that was not read, and only the block's absence says the latter.
+    assertEquals(Integer.valueOf(0), sent.get("ARDOUGNE_MEDIUM"));
+  }
+
+  @Test
+  public void omitsDiaryTaskCountsWhenThereAreNone() {
+    // Absent means "not observed". A present-but-empty block is treated as an erase by
+    // the per-capability merge, which is the trap every other block here avoids too.
+    Map<String, Object> none =
+        SubmitEnvelope.body(
+            "id", 1, "1.0.0", "2026-08-09T10:00:00Z", 42L, "Zezima",
+            java.util.Collections.singletonMap("attack", 100),
+            null, null, null, null, new java.util.LinkedHashMap<>());
+    assertFalse(none.containsKey("diaryTasks"));
+
+    Map<String, Object> nullCounts =
+        SubmitEnvelope.body(
+            "id", 1, "1.0.0", "2026-08-09T10:00:00Z", 42L, "Zezima",
+            java.util.Collections.singletonMap("attack", 100),
+            null, null, null, null, null);
+    assertFalse(nullCounts.containsKey("diaryTasks"));
+  }
 }

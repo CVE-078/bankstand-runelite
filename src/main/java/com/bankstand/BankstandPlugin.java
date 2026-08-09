@@ -622,7 +622,8 @@ public class BankstandPlugin extends Plugin {
         null,
         skills,
         isQuestCaptureEnabled() ? readQuestStates() : null,
-        isDiaryCaptureEnabled() ? readDiaryStates() : null);
+        isDiaryCaptureEnabled() ? readDiaryStates() : null,
+        isDiaryCaptureEnabled() ? readDiaryTaskCounts() : null);
   }
 
   @Schedule(period = CAPTURE_INTERVAL_SECONDS, unit = ChronoUnit.SECONDS)
@@ -680,7 +681,9 @@ public class BankstandPlugin extends Plugin {
           // when off.
           Map<String, String> quests = isQuestCaptureEnabled() ? readQuestStates() : null;
           Map<String, String> diaries = isDiaryCaptureEnabled() ? readDiaryStates() : null;
-          onSkillsCaptured(accountHash, generation, name, skills, quests, diaries);
+          Map<String, Integer> diaryTasks =
+              isDiaryCaptureEnabled() ? readDiaryTaskCounts() : null;
+          onSkillsCaptured(accountHash, generation, name, skills, quests, diaries, diaryTasks);
         });
   }
 
@@ -722,6 +725,21 @@ public class BankstandPlugin extends Plugin {
   // readSkillXp and readQuestStates (varbit reads must not happen off it). The exact
   // non-zero value a completed tier's varbit holds is unverified, so completion is
   // read as "not zero" rather than "equals one".
+  /**
+   * How many of each tier's tasks are done.
+   *
+   * <p>Behind the same consent gate as {@link #readDiaryStates()}, deliberately. The two
+   * are one disclosure to the player, and a second switch would let the halves disagree:
+   * somebody who turned diary capture off could still have their per-tier counts read.
+   */
+  private Map<String, Integer> readDiaryTaskCounts() {
+    Map<String, Integer> counts = new LinkedHashMap<>();
+    for (Map.Entry<String, Integer> e : DiaryTaskVarbits.ALL.entrySet()) {
+      counts.put(e.getKey(), client.getVarbitValue(e.getValue()));
+    }
+    return counts;
+  }
+
   private Map<String, String> readDiaryStates() {
     Map<String, String> diaries = new LinkedHashMap<>();
     for (Map.Entry<String, Integer> e : DiaryVarbits.ALL.entrySet()) {
@@ -752,7 +770,8 @@ public class BankstandPlugin extends Plugin {
       String name,
       Map<String, Integer> skills,
       Map<String, String> quests,
-      Map<String, String> diaries) {
+      Map<String, String> diaries,
+      Map<String, Integer> diaryTaskCounts) {
     // Forget every baseline, then ask disk what this character already had accepted.
     // Forgetting first is what lets the load be slow: a capture arriving before it just
     // re-sends, which is what every client start did before any of this persisted.
@@ -805,6 +824,11 @@ public class BankstandPlugin extends Plugin {
         skills,
         plan.includesQuests() ? quests : null,
         plan.includesDiaries() ? diaries : null,
+        // No baseline of its own: the counts ride on the diaries block, so they are sent
+        // exactly when it is. A separate baseline would let the two drift, and a tier
+        // whose count moved while its completion flag did not is the normal case rather
+        // than the exception, so the counts would then be the half that never went.
+        plan.includesDiaries() ? diaryTaskCounts : null,
         plan.includesCollectionLog() ? clog : Collections.emptySet());
   }
 
@@ -1070,6 +1094,7 @@ public class BankstandPlugin extends Plugin {
       Map<String, Integer> skills,
       Map<String, String> quests,
       Map<String, String> diaries,
+      Map<String, Integer> diaryTaskCounts,
       Set<Integer> collectionLogItems) {
     String url = savedServerUrl();
     String token = deviceStore.load().getToken();
@@ -1087,7 +1112,8 @@ public class BankstandPlugin extends Plugin {
             quests,
             diaries,
             collectionLogItems,
-            combatAchievementCounts);
+            combatAchievementCounts,
+            diaryTaskCounts);
     executor.submit(
         () -> {
           try {
