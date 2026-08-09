@@ -319,26 +319,10 @@ public class BankstandPlugin extends Plugin {
       case "link":
         relinkCharacter();
         break;
-      case "debug":
-        // A temporary investigation aid, not a feature. It exists to settle in one
-        // login whether the game distinguishes an unranked group ironman, and where.
-        for (String line : DiagnosticVarbits.lines(readDiagnosticVarbits())) {
-          notice(line);
-        }
-        break;
       default:
         notice("Unknown command. Try ::bstand, ::bstand sync or ::bstand link.");
         break;
     }
-  }
-
-  /** Reads every diagnostic probe in one pass, so a single login answers all of them. */
-  private java.util.Map<String, Integer> readDiagnosticVarbits() {
-    java.util.Map<String, Integer> values = new java.util.LinkedHashMap<>();
-    for (java.util.Map.Entry<String, Integer> probe : DiagnosticVarbits.PROBES.entrySet()) {
-      values.put(probe.getKey(), client.getVarbitValue(probe.getValue()));
-    }
-    return values;
   }
 
   private java.util.List<String> enabledCapabilities() {

@@ -37,14 +37,28 @@ public final class AccountTypes {
    * {@code HARDCORE_IRONMAN} and {@code ULTIMATE_IRONMAN}, and the wire has to match the
    * server.
    *
-   * <p><b>The table stops at 5 on purpose.</b> RuneLite's enum has six members and
-   * Bankstand has a seventh type, {@code unranked_group}, that nothing here can produce.
-   * Whether varbit 1777 even distinguishes an unranked Group Ironman is unknown, and
-   * guessing a mapping for it would be worse than reporting the raw number: an unranked
-   * account silently recorded as a ranked one is a wrong answer that looks right.
+   * <p><b>6 is measured, not inherited.</b> RuneLite's enum has six members and stops at
+   * hardcore group ironman, so the last entry here comes from reading the varbit on real
+   * accounts rather than from the enum:
+   *
+   * <pre>
+   *   a normal account        1777 = 0
+   *   a ranked HCGIM          1777 = 5
+   *   an unranked GIM         1777 = 6
+   * </pre>
+   *
+   * The middle reading is what makes the last one trustworthy. 5 landing exactly where
+   * RuneLite declares hardcore group ironman confirms the ordinal and the varbit are the
+   * same number, so 6 is the next mode along and not a coincidence.
    */
   private static final String[] BY_VALUE = {
-    "regular", "ironman", "ultimate", "hardcore", "group", "hardcore_group",
+    "regular",
+    "ironman",
+    "ultimate",
+    "hardcore",
+    "group",
+    "hardcore_group",
+    "unranked_group",
   };
 
   /**

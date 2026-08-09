@@ -41,23 +41,29 @@ public class AccountTypesTest {
   }
 
   @Test
-  public void coversRuneliteExactly() {
-    // Every member mapped, and nothing mapped that RuneLite does not have. If RuneLite
-    // adds the unranked Group Ironman member this fails, which is the moment to extend
-    // the table rather than to discover the gap from a player's report.
+  public void coversEveryMemberRuneliteDeclares() {
     for (AccountType type : AccountType.values()) {
       assertTrue(type.name(), AccountTypes.keyFor(type.ordinal()) != null);
     }
-    assertNull(AccountTypes.keyFor(AccountType.values().length));
+  }
+
+  @Test
+  public void mapsTheUnrankedGroupIronmanRuneliteDoesNotDeclare() {
+    // Measured on a real account, not inferred. RuneLite's enum stops at hardcore group
+    // ironman; the game reports 6 for an unranked group ironman. A ranked HCGIM reading
+    // exactly 5, where RuneLite declares it, is what confirms the ordinal and the varbit
+    // are the same number and makes 6 the next mode along rather than a coincidence.
+    assertEquals(
+        "hardcore_group", AccountTypes.keyFor(AccountType.HARDCORE_GROUP_IRONMAN.ordinal()));
+    assertEquals("unranked_group", AccountTypes.keyFor(6));
   }
 
   @Test
   public void refusesToGuessAnUnknownValue() {
-    // Not a fallback to "regular". An unmapped value means the game reported something
-    // this build has never seen, and naming it regular turns an unknown into a confident
-    // wrong answer. Unranked Group Ironman is the live example: nobody has confirmed
-    // whether 1777 distinguishes it.
-    assertNull(AccountTypes.keyFor(6));
+    // Not a fallback to "regular". An unmapped value means the game reported a mode this
+    // build has never seen, and naming it regular turns an unknown into a confident wrong
+    // answer. That is exactly how the unranked case was found.
+    assertNull(AccountTypes.keyFor(7));
     assertNull(AccountTypes.keyFor(99));
     assertNull(AccountTypes.keyFor(-1));
   }
@@ -71,9 +77,9 @@ public class AccountTypesTest {
     assertTrue(AccountTypes.describe(4).contains("1777"));
     assertTrue(AccountTypes.describe(4).contains("4"));
 
-    String unknown = AccountTypes.describe(6);
+    String unknown = AccountTypes.describe(7);
     assertTrue(unknown.contains("unrecognised"));
-    assertTrue(unknown.contains("6"));
+    assertTrue(unknown.contains("7"));
     assertTrue(unknown.contains("report"));
   }
 
