@@ -19,10 +19,17 @@ public class CapabilityNamesTest {
 
   @Test
   public void namesEveryEnabledCapability() {
-    List<String> all = BankstandPlugin.capabilityNames(true, true, true, true, true);
+    List<String> all = BankstandPlugin.capabilityNames(true, true, true, true, true, true);
 
     assertEquals(
-        List.of("skills", "quests", "diaries", "collection log", "combat achievements"), all);
+        List.of(
+            "skills",
+            "quests",
+            "diaries",
+            "collection log",
+            "combat achievements",
+            "account type"),
+        all);
   }
 
   /**
@@ -32,18 +39,20 @@ public class CapabilityNamesTest {
    */
   @Test
   public void hasOneNamePerCapability() {
-    assertEquals(5, BankstandPlugin.capabilityNames(true, true, true, true, true).size());
+    assertEquals(6, BankstandPlugin.capabilityNames(true, true, true, true, true, true).size());
   }
 
   @Test
   public void namesOnlyWhatIsSwitchedOn() {
-    List<String> some = BankstandPlugin.capabilityNames(true, false, false, false, true);
+    List<String> some =
+        BankstandPlugin.capabilityNames(true, false, false, false, true, false);
 
     assertEquals(List.of("skills", "combat achievements"), some);
   }
 
   @Test
   public void namesNothingWhenEverythingIsOff() {
-    assertTrue(BankstandPlugin.capabilityNames(false, false, false, false, false).isEmpty());
+    assertTrue(
+        BankstandPlugin.capabilityNames(false, false, false, false, false, false).isEmpty());
   }
 }

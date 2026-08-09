@@ -73,7 +73,7 @@ public class SubmitEnvelopeTest {
         SubmitEnvelope.body(
             "id", 1, "1.0.0", "2026-08-09T10:00:00Z", 42L, "Zezima",
             java.util.Collections.singletonMap("attack", 100),
-            null, null, null, null, counts);
+            null, null, null, null, counts, null);
 
     @SuppressWarnings("unchecked")
     Map<String, Object> sent = (Map<String, Object>) body.get("diaryTasks");
@@ -91,14 +91,45 @@ public class SubmitEnvelopeTest {
         SubmitEnvelope.body(
             "id", 1, "1.0.0", "2026-08-09T10:00:00Z", 42L, "Zezima",
             java.util.Collections.singletonMap("attack", 100),
-            null, null, null, null, new java.util.LinkedHashMap<>());
+            null, null, null, null, new java.util.LinkedHashMap<>(), null);
     assertFalse(none.containsKey("diaryTasks"));
 
     Map<String, Object> nullCounts =
         SubmitEnvelope.body(
             "id", 1, "1.0.0", "2026-08-09T10:00:00Z", 42L, "Zezima",
             java.util.Collections.singletonMap("attack", 100),
-            null, null, null, null, null);
+            null, null, null, null, null, null);
     assertFalse(nullCounts.containsKey("diaryTasks"));
+  }
+
+  @Test
+  public void carriesTheAccountTypeWhenTheGameNamedOne() {
+    Map<String, Object> body =
+        SubmitEnvelope.body(
+            "id", 1, "1.0.0", "2026-08-09T10:00:00Z", 42L, "Zezima",
+            java.util.Collections.singletonMap("attack", 100),
+            null, null, null, null, null, "hardcore_group");
+
+    assertEquals("hardcore_group", body.get("accountType"));
+  }
+
+  @Test
+  public void omitsTheAccountTypeWhenTheGameNamedNone() {
+    // Null is the varbit holding a value this build has no name for, or the opt-in being
+    // off. Both mean "not observed", and a wrong type is worse than none: it is the badge
+    // on the player's own profile.
+    Map<String, Object> nothing =
+        SubmitEnvelope.body(
+            "id", 1, "1.0.0", "2026-08-09T10:00:00Z", 42L, "Zezima",
+            java.util.Collections.singletonMap("attack", 100),
+            null, null, null, null, null, null);
+    assertFalse(nothing.containsKey("accountType"));
+
+    Map<String, Object> empty =
+        SubmitEnvelope.body(
+            "id", 1, "1.0.0", "2026-08-09T10:00:00Z", 42L, "Zezima",
+            java.util.Collections.singletonMap("attack", 100),
+            null, null, null, null, null, "");
+    assertFalse(empty.containsKey("accountType"));
   }
 }

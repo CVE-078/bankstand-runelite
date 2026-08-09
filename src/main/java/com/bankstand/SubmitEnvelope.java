@@ -55,7 +55,7 @@ public final class SubmitEnvelope {
       Map<String, String> diaryStates) {
     return body(
         submissionId, schemaVersion, pluginVersion, capturedAt, accountHash, displayName, skillXp,
-        questStates, diaryStates, null, null, null);
+        questStates, diaryStates, null, null, null, null);
   }
 
   public static Map<String, Object> body(
@@ -71,7 +71,7 @@ public final class SubmitEnvelope {
       Collection<Integer> collectionLogItems) {
     return body(
         submissionId, schemaVersion, pluginVersion, capturedAt, accountHash, displayName, skillXp,
-        questStates, diaryStates, collectionLogItems, null, null);
+        questStates, diaryStates, collectionLogItems, null, null, null);
   }
 
   public static Map<String, Object> body(
@@ -86,7 +86,8 @@ public final class SubmitEnvelope {
       Map<String, String> diaryStates,
       Collection<Integer> collectionLogItems,
       Map<String, Integer> combatAchievementCounts,
-      Map<String, Integer> diaryTaskCounts) {
+      Map<String, Integer> diaryTaskCounts,
+      String accountType) {
     Map<String, Object> body = new LinkedHashMap<>();
     body.put("submissionId", submissionId);
     body.put("schemaVersion", schemaVersion);
@@ -129,6 +130,17 @@ public final class SubmitEnvelope {
     // and the server treats a present-but-empty one as an erase.
     if (combatAchievementCounts != null && !combatAchievementCounts.isEmpty()) {
       body.put("combatAchievements", new LinkedHashMap<>(combatAchievementCounts));
+    }
+    // One word, and the only block that is not a collection: the game has exactly one
+    // answer. Sent because the hiscores cannot answer it at all for a Group Ironman,
+    // who is absent from the ironman boards and so reads as a main everywhere public.
+    //
+    // Null when the varbit held a value this build has no name for, per
+    // AccountTypes.keyFor, which is the same "omit rather than guess" the blocks
+    // above use for empty. A wrong type is worse than no type: it is the badge on
+    // the player's own profile.
+    if (accountType != null && !accountType.isEmpty()) {
+      body.put("accountType", accountType);
     }
     return body;
   }

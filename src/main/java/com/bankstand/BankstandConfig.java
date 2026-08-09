@@ -146,4 +146,18 @@ public interface BankstandConfig extends Config {
   default boolean collectCombatAchievements() {
     return false;
   }
+
+  @ConfigItem(
+      keyName = BankstandKeys.KEY_COLLECT_ACCOUNT_TYPE,
+      name = "Collect account type",
+      description =
+          "Sends whether this account is a main, an ironman, or one of the group types."
+              + " The hiscores cannot show a Group Ironman at all, so without this"
+              + " Bankstand has to take your word for it. Your own answer still wins:"
+              + " Bankstand shows you both and asks.",
+      section = collectSection,
+      position = 6)
+  default boolean collectAccountType() {
+    return false;
+  }
 }

@@ -29,6 +29,15 @@ public class AckedState {
   private String quests;
   private String diaries;
   private String combatAchievements;
+
+  /**
+   * The last account type the server acknowledged.
+   *
+   * <p>The value itself, not a digest, unlike every collection-shaped field here: it is
+   * one short word, so hashing it would cost the ability to read this file in a bug
+   * report and buy nothing.
+   */
+  private String accountType;
   private Set<Integer> collectionLogItems;
   private int collectionLogAcked;
 
@@ -70,6 +79,14 @@ public class AckedState {
 
   public void setCombatAchievements(String combatAchievements) {
     this.combatAchievements = combatAchievements;
+  }
+
+  public String getAccountType() {
+    return accountType;
+  }
+
+  public void setAccountType(String accountType) {
+    this.accountType = accountType;
   }
 
   /**
