@@ -32,6 +32,7 @@ import net.runelite.api.Player;
 import net.runelite.api.Quest;
 import net.runelite.api.Skill;
 import net.runelite.api.WorldType;
+import net.runelite.api.events.ChatMessage;
 import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.GameTick;
 import net.runelite.api.events.ScriptPreFired;
@@ -53,6 +54,7 @@ import net.runelite.client.plugins.PluginDescriptor;
 import net.runelite.client.task.Schedule;
 import net.runelite.client.ui.overlay.infobox.InfoBoxManager;
 import net.runelite.client.util.ImageUtil;
+import net.runelite.client.util.Text;
 import lombok.extern.slf4j.Slf4j;
 import okhttp3.OkHttpClient;
 
@@ -763,6 +765,29 @@ public class BankstandPlugin extends Plugin {
 
   private boolean isAccountTypeCaptureEnabled() {
     return config.collectAccountType() && manifest.allows("accountType");
+  }
+
+  // Rides the game's own broadcast rather than waiting for the next scheduled
+  // captureSkills() tick (#770), so a quest or diary completion reaches Bankstand
+  // within moments instead of up to CAPTURE_INTERVAL_SECONDS later. Gated on the
+  // same two capabilities captureSkills() itself gates its quest/diary reads on, so
+  // this never fires a capture that would just read null for both anyway.
+  @Subscribe
+  public void onChatMessage(ChatMessage event) {
+    if (event.getType() != ChatMessageType.GAMEMESSAGE) {
+      return;
+    }
+    if (!isQuestCaptureEnabled() && !isDiaryCaptureEnabled()) {
+      return;
+    }
+    String message = Text.removeTags(event.getMessage());
+    if (isQuestOrDiaryCompletionMessage(message)) {
+      // Never the message text itself, only that the pattern matched: the server's
+      // own 60s cooldown otherwise makes "never matched" and "matched but throttled"
+      // look identical to a live tester, with no way to tell which happened.
+      log.debug("early capture: completion broadcast matched");
+      captureSkills();
+    }
   }
 
   @Subscribe
