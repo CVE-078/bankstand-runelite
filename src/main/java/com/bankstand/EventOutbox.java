@@ -84,12 +84,15 @@ public class EventOutbox {
     return read();
   }
 
-  /** Removes exactly the entries whose event id is in {@code storedIds}. Leaves the rest,
-   *  in order, for the next drain. */
-  public synchronized void ack(Set<String> storedIds) {
-    if (storedIds.isEmpty()) return;
+  /** Removes exactly the entries whose event id is in {@code ids}: ordinarily because
+   *  the server stored them, but a caller may also include an id it has decided is
+   *  permanently undeliverable (a stale rejection, say), since retrying that forever
+   *  would only waste outbox capacity on something that can never be stored. Leaves
+   *  the rest, in order, for the next drain. */
+  public synchronized void ack(Set<String> ids) {
+    if (ids.isEmpty()) return;
     List<OutboxEntry> entries = read();
-    entries.removeIf(entry -> storedIds.contains(entry.getEvent().getId()));
+    entries.removeIf(entry -> ids.contains(entry.getEvent().getId()));
     write(entries);
   }
 
