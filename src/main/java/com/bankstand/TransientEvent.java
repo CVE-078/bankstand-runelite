@@ -19,6 +19,7 @@ public final class TransientEvent {
 
   public static final String TYPE_NOTABLE_DROP = "notable_drop";
   public static final String TYPE_PET_DROP = "pet_drop";
+  public static final String TYPE_COLLECTION_LOG_UNLOCK = "collection_log_unlock";
 
   private final String id;
   private final String type;
