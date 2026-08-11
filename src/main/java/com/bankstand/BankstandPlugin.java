@@ -86,6 +86,14 @@ public class BankstandPlugin extends Plugin {
   // the outer retry horizon the design asked for without a second timer.
   private static final int EVENT_DRAIN_INTERVAL_SECONDS = 60;
 
+  // The server's own MAX_EVENTS_PER_BATCH (lib/plugin/events-envelope.ts, the bankstand
+  // repo) caps one submit request at 50 events and 400s the WHOLE request over that,
+  // with no per-event acks on a failed parse. This repo has no way to import that
+  // constant, so the two must be kept in sync by hand. Chunking a group into batches of
+  // at most this size caps the blast radius of one bad or oversized group to its own
+  // chunk of at most this many events, rather than the account's entire outbox.
+  private static final int MAX_EVENTS_PER_SUBMIT = 50;
+
   // The collection log is not held in varbits: Jagex keeps it server-side and only
   // reveals it while the log interface enumerates its items. Script 4100 fires once
   // per item during that enumeration, carrying the item id as its second argument,
@@ -312,14 +320,20 @@ public class BankstandPlugin extends Plugin {
 
   /**
    * Drains the event outbox (#656): every pending entry, grouped by the account it
-   * was captured under (see {@link OutboxEntry}), submitted as its own batch so a
-   * relog to a different character between capture and drain still attributes each
-   * event correctly.
+   * was captured under (see {@link OutboxEntry}), then each group split into chunks
+   * of at most {@link #MAX_EVENTS_PER_SUBMIT} (see {@link #chunkEvents}) so a group
+   * that grew past the server's own per-request cap is submitted as several requests
+   * rather than one the server rejects outright.
    *
-   * <p>One bounded-retry attempt per account group per drain. A batch that still
-   * fails after that is left in the outbox for the next scheduled drain rather than
-   * retried immediately: events are not urgent, and the periodic cadence is the
-   * outer retry horizon.
+   * <p>One bounded-retry attempt per chunk per drain, and each chunk acks its own
+   * successfully-stored ids independently: a chunk that still contains a
+   * schema-invalid event fails on its own (the server 400s that whole chunk, per its
+   * validation semantics), but that failure no longer blocks a different chunk's
+   * genuinely deliverable events, only the one chunk of at most {@link
+   * #MAX_EVENTS_PER_SUBMIT} it actually poisoned. A chunk that still fails after
+   * that is left in the outbox for the next scheduled drain rather than retried
+   * immediately: events are not urgent, and the periodic cadence is the outer retry
+   * horizon.
    */
   @Schedule(period = EVENT_DRAIN_INTERVAL_SECONDS, unit = ChronoUnit.SECONDS)
   public void drainEventOutbox() {
@@ -339,32 +353,73 @@ public class BankstandPlugin extends Plugin {
     executor.submit(
         () -> {
           for (Map.Entry<Long, List<TransientEvent>> group : byAccount.entrySet()) {
-            try {
-              SubmitEventsResponse response =
-                  pairingClient.submitEventsWithRetry(
-                      url,
-                      token,
-                      group.getKey(),
-                      group.getValue(),
-                      MAX_SUBMIT_ATTEMPTS,
-                      SUBMIT_RETRY_BASE_DELAY_MS);
-              if (!response.isRouted()) {
-                // Unclaimed: leave every entry pending, exactly like a network
-                // failure, rather than acking anything that was not actually stored.
-                continue;
-              }
-              Set<String> storedIds = new java.util.HashSet<>();
-              for (com.bankstand.dto.EventAck ack : response.getAcks()) {
-                if (ack.isStored()) {
-                  storedIds.add(ack.getId());
+            for (List<TransientEvent> chunk : chunkEvents(group.getValue(), MAX_EVENTS_PER_SUBMIT)) {
+              try {
+                SubmitEventsResponse response =
+                    pairingClient.submitEventsWithRetry(
+                        url,
+                        token,
+                        group.getKey(),
+                        chunk,
+                        MAX_SUBMIT_ATTEMPTS,
+                        SUBMIT_RETRY_BASE_DELAY_MS);
+                if (!response.isRouted()) {
+                  // Unclaimed: leave every entry pending, exactly like a network
+                  // failure, rather than acking anything that was not actually stored.
+                  continue;
                 }
+                eventOutbox.ack(idsToAck(response.getAcks()));
+              } catch (SubmitException e) {
+                log.debug("event drain failed for one account group's chunk: {}", e.getMessage());
               }
-              eventOutbox.ack(storedIds);
-            } catch (SubmitException e) {
-              log.debug("event drain failed for one account group: {}", e.getMessage());
             }
           }
         });
+  }
+
+  /**
+   * Splits one account's pending events into batches of at most {@code maxSize}, so a
+   * group that has grown past the server's own per-request cap ({@link
+   * #MAX_EVENTS_PER_SUBMIT}) is submitted as several requests instead of one the
+   * server rejects outright. Order is preserved within and across chunks, so the
+   * events still drain oldest first.
+   *
+   * <p>Package-private and static so it is unit-testable without a live client, the
+   * same reason {@link #plan} and {@link #capabilityNames} are.
+   */
+  static List<List<TransientEvent>> chunkEvents(List<TransientEvent> events, int maxSize) {
+    List<List<TransientEvent>> chunks = new ArrayList<>();
+    for (int start = 0; start < events.size(); start += maxSize) {
+      chunks.add(new ArrayList<>(events.subList(start, Math.min(start + maxSize, events.size()))));
+    }
+    return chunks;
+  }
+
+  /**
+   * Which acked event ids the outbox should stop retrying: every id the server
+   * actually stored (or already had, {@code "duplicate"}), UNION every id rejected
+   * for a reason that resubmitting the exact same event can never fix. {@code
+   * "stale"} (the event aged past the server's retention window) only ever gets
+   * truer with time, so retrying it forever wastes outbox capacity on something that
+   * can never be delivered. {@code "not_applied"} is deliberately excluded: that
+   * reason covers a capability flag being off, which can be turned on later, so it
+   * stays worth retrying.
+   *
+   * <p>Package-private and static so it is unit-testable against a plain list of
+   * {@link EventAck}, without a live client or server.
+   */
+  static Set<String> idsToAck(List<EventAck> acks) {
+    Set<String> ids = new HashSet<>();
+    for (EventAck ack : acks) {
+      if (ack.isStored() || isPermanentlyRejected(ack)) {
+        ids.add(ack.getId());
+      }
+    }
+    return ids;
+  }
+
+  private static boolean isPermanentlyRejected(EventAck ack) {
+    return "rejected".equals(ack.getOutcome()) && "stale".equals(ack.getReason());
   }
 
   /** The status lines, gathered from live state. */

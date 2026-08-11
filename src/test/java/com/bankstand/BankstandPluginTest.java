@@ -1,12 +1,18 @@
 package com.bankstand;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
+import com.bankstand.dto.EventAck;
 import com.bankstand.dto.SubmitSnapshotResponse;
 import com.google.gson.Gson;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import net.runelite.client.RuneLite;
@@ -57,6 +63,30 @@ public class BankstandPluginTest {
       ids.add(i);
     }
     return ids;
+  }
+
+  /** {@code count} distinct transient events, ids ordered "id-0".."id-(count-1)". */
+  private static List<TransientEvent> events(int count) {
+    List<TransientEvent> list = new ArrayList<>();
+    for (int i = 0; i < count; i++) {
+      Map<String, Object> payload = new LinkedHashMap<>();
+      payload.put("itemName", "Dragon warhammer");
+      list.add(
+          new TransientEvent(
+              "id-" + i, TransientEvent.TYPE_NOTABLE_DROP, "2026-08-10T10:00:00Z", payload));
+    }
+    return list;
+  }
+
+  /** An {@link EventAck} as Gson would populate it from the wire, since the type has
+   *  no public constructor of its own. */
+  private static EventAck ack(String id, String outcome, String reason) {
+    String json =
+        reason == null
+            ? String.format("{\"id\":\"%s\",\"outcome\":\"%s\"}", id, outcome)
+            : String.format(
+                "{\"id\":\"%s\",\"outcome\":\"%s\",\"reason\":\"%s\"}", id, outcome, reason);
+    return new Gson().fromJson(json, EventAck.class);
   }
 
   /**
@@ -346,5 +376,77 @@ public class BankstandPluginTest {
   @Test
   public void doesNotAdvanceDiariesWhenNotIncludedEvenIfAcknowledged() {
     assertFalse(BankstandPlugin.shouldAdvanceDiaries(storedBlocks("skills", "diaries"), false));
+  }
+
+  // --- Event outbox draining: chunking against the server's per-request cap, and
+  // which acked ids stop being retried (the two halves of the #770 review fix). ---
+
+  @Test
+  public void chunkEventsKeepsAGroupAtExactlyTheCapInOneChunk() {
+    List<List<TransientEvent>> chunks = BankstandPlugin.chunkEvents(events(50), 50);
+
+    assertEquals(1, chunks.size());
+    assertEquals(50, chunks.get(0).size());
+  }
+
+  @Test
+  public void chunkEventsSplitsAGroupOverTheCapIntoTwoChunks() {
+    // The bug this guards: a group of 51 submitted whole gets one 400 for the whole
+    // group, forever, because the server's own MAX_EVENTS_PER_BATCH is 50.
+    List<List<TransientEvent>> chunks = BankstandPlugin.chunkEvents(events(51), 50);
+
+    assertEquals(2, chunks.size());
+    assertEquals(50, chunks.get(0).size());
+    assertEquals(1, chunks.get(1).size());
+  }
+
+  @Test
+  public void chunkEventsPreservesOrderWithinAndAcrossChunks() {
+    List<List<TransientEvent>> chunks = BankstandPlugin.chunkEvents(events(120), 50);
+
+    assertEquals(3, chunks.size());
+    assertEquals("id-0", chunks.get(0).get(0).getId());
+    assertEquals("id-49", chunks.get(0).get(49).getId());
+    assertEquals("id-50", chunks.get(1).get(0).getId());
+    assertEquals("id-99", chunks.get(1).get(49).getId());
+    assertEquals("id-100", chunks.get(2).get(0).getId());
+    assertEquals("id-119", chunks.get(2).get(19).getId());
+  }
+
+  @Test
+  public void idsToAckIncludesStoredAndDuplicateOutcomes() {
+    Set<String> ids =
+        BankstandPlugin.idsToAck(Arrays.asList(ack("a", "stored", null), ack("b", "duplicate", null)));
+
+    assertTrue(ids.contains("a"));
+    assertTrue(ids.contains("b"));
+  }
+
+  @Test
+  public void idsToAckIncludesARejectedStaleOutcome() {
+    // Aged past the server's retention window: age only increases, so resubmitting
+    // the exact same event can never become deliverable. Leaving it queued would
+    // waste outbox capacity forever, bounded only by the 200-entry cap eventually
+    // evicting it.
+    Set<String> ids = BankstandPlugin.idsToAck(Collections.singletonList(ack("a", "rejected", "stale")));
+
+    assertTrue(ids.contains("a"));
+  }
+
+  @Test
+  public void idsToAckExcludesARejectedNotAppliedOutcome() {
+    // A capability flag can be turned on later, which makes this reason legitimately
+    // worth retrying, unlike a stale rejection.
+    Set<String> ids =
+        BankstandPlugin.idsToAck(Collections.singletonList(ack("a", "rejected", "not_applied")));
+
+    assertTrue(ids.isEmpty());
+  }
+
+  @Test
+  public void idsToAckExcludesAnUnrecognisedOutcome() {
+    Set<String> ids = BankstandPlugin.idsToAck(Collections.singletonList(ack("a", "pending", null)));
+
+    assertTrue(ids.isEmpty());
   }
 }
