@@ -24,6 +24,14 @@ Each of these is a separate toggle, and each names exactly what it sends.
   is the whole flow; an infobox counts items as they arrive. The log is not held in the client, so
   it can only be read while the interface enumerates it. A partial read adds to what is known and
   never replaces it, and ordinary page browsing keeps adding to it.
+- **Account type.** Opt-in. Sends whether this account is a main, an ironman, or one of the group
+  types. The hiscores cannot show a Group Ironman at all, so without this Bankstand has to take your
+  word for it. Your own answer still wins: Bankstand shows you both and asks.
+- **Notable drops.** Opt-in. Sends unique, untradeable or high-value drops as they happen: the item,
+  its value where it has one, and where it came from. A tradeable drop is sent when its total GE
+  value clears a threshold you set (1,000,000 gp by default). Untradeable items are judged by name
+  instead, not that number.
+- **Pet drops.** Opt-in. Sends which pet you received and when, as it happens.
 
 It also takes one last capture as you log out, so the final minute of a session is not lost to the
 60 second schedule. A cleared client reads as zeroes, and that read is rejected rather than sent.

@@ -41,7 +41,8 @@ public final class CapabilityManifest {
       Collections.unmodifiableSet(
           new LinkedHashSet<>(
               Arrays.asList(
-                  "skills", "quests", "diaries", "collectionLog", "combatAchievements")));
+                  "skills", "quests", "diaries", "collectionLog", "combatAchievements",
+                  "accountType", "notableDrops", "petDrops")));
 
   /** The contract version this build speaks. A manifest declaring anything else is not ours. */
   public static final int SUPPORTED_SCHEMA_VERSION = 1;
