@@ -462,10 +462,44 @@ public class BankstandPlugin extends Plugin {
       case "link":
         relinkCharacter();
         break;
+      case "log":
+        armCollectionLogRead();
+        break;
+      case "repair":
+        disconnect();
+        notice("Paste a fresh pairing code in the Bankstand settings to reconnect.");
+        break;
       default:
-        notice("Unknown command. Try ::bstand, ::bstand sync or ::bstand link.");
+        notice(
+            "Unknown command. Try ::bstand, ::bstand sync, ::bstand link, ::bstand log or"
+                + " ::bstand repair.");
         break;
     }
+  }
+
+  /**
+   * Arms a guided collection log read on demand (#612), so a player does not have to
+   * discover that opening Search on an already-open log is what starts one. Arming
+   * only changes whether the infobox appears proactively; capture itself was never
+   * gated on it (see {@link CollectionLogSync#arm}), so this is safe to call even
+   * mid-browse.
+   *
+   * <p>States when it cannot run rather than failing silently: the two ways this can
+   * be a no-op are the capability being off and the log not being open, and a player
+   * who just typed the command deserves to know which.
+   */
+  private void armCollectionLogRead() {
+    if (!isCollectionLogCaptureEnabled()) {
+      notice("Collection log capture is off. Turn it on in the Bankstand settings first.");
+      return;
+    }
+    if (!isCollectionLogOpen()) {
+      notice("Open your collection log first, then run ::bstand log.");
+      return;
+    }
+    collectionLogSync.arm();
+    showSyncInfoBox();
+    notice("Armed. Click Search in the collection log to read it.");
   }
 
   private java.util.List<String> enabledCapabilities() {
