@@ -4,14 +4,22 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
+import com.google.gson.Gson;
+import java.io.File;
+import java.io.IOException;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+import net.runelite.client.game.ItemStack;
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.TemporaryFolder;
 
 /** The pure detection logic behind notable drops (#659), tested without a live client. */
 public class NotableDropCaptureTest {
+
+  @Rule public TemporaryFolder folder = new TemporaryFolder();
 
   private static final Set<String> NO_ALLOWLIST = Collections.emptySet();
 
@@ -62,5 +70,24 @@ public class NotableDropCaptureTest {
   public void payloadCarriesTheTotalValueForATradeableDrop() {
     Map<String, Object> payload = NotableDropCapture.payload("Dragon warhammer", 13576, 1, 30_000_000L, "Wintertodt");
     assertEquals(30_000_000L, payload.get("value"));
+  }
+
+  /**
+   * The toggle must gate the read itself, not only {@code emit}. {@code itemManager}
+   * is deliberately {@code null}: the current code's first touch on a qualifying
+   * loot event is {@code itemManager.getItemComposition(...)}, so if the gate ran
+   * after that (as it did before this fix) this throws a NullPointerException
+   * instead of returning quietly.
+   */
+  @Test
+  public void handleLootTouchesNothingWhenDisabled() throws IOException {
+    File file = new File(folder.newFolder("bankstand"), "events.json");
+    EventOutbox outbox = new EventOutbox(file, new Gson());
+    NotableDropCapture capture =
+        new NotableDropCapture(outbox, () -> false, () -> 1L, null, () -> 0L, NO_ALLOWLIST);
+
+    capture.handleLoot("Nex", Collections.singletonList(new ItemStack(12791, 1)));
+
+    assertTrue(outbox.pending().isEmpty());
   }
 }

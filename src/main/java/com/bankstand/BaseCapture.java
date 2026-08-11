@@ -41,4 +41,13 @@ public abstract class BaseCapture {
     if (!enabled.getAsBoolean()) return;
     outbox.add(accountHash.getAsLong(), new TransientEvent(type, payload));
   }
+
+  /** Whether the toggle + manifest gate is currently open. A subclass checks this
+   *  BEFORE doing any read (an item lookup, a regex match against chat), not only
+   *  before {@link #emit}, so nothing is examined at all while the capability is
+   *  off, matching the convention every other capture in this plugin already
+   *  follows. */
+  protected final boolean isEnabled() {
+    return enabled.getAsBoolean();
+  }
 }

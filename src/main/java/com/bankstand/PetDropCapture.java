@@ -114,8 +114,20 @@ public class PetDropCapture extends BaseCapture {
     if (event.getType() != ChatMessageType.GAMEMESSAGE) {
       return;
     }
-    String message = Text.removeTags(event.getMessage());
+    handleMessage(Text.removeTags(event.getMessage()));
+  }
 
+  /** Package-private, not private: {@code PetDropCaptureTest} calls this directly
+   *  with plain strings, to avoid constructing a live {@code ChatMessage}.
+   *
+   * <p>Unlike {@code NotableDropCapture}, the toggle gates only the derive-and-emit
+   * step here, not the prime/consume tracking above it. The one-shot consumption
+   * MUST run regardless of the toggle: if it did not, disabling the capability
+   * between a prime and its resolve message would leave {@link #primed} stuck true
+   * with nothing to ever clear it, and a later, unrelated message after
+   * re-enabling could wrongly resolve that stale prime, which is exactly the bug
+   * the one-shot design exists to prevent. */
+  void handleMessage(String message) {
     if (isPrimeMessage(message)) {
       primed = true;
       return;
@@ -126,6 +138,7 @@ public class PetDropCapture extends BaseCapture {
     // One-shot: consumed by this message whether or not it resolves anything,
     // so a stray later message can never wrongly resolve a stale prime.
     primed = false;
+    if (!isEnabled()) return;
     String name = resolvePetName(message);
     if (name == null) {
       return;

@@ -10,6 +10,8 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.CountDownLatch;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
@@ -115,5 +117,60 @@ public class EventOutboxTest {
     java.nio.file.Files.write(file.toPath(), "not json".getBytes(java.nio.charset.StandardCharsets.UTF_8));
 
     assertTrue(outboxIn(file).pending().isEmpty());
+  }
+
+  /**
+   * Reproduces the torn read-modify-write the plugin's own real wiring exposes:
+   * {@code add} runs on the client thread from a capture's {@code @Subscribe}
+   * handler, {@code ack} runs off it from the drain's executor continuation. Both
+   * do an independent read-mutate-write against the same file. {@code ack} here
+   * never matches anything, so every add it does not itself remove must survive.
+   * Fails on an unsynchronized {@code EventOutbox}: some adds land between a
+   * concurrent ack's read and its write and are silently overwritten.
+   */
+  @Test
+  public void concurrentAddAndAckDoNotLoseEntries() throws Exception {
+    File file = newFile();
+    EventOutbox outbox = outboxIn(file);
+    int iterations = 150; // below MAX_PENDING, so no drop-oldest eviction is expected
+    Set<String> neverMatches = EventOutbox.toIdSet(Collections.singletonList("no-such-id"));
+    CountDownLatch ready = new CountDownLatch(2);
+    CountDownLatch go = new CountDownLatch(1);
+
+    Thread adder =
+        new Thread(
+            () -> {
+              ready.countDown();
+              awaitUninterruptibly(go);
+              for (int i = 0; i < iterations; i++) {
+                outbox.add(1L, event("id-" + i));
+              }
+            });
+    Thread acker =
+        new Thread(
+            () -> {
+              ready.countDown();
+              awaitUninterruptibly(go);
+              for (int i = 0; i < iterations; i++) {
+                outbox.ack(neverMatches);
+              }
+            });
+
+    adder.start();
+    acker.start();
+    ready.await();
+    go.countDown();
+    adder.join(30_000);
+    acker.join(30_000);
+
+    assertEquals(iterations, outbox.pending().size());
+  }
+
+  private static void awaitUninterruptibly(CountDownLatch latch) {
+    try {
+      latch.await();
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+    }
   }
 }

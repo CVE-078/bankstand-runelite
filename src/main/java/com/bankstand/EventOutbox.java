@@ -40,7 +40,15 @@ import lombok.extern.slf4j.Slf4j;
  * player's captured game data, and a synced profile PATCHes its whole config to
  * RuneLite's own service with no per-key exclusion.
  *
- * <p>Not thread-safe; the plugin calls it only from its background executor.
+ * <p><b>Thread-safe.</b> {@link #add} runs synchronously inside a capture's {@code
+ * @Subscribe} handler, on the client thread; {@link #pending} and {@link #ack} run
+ * from {@code drainEventOutbox}'s {@code @Schedule} callback and its executor
+ * continuation, off the client thread (the same split {@code captureSkills}' own
+ * {@code clientThread.invokeLater} hop exists to bridge). Each public method is one
+ * read-modify-write against the same file, so without a lock a drop captured
+ * between a drain's read and its write is silently and permanently overwritten:
+ * proven by {@code EventOutboxTest#concurrentAddAndAckDoNotLoseEntries}, which
+ * fails on an unsynchronized version of this class.
  */
 @Slf4j
 public class EventOutbox {
@@ -58,7 +66,7 @@ public class EventOutbox {
   }
 
   /** Appends one event, evicting the oldest pending entry (logged) if this overflows the cap. */
-  public void add(long accountHash, TransientEvent event) {
+  public synchronized void add(long accountHash, TransientEvent event) {
     List<OutboxEntry> entries = read();
     entries.add(new OutboxEntry(accountHash, event));
     while (entries.size() > MAX_PENDING) {
@@ -72,13 +80,13 @@ public class EventOutbox {
   }
 
   /** Every pending entry, oldest first. A snapshot: mutating the result does not persist. */
-  public List<OutboxEntry> pending() {
+  public synchronized List<OutboxEntry> pending() {
     return read();
   }
 
   /** Removes exactly the entries whose event id is in {@code storedIds}. Leaves the rest,
    *  in order, for the next drain. */
-  public void ack(Set<String> storedIds) {
+  public synchronized void ack(Set<String> storedIds) {
     if (storedIds.isEmpty()) return;
     List<OutboxEntry> entries = read();
     entries.removeIf(entry -> storedIds.contains(entry.getEvent().getId()));
@@ -88,7 +96,7 @@ public class EventOutbox {
   /** Forgets every pending event. Not called on an account switch: unlike the skills
    *  baseline, an event already happened and stays true for whichever character it
    *  was tagged under (see {@link OutboxEntry}), so a relog must not lose it. */
-  public void clear() {
+  public synchronized void clear() {
     write(Collections.emptyList());
   }
 

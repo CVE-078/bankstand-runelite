@@ -66,7 +66,10 @@ public class NotableDropCapture extends BaseCapture {
     handleLoot(event.getName(), event.getItems());
   }
 
-  private void handleLoot(String source, Collection<ItemStack> items) {
+  /** Package-private, not private: {@code NotableDropCaptureTest} calls this directly
+   *  with a poisoned {@code itemManager} to prove the gate below runs before any read. */
+  void handleLoot(String source, Collection<ItemStack> items) {
+    if (!isEnabled()) return;
     for (ItemStack stack : items) {
       ItemComposition comp = itemManager.getItemComposition(stack.getId());
       if (comp == null) continue;
