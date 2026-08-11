@@ -1,6 +1,8 @@
 package com.bankstand;
 
+import com.bankstand.dto.EventAck;
 import com.bankstand.dto.PairResponse;
+import com.bankstand.dto.SubmitEventsResponse;
 import com.bankstand.dto.SubmitResponse;
 import com.bankstand.dto.SubmitSnapshotResponse;
 import com.bankstand.http.HttpTransport;
@@ -16,6 +18,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -41,7 +44,9 @@ import net.runelite.client.chat.ChatMessageManager;
 import net.runelite.client.chat.QueuedMessage;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.events.ConfigChanged;
+import net.runelite.client.eventbus.EventBus;
 import net.runelite.client.eventbus.Subscribe;
+import net.runelite.client.game.ItemManager;
 import net.runelite.client.RuneLite;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
@@ -72,6 +77,13 @@ public class BankstandPlugin extends Plugin {
   // cooldown so a change is reported at most once per window.
   private static final int CAPTURE_INTERVAL_SECONDS = 60;
 
+  // The outbox drains on the same cadence as skill capture (#656): events are not
+  // urgent, and a single interval is one fewer schedule to reason about. Each drain
+  // is its own bounded-retry attempt (MAX_SUBMIT_ATTEMPTS, capped backoff); a batch
+  // that still fails after that just waits for the next scheduled drain, which is
+  // the outer retry horizon the design asked for without a second timer.
+  private static final int EVENT_DRAIN_INTERVAL_SECONDS = 60;
+
   // The collection log is not held in varbits: Jagex keeps it server-side and only
   // reveals it while the log interface enumerates its items. Script 4100 fires once
   // per item during that enumeration, carrying the item id as its second argument,
@@ -87,6 +99,13 @@ public class BankstandPlugin extends Plugin {
   private static final String ACKED_STATE_FILE = "acked-state.json";
   private static final String DEVICE_FILE = "device.json";
   private static final String MANIFEST_FILE = "manifest.json";
+  private static final String EVENTS_FILE = "events.json";
+
+  // Untradeable notable drops have no GE price to threshold on (#659), so they are
+  // judged by name against a curated set instead. Starts empty rather than guessing:
+  // an unreliable list is worse than none, and the tradeable-value path below does
+  // not depend on it.
+  private static final Set<String> NOTABLE_UNTRADEABLE_ALLOWLIST = Collections.emptySet();
 
 
   // Every chat line the plugin writes carries a coloured prefix, so a message is
@@ -140,6 +159,8 @@ public class BankstandPlugin extends Plugin {
   @Inject private ClientThread clientThread;
   @Inject private ChatMessageManager chatMessageManager;
   @Inject private InfoBoxManager infoBoxManager;
+  @Inject private EventBus eventBus;
+  @Inject private ItemManager itemManager;
 
   private final AccountSession session = new AccountSession();
   private final SkillBaseline skillBaseline = new SkillBaseline();
@@ -154,6 +175,9 @@ public class BankstandPlugin extends Plugin {
   private CollectionLogSyncInfoBox syncInfoBox;
   private AckedStateStore ackedStore;
   private ManifestStore manifestStore;
+  private EventOutbox eventOutbox;
+  private NotableDropCapture notableDropCapture;
+  private PetDropCapture petDropCapture;
 
   /**
    * What the server currently ingests.
@@ -198,15 +222,115 @@ public class BankstandPlugin extends Plugin {
     refreshManifest();
     deviceStore = new DeviceCredentialStore(new File(ACKED_STATE_DIR, DEVICE_FILE), gson);
     migrateCredentialsOutOfConfig();
+
+    eventOutbox = new EventOutbox(new File(ACKED_STATE_DIR, EVENTS_FILE), gson);
+    notableDropCapture =
+        new NotableDropCapture(
+            eventOutbox,
+            this::isNotableDropCaptureEnabled,
+            this::currentAccountHash,
+            itemManager,
+            () -> (long) config.notableDropThreshold(),
+            NOTABLE_UNTRADEABLE_ALLOWLIST);
+    petDropCapture =
+        new PetDropCapture(eventOutbox, this::isPetDropCaptureEnabled, this::currentAccountHash);
+    // Registered as separate listeners (#658), not @Subscribe methods on this class:
+    // each capture is its own single-purpose class, unit-testable without a live
+    // client, and this is the one place that wires them into the running game.
+    eventBus.register(notableDropCapture);
+    eventBus.register(petDropCapture);
   }
 
   @Override
   protected void shutDown() {
     pairingClient = null;
+    if (notableDropCapture != null) {
+      eventBus.unregister(notableDropCapture);
+    }
+    if (petDropCapture != null) {
+      eventBus.unregister(petDropCapture);
+    }
     // An infobox outlives the plugin that added it, so a sync armed when the player
     // disables Bankstand would otherwise sit on screen with nothing behind it.
     collectionLogSync.reset();
     hideSyncInfoBox();
+  }
+
+  private long currentAccountHash() {
+    return session.getAccountHash();
+  }
+
+  private boolean isNotableDropCaptureEnabled() {
+    return pairingClient != null
+        && isPaired()
+        && session.isActive()
+        && config.collectNotableDrops()
+        && manifest.allows("notableDrops");
+  }
+
+  private boolean isPetDropCaptureEnabled() {
+    return pairingClient != null
+        && isPaired()
+        && session.isActive()
+        && config.collectPetDrops()
+        && manifest.allows("petDrops");
+  }
+
+  /**
+   * Drains the event outbox (#656): every pending entry, grouped by the account it
+   * was captured under (see {@link OutboxEntry}), submitted as its own batch so a
+   * relog to a different character between capture and drain still attributes each
+   * event correctly.
+   *
+   * <p>One bounded-retry attempt per account group per drain. A batch that still
+   * fails after that is left in the outbox for the next scheduled drain rather than
+   * retried immediately: events are not urgent, and the periodic cadence is the
+   * outer retry horizon.
+   */
+  @Schedule(period = EVENT_DRAIN_INTERVAL_SECONDS, unit = ChronoUnit.SECONDS)
+  public void drainEventOutbox() {
+    if (pairingClient == null || eventOutbox == null || !isPaired()) {
+      return;
+    }
+    List<OutboxEntry> pending = eventOutbox.pending();
+    if (pending.isEmpty()) {
+      return;
+    }
+    Map<Long, List<TransientEvent>> byAccount = new LinkedHashMap<>();
+    for (OutboxEntry entry : pending) {
+      byAccount.computeIfAbsent(entry.getAccountHash(), key -> new ArrayList<>()).add(entry.getEvent());
+    }
+    String url = savedServerUrl();
+    String token = deviceStore.load().getToken();
+    executor.submit(
+        () -> {
+          for (Map.Entry<Long, List<TransientEvent>> group : byAccount.entrySet()) {
+            try {
+              SubmitEventsResponse response =
+                  pairingClient.submitEventsWithRetry(
+                      url,
+                      token,
+                      group.getKey(),
+                      group.getValue(),
+                      MAX_SUBMIT_ATTEMPTS,
+                      SUBMIT_RETRY_BASE_DELAY_MS);
+              if (!response.isRouted()) {
+                // Unclaimed: leave every entry pending, exactly like a network
+                // failure, rather than acking anything that was not actually stored.
+                continue;
+              }
+              Set<String> storedIds = new java.util.HashSet<>();
+              for (com.bankstand.dto.EventAck ack : response.getAcks()) {
+                if (ack.isStored()) {
+                  storedIds.add(ack.getId());
+                }
+              }
+              eventOutbox.ack(storedIds);
+            } catch (SubmitException e) {
+              log.debug("event drain failed for one account group: {}", e.getMessage());
+            }
+          }
+        });
   }
 
   /** The status lines, gathered from live state. */

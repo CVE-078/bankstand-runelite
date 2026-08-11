@@ -9,12 +9,15 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import com.bankstand.dto.PairResponse;
+import com.bankstand.dto.SubmitEventsResponse;
 import com.bankstand.dto.SubmitResponse;
 import com.bankstand.dto.SubmitSnapshotResponse;
 import com.bankstand.http.HttpResponse;
 import com.bankstand.http.HttpTransport;
 import com.google.gson.Gson;
 import java.io.IOException;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import org.junit.Test;
 
@@ -360,6 +363,76 @@ public class BankstandClientTest {
     } catch (SubmitException e) {
       assertFalse(e.isRetryable());
     }
+  }
+
+  @Test
+  public void submitsEventsWithTheAccountHashAndEventFields() throws Exception {
+    FakeTransport t =
+        new FakeTransport(
+            new HttpResponse(
+                200,
+                "{\"routed\":true,\"acks\":[{\"id\":\"e1\",\"outcome\":\"stored\"}],"
+                    + "\"serverTime\":\"2026-08-10T10:00:00.000Z\"}"));
+    Map<String, Object> payload = new LinkedHashMap<>();
+    payload.put("itemName", "Dragon warhammer");
+    TransientEvent event = new TransientEvent("e1", TransientEvent.TYPE_NOTABLE_DROP, "2026-08-10T10:00:00Z", payload);
+
+    SubmitEventsResponse res =
+        client(t).submitEvents(BASE + "/", "bsd_tok", 123456789012345L, Collections.singletonList(event));
+
+    assertTrue(res.isRouted());
+    assertEquals(1, res.getAcks().size());
+    assertEquals("e1", res.getAcks().get(0).getId());
+    assertTrue(res.getAcks().get(0).isStored());
+    assertEquals(BASE + "/api/plugin/v1/events", t.url);
+    assertTrue("account hash as a string in body", t.body.contains("\"123456789012345\""));
+    assertTrue("event id in body", t.body.contains("\"e1\""));
+    assertTrue("event type in body", t.body.contains("\"notable_drop\""));
+    assertEquals("Bearer bsd_tok", t.headers.get("Authorization"));
+  }
+
+  @Test
+  public void submitEventsReportsNotRoutedWhenTheHashIsUnbound() throws Exception {
+    FakeTransport t = new FakeTransport(new HttpResponse(200, "{\"routed\":false,\"acks\":[]}"));
+    SubmitEventsResponse res =
+        client(t).submitEvents(BASE, "bsd_tok", 1L, Collections.emptyList());
+    assertFalse(res.isRouted());
+    assertTrue(res.getAcks().isEmpty());
+  }
+
+  @Test
+  public void submitEventsWithoutATokenFailsBeforeAnyRequest() {
+    FakeTransport t = new FakeTransport(new HttpResponse(200, "{}"));
+    try {
+      client(t).submitEvents(BASE, "", 1L, Collections.emptyList());
+      fail("expected SubmitException");
+    } catch (SubmitException e) {
+      assertFalseCalled(t);
+    }
+  }
+
+  @Test
+  public void submitEventsMapsA401ToATerminalFailure() {
+    FakeTransport t = new FakeTransport(new HttpResponse(401, "{\"error\":\"unauthorized\"}"));
+    try {
+      client(t).submitEvents(BASE, "bsd_tok", 1L, Collections.emptyList());
+      fail("expected SubmitException");
+    } catch (SubmitException e) {
+      assertFalse(e.isRetryable());
+    }
+  }
+
+  @Test
+  public void submitEventsRetriesARetryableFailureThenSucceeds() throws Exception {
+    SequencedTransport t =
+        new SequencedTransport(
+            new IOException("blip"),
+            new HttpResponse(200, "{\"routed\":true,\"acks\":[]}"));
+    SubmitEventsResponse res =
+        new BankstandClient(t, new Gson())
+            .submitEventsWithRetry(BASE, "bsd_tok", 1L, Collections.emptyList(), 3, 0L);
+    assertTrue(res.isRouted());
+    assertEquals(2, t.calls);
   }
 
   private static void assertGenericFailure(FakeTransport t) {
