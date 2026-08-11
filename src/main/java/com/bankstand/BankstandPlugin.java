@@ -32,6 +32,7 @@ import net.runelite.api.Player;
 import net.runelite.api.Quest;
 import net.runelite.api.Skill;
 import net.runelite.api.WorldType;
+import net.runelite.api.events.ChatMessage;
 import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.GameTick;
 import net.runelite.api.events.ScriptPreFired;
@@ -53,6 +54,7 @@ import net.runelite.client.plugins.PluginDescriptor;
 import net.runelite.client.task.Schedule;
 import net.runelite.client.ui.overlay.infobox.InfoBoxManager;
 import net.runelite.client.util.ImageUtil;
+import net.runelite.client.util.Text;
 import lombok.extern.slf4j.Slf4j;
 import okhttp3.OkHttpClient;
 
@@ -710,6 +712,35 @@ public class BankstandPlugin extends Plugin {
         + " Claim it on your account page.";
   }
 
+  // Package-private and static so the wording is testable without a Client, the same
+  // reason syncOutcomeMessage and identityNoticeFor are.
+  /**
+   * Whether a chat line is the game's own quest-completion or diary-tier-completion
+   * broadcast (#770). Deliberately does not extract WHICH quest or tier: {@link
+   * #captureSkills()}, which this triggers, already re-reads every quest and diary
+   * state unconditionally, so the trigger only needs to know that something MAY have
+   * changed, never what.
+   *
+   * <p>Unverified against a live client: written from well-known OSRS wording
+   * conventions, not confirmed against the actual game text. Excludes a bare
+   * "Congratulations" (a level-up, a clue-scroll reward, and others share that
+   * opener) by requiring one of the more specific words a completion broadcast
+   * actually carries.
+   *
+   * <p>The message TYPE this is matched against ({@code ChatMessageType.GAMEMESSAGE},
+   * checked by the caller before this runs) is an equally unverified assumption: a
+   * quest or diary completion notice could plausibly arrive as {@code MESBOX},
+   * {@code BROADCAST} or {@code LEVELUPMESSAGE} instead, in which case this wording
+   * check never gets a message to look at.
+   */
+  static boolean isQuestOrDiaryCompletionMessage(String message) {
+    if (!message.startsWith("Congratulations")) {
+      return false;
+    }
+    String lower = message.toLowerCase(java.util.Locale.ROOT);
+    return lower.contains("quest") || lower.contains("diary") || lower.contains("tasks in the");
+  }
+
   /** True while the log's own search interface is on screen. */
   private boolean isSearchOpen() {
     Widget results = client.getWidget(InterfaceID.Collection.SEARCH_RESULTS);
@@ -744,6 +775,29 @@ public class BankstandPlugin extends Plugin {
 
   private boolean isAccountTypeCaptureEnabled() {
     return config.collectAccountType() && manifest.allows("accountType");
+  }
+
+  // Rides the game's own broadcast rather than waiting for the next scheduled
+  // captureSkills() tick (#770), so a quest or diary completion reaches Bankstand
+  // within moments instead of up to CAPTURE_INTERVAL_SECONDS later. Gated on the
+  // same two capabilities captureSkills() itself gates its quest/diary reads on, so
+  // this never fires a capture that would just read null for both anyway.
+  @Subscribe
+  public void onChatMessage(ChatMessage event) {
+    if (event.getType() != ChatMessageType.GAMEMESSAGE) {
+      return;
+    }
+    if (!isQuestCaptureEnabled() && !isDiaryCaptureEnabled()) {
+      return;
+    }
+    String message = Text.removeTags(event.getMessage());
+    if (isQuestOrDiaryCompletionMessage(message)) {
+      // Never the message text itself, only that the pattern matched: the server's
+      // own 60s cooldown otherwise makes "never matched" and "matched but throttled"
+      // look identical to a live tester, with no way to tell which happened.
+      log.debug("early capture: completion broadcast matched");
+      captureSkills();
+    }
   }
 
   @Subscribe
