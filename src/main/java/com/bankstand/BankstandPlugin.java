@@ -673,6 +673,33 @@ public class BankstandPlugin extends Plugin {
     return "Partial read of your collection log. " + entries + " logged so far.";
   }
 
+  // Package-private and static so the wording is testable without a Client, the same
+  // reason syncOutcomeMessage is.
+  /**
+   * The chat line for an identity submit's result (#608). `verified` alone used to be
+   * the whole story, and it conflated two situations a player needs to tell apart:
+   * "you have not claimed this character" is fixed on the account page in ten
+   * seconds, and "another account already holds this character" cannot be fixed
+   * there at all. Reporting both the same way is what sent a real player in circles
+   * across three pairing attempts in the incident that opened this issue.
+   *
+   * <p>{@code outcome} is additive on the wire (#753): a server this build predates
+   * never sends it, and a future value this build does not recognise is just as
+   * unreadable. Both fall back to the original not-claimed copy, so a client that
+   * cannot read the field keeps behaving exactly as it did before the field existed.
+   */
+  static String identityNoticeFor(boolean verified, String linkedRsn, String outcome) {
+    if (verified) {
+      return "Verified as " + linkedRsn + ".";
+    }
+    if ("held_by_other".equals(outcome) || "hash_bound_elsewhere".equals(outcome)) {
+      return "This character is already linked, so there is nothing to claim here."
+          + " If that looks wrong, contact support.";
+    }
+    return "This character is not claimed on Bankstand yet, so nothing will sync."
+        + " Claim it on your account page.";
+  }
+
   /** True while the log's own search interface is on screen. */
   private boolean isSearchOpen() {
     Widget results = client.getWidget(InterfaceID.Collection.SEARCH_RESULTS);
@@ -1517,11 +1544,7 @@ public class BankstandPlugin extends Plugin {
             // character, and a logout/relog to the SAME account (a fresh generation),
             // so the player never reads a status from a superseded submit.
             if (session.isCurrent(accountHash, generation)) {
-              notice(
-                  res.isVerified()
-                      ? "Verified as " + res.getLinkedRsn() + "."
-                      : "This character is not claimed on Bankstand yet, so nothing will sync."
-                          + " Claim it on your account page.");
+              notice(identityNoticeFor(res.isVerified(), res.getLinkedRsn(), res.getOutcome()));
             }
           } catch (SubmitException e) {
             // A transient failure has already been retried to the cap. Release the
