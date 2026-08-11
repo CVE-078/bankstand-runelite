@@ -86,6 +86,11 @@ Type these in the chat box. `::stand` works as a shorthand for all of them.
   it last sent.
 - `::bstand sync` sends now rather than waiting for the next cycle.
 - `::bstand link` re-links this character.
+- `::bstand log` arms a guided collection log read without needing to find the right-click entry on an
+  already-open log. Needs collection log capture on and the log interface open, and says so if either
+  is not true.
+- `::bstand repair` clears the stored pairing so a stale or revoked token has an obvious fix: paste a
+  fresh code in the plugin settings afterwards.
 
 ## When something goes wrong
 
