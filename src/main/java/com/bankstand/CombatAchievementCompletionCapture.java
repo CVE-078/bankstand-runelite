@@ -22,13 +22,19 @@ import net.runelite.client.util.Text;
  * fixtures, a Hub-approved plugin whose combat achievement notifier is
  * live-tested at scale: "Congratulations, you've completed a/an &lt;tier&gt;
  * combat task: &lt;name&gt;." A grandmaster task additionally appends a
- * "(N points)" suffix to the name, which is stripped before emit.
+ * "(N points)" suffix to the name, which is stripped before emit. The real broadcast
+ * also carries a leading "CA_ID:&lt;n&gt;|" the pattern accepts and discards; that
+ * was missing from Dink's fixtures too and only surfaced from an actual live capture.
  */
 public class CombatAchievementCompletionCapture extends BaseCapture {
 
+  // The game itself tags this broadcast with a "CA_ID:<n>|" prefix (observed live,
+  // 2026-08-11) that carries no information this capture needs; the task name alone
+  // is the identity. Matched and discarded rather than stripped beforehand, so a
+  // message with no prefix at all still matches too.
   private static final Pattern COMPLETION_PATTERN =
       Pattern.compile(
-          "^Congratulations, you've completed an? (\\w+) combat task: (.+)\\.$");
+          "^(?:CA_ID:\\d+\\|)?Congratulations, you've completed an? (\\w+) combat task: (.+)\\.$");
 
   // Strips a trailing "(N points)" from a task name, matching Dink's own approach of a
   // dedicated strip pattern applied with replaceFirst(""). taskName becomes a permanent
