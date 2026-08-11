@@ -188,4 +188,21 @@ public class CapabilityManifestTest {
     assertTrue(line, line.contains("skills"));
     assertTrue(line, line.contains("v1"));
   }
+
+  @Test
+  public void everyCapabilityTheClientEverGatesOnIsInTheAllowlist() {
+    // Every string BankstandPlugin ever passes to manifest.allows(...). Kept as a
+    // literal list here, not derived, so this test does not accidentally validate
+    // itself: it must independently know what the plugin gates on.
+    List<String> gatedOn =
+        Arrays.asList(
+            "skills", "quests", "diaries", "collectionLog", "combatAchievements",
+            "accountType", "notableDrops", "petDrops");
+    for (String capability : gatedOn) {
+      assertTrue(
+          capability + " is gated on by the plugin but missing from SUPPORTED_CAPABILITIES,"
+              + " so manifest.allows(" + capability + ") can never return true",
+          CapabilityManifest.SUPPORTED_CAPABILITIES.contains(capability));
+    }
+  }
 }

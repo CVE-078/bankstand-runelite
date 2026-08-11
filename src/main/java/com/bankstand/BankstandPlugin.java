@@ -509,7 +509,9 @@ public class BankstandPlugin extends Plugin {
         isDiaryCaptureEnabled(),
         isCollectionLogCaptureEnabled(),
         isCombatAchievementCaptureEnabled(),
-        isAccountTypeCaptureEnabled());
+        isAccountTypeCaptureEnabled(),
+        isNotableDropCaptureEnabled(),
+        isPetDropCaptureEnabled());
   }
 
   /**
@@ -527,7 +529,9 @@ public class BankstandPlugin extends Plugin {
       boolean diaries,
       boolean collectionLog,
       boolean combat,
-      boolean accountType) {
+      boolean accountType,
+      boolean notableDrops,
+      boolean petDrops) {
     java.util.List<String> on = new java.util.ArrayList<>();
     if (skills) {
       on.add("skills");
@@ -546,6 +550,12 @@ public class BankstandPlugin extends Plugin {
     }
     if (accountType) {
       on.add("account type");
+    }
+    if (notableDrops) {
+      on.add("notable drops");
+    }
+    if (petDrops) {
+      on.add("pet drops");
     }
     return on;
   }
