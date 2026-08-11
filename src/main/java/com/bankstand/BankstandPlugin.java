@@ -180,6 +180,7 @@ public class BankstandPlugin extends Plugin {
   private EventOutbox eventOutbox;
   private NotableDropCapture notableDropCapture;
   private PetDropCapture petDropCapture;
+  private CollectionLogUnlockCapture collectionLogUnlockCapture;
 
   /**
    * What the server currently ingests.
@@ -236,11 +237,15 @@ public class BankstandPlugin extends Plugin {
             NOTABLE_UNTRADEABLE_ALLOWLIST);
     petDropCapture =
         new PetDropCapture(eventOutbox, this::isPetDropCaptureEnabled, this::currentAccountHash);
+    collectionLogUnlockCapture =
+        new CollectionLogUnlockCapture(
+            eventOutbox, this::isCollectionLogEventCaptureEnabled, this::currentAccountHash);
     // Registered as separate listeners (#658), not @Subscribe methods on this class:
     // each capture is its own single-purpose class, unit-testable without a live
     // client, and this is the one place that wires them into the running game.
     eventBus.register(notableDropCapture);
     eventBus.register(petDropCapture);
+    eventBus.register(collectionLogUnlockCapture);
   }
 
   @Override
@@ -251,6 +256,9 @@ public class BankstandPlugin extends Plugin {
     }
     if (petDropCapture != null) {
       eventBus.unregister(petDropCapture);
+    }
+    if (collectionLogUnlockCapture != null) {
+      eventBus.unregister(collectionLogUnlockCapture);
     }
     // An infobox outlives the plugin that added it, so a sync armed when the player
     // disables Bankstand would otherwise sit on screen with nothing behind it.
@@ -276,6 +284,20 @@ public class BankstandPlugin extends Plugin {
         && session.isActive()
         && config.collectPetDrops()
         && manifest.allows("petDrops");
+  }
+
+  // Sibling-shaped to isNotableDropCaptureEnabled/isPetDropCaptureEnabled above, but
+  // deliberately NOT folded into isCollectionLogCaptureEnabled: that method also gates
+  // the guided sync (::bstand log), which must keep working, unpaired, to tell a player
+  // to pair first rather than wrongly saying "turn on collection log capture" instead.
+  // Without pairing and session gates of its own, an unpaired capture piles up in the
+  // on-disk outbox forever, and one captured with no active session tags the event with
+  // accountHash -1, which the server rejects as a 400 that poisons the whole batch.
+  private boolean isCollectionLogEventCaptureEnabled() {
+    return pairingClient != null
+        && isPaired()
+        && session.isActive()
+        && isCollectionLogCaptureEnabled();
   }
 
   /**
