@@ -58,6 +58,13 @@ public final class BankstandKeys {
   public static final String KEY_COLLECT_COMBAT_ACHIEVEMENTS = "collectCombatAchievements";
   public static final String KEY_COLLECT_ACCOUNT_TYPE = "collectAccountType";
 
+  // Events (#658): each transient-event detector gets its own enable toggle,
+  // matching the pattern above, plus its own threshold/filter setting where
+  // one applies.
+  public static final String KEY_COLLECT_NOTABLE_DROPS = "collectNotableDrops";
+  public static final String KEY_NOTABLE_DROP_THRESHOLD = "notableDropThreshold";
+  public static final String KEY_COLLECT_PET_DROPS = "collectPetDrops";
+
   // Credentials, never surfaced as config items.
   public static final String KEY_DEVICE_TOKEN = "deviceToken";
   public static final String KEY_DEVICE_ID = "deviceId";

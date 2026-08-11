@@ -1,6 +1,7 @@
 package com.bankstand;
 
 import com.bankstand.dto.PairResponse;
+import com.bankstand.dto.SubmitEventsResponse;
 import com.bankstand.dto.SubmitResponse;
 import com.bankstand.dto.SubmitSnapshotResponse;
 import com.bankstand.http.HttpResponse;
@@ -8,7 +9,9 @@ import com.bankstand.http.HttpTransport;
 import com.google.gson.Gson;
 import com.google.gson.JsonSyntaxException;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ThreadLocalRandom;
 
@@ -24,6 +27,7 @@ public class BankstandClient {
 
   private static final String PAIR_PATH = "/api/plugin/v1/pair";
   private static final String SUBMIT_PATH = "/api/plugin/v1/submit";
+  private static final String EVENTS_PATH = "/api/plugin/v1/events";
   private static final String MANIFEST_PATH = "/api/plugin/v1/manifest";
   private static final String USER_AGENT = "Bankstand-RuneLite";
   private static final String GENERIC_FAILURE = "Pairing failed. Check the code and try again.";
@@ -210,6 +214,79 @@ public class BankstandClient {
       throws SubmitException {
     return withRetry(
         () -> submitSnapshot(baseUrl, deviceToken, envelopeBody), maxAttempts, baseDelayMillis);
+  }
+
+  /**
+   * Submits a batch of {@link TransientEvent}s for one account hash (#656/#657).
+   * Status handling mirrors {@link #submitSnapshot}: 401/403 terminal, 429/5xx
+   * retryable, other non-200 terminal, IOException retryable. The events field
+   * names are exactly what {@code lib/plugin/events-envelope.ts} validates.
+   */
+  public SubmitEventsResponse submitEvents(
+      String baseUrl, String deviceToken, long accountHash, List<TransientEvent> events)
+      throws SubmitException {
+    if (isBlank(deviceToken)) {
+      throw new SubmitException("Not paired.");
+    }
+    String url = trimTrailingSlash(baseUrl) + EVENTS_PATH;
+    Map<String, Object> body = new LinkedHashMap<>();
+    body.put("accountHash", Long.toString(accountHash));
+    List<Map<String, Object>> wireEvents = new ArrayList<>(events.size());
+    for (TransientEvent event : events) {
+      Map<String, Object> wire = new LinkedHashMap<>();
+      wire.put("id", event.getId());
+      wire.put("type", event.getType());
+      wire.put("occurredAt", event.getOccurredAt());
+      wire.put("payload", event.getPayload());
+      wireEvents.add(wire);
+    }
+    body.put("events", wireEvents);
+    Map<String, String> headers = new LinkedHashMap<>();
+    headers.put("Content-Type", "application/json");
+    headers.put("Accept", "application/json");
+    headers.put("User-Agent", USER_AGENT);
+    headers.put("Authorization", "Bearer " + deviceToken);
+
+    HttpResponse response;
+    try {
+      response = transport.post(url, gson.toJson(body), headers);
+    } catch (IOException e) {
+      throw new SubmitException("Could not reach Bankstand.", true);
+    }
+    int status = response.getStatus();
+    if (status != 200) {
+      if (status == 401 || status == 403) {
+        throw new SubmitException(
+            "Bankstand rejected the device token. Re-pair in Account > Connect RuneLite.", false, true);
+      }
+      if (status == 429 || status >= 500) {
+        throw new SubmitException("Bankstand is busy.", true);
+      }
+      throw new SubmitException("Bankstand rejected the update.", false);
+    }
+    try {
+      SubmitEventsResponse parsed = gson.fromJson(response.getBody(), SubmitEventsResponse.class);
+      if (parsed == null) {
+        throw new SubmitException("Unexpected response from Bankstand.");
+      }
+      return parsed;
+    } catch (JsonSyntaxException e) {
+      throw new SubmitException("Unexpected response from Bankstand.");
+    }
+  }
+
+  /** Submits an events batch with the same bounded retry policy as
+   *  {@link #submitIdentityWithRetry}. */
+  public SubmitEventsResponse submitEventsWithRetry(
+      String baseUrl,
+      String deviceToken,
+      long accountHash,
+      List<TransientEvent> events,
+      int maxAttempts,
+      long baseDelayMillis)
+      throws SubmitException {
+    return withRetry(
+        () -> submitEvents(baseUrl, deviceToken, accountHash, events), maxAttempts, baseDelayMillis);
   }
 
   /** A retryable unit of work that produces a {@code T} or throws {@link SubmitException}. */

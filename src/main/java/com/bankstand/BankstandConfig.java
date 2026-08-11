@@ -47,6 +47,15 @@ public interface BankstandConfig extends Config {
       position = 20)
   String collectSection = "collect";
 
+  @ConfigSection(
+      name = "Events",
+      description =
+          "Discrete moments Bankstand records as they happen, rather than a state it"
+              + " re-reads on a timer: notable drops and pet drops. Each is its own"
+              + " opt-in, private by default like everything in Collect.",
+      position = 30)
+  String eventsSection = "events";
+
   @ConfigItem(
       keyName = BankstandKeys.KEY_SERVER_URL,
       name = "Server URL",
@@ -158,6 +167,40 @@ public interface BankstandConfig extends Config {
       section = collectSection,
       position = 6)
   default boolean collectAccountType() {
+    return false;
+  }
+
+  @ConfigItem(
+      keyName = BankstandKeys.KEY_COLLECT_NOTABLE_DROPS,
+      name = "Collect notable drops",
+      description =
+          "Sends unique, untradeable or high-value drops as they happen: the item, its"
+              + " value where it has one, and where it came from.",
+      section = eventsSection,
+      position = 1)
+  default boolean collectNotableDrops() {
+    return false;
+  }
+
+  @ConfigItem(
+      keyName = BankstandKeys.KEY_NOTABLE_DROP_THRESHOLD,
+      name = "Notable drop value threshold",
+      description =
+          "A tradeable drop is sent when its total GE value clears this many gp."
+              + " Untradeable items are judged by name instead, not this number.",
+      section = eventsSection,
+      position = 2)
+  default int notableDropThreshold() {
+    return 1_000_000;
+  }
+
+  @ConfigItem(
+      keyName = BankstandKeys.KEY_COLLECT_PET_DROPS,
+      name = "Collect pet drops",
+      description = "Sends which pet you received and when, as it happens.",
+      section = eventsSection,
+      position = 3)
+  default boolean collectPetDrops() {
     return false;
   }
 }
