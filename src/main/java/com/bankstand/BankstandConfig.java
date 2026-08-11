@@ -136,7 +136,9 @@ public interface BankstandConfig extends Config {
       description =
           "Sends which collection log slots you have filled. The game only reveals the log"
               + " while it is on screen, so browsing adds what you see. To read the whole"
-              + " log in one go, open it and click Search.",
+              + " log in one go, open it and click Search. New unlocks are also sent as the"
+              + " game announces them in chat, so you do not have to open the log to have"
+              + " them captured.",
       section = collectSection,
       position = 4)
   default boolean collectCollectionLog() {
