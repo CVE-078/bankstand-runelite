@@ -22,10 +22,11 @@ Each of these is a separate toggle, and each names exactly what it sends.
   exposes for the tier as a whole, plus which task as the game announces its completion in chat.
   A tier reading 23 of 41 cannot say which 23 from before you turned this on; only tasks completed
   while the plugin is running are named.
-- **Collection log.** Opt-in, and guided by you. **Open your collection log and click Search.** That
-  is the whole flow; an infobox counts items as they arrive. The log is not held in the client, so
-  it can only be read while the interface enumerates it. A partial read adds to what is known and
-  never replaces it, and ordinary page browsing keeps adding to it.
+- **Collection log.** Opt-in. Sends which slots you have filled, and each new unlock as the game
+  announces it in chat, so you do not have to open the log to have it captured. The log is not held
+  in the client otherwise, so browsing adds what you see, and **opening it and clicking Search**
+  reads the whole thing in one go, with an infobox counting items as they arrive. A partial read
+  adds to what is known and never replaces it.
 - **Account type.** Opt-in. Sends whether this account is a main, an ironman, or one of the group
   types. The hiscores cannot show a Group Ironman at all, so without this Bankstand has to take your
   word for it. Your own answer still wins: Bankstand shows you both and asks.
@@ -43,8 +44,11 @@ It also takes one last capture as you log out, so the final minute of a session 
 Stated plainly, because a gap is easy to mistake for a bug.
 
 - **Individual diary tasks.** Not exposed per task, so a diary tier at 21 of 22 reports nothing.
-- **Bank value, worn equipment, inventory, chat and your location.** Not captured, not offered, and
-  not requestable by the server.
+- **Bank value, worn equipment, inventory and your location.** Not captured, not offered, and not
+  requestable by the server.
+- **Your own conversations.** Never sent. The game's own broadcast lines are read where a capability
+  above says so (a collection log unlock, a combat achievement completion), never anything you or
+  anyone else typed.
 
 ## Setting it up
 
