@@ -71,8 +71,12 @@ public class CombatAchievementCompletionCapture extends BaseCapture {
     if (!CombatAchievementVarbits.ALL.containsKey(tier)) {
       return;
     }
-    String taskName = POINTS_SUFFIX_PATTERN.matcher(matcher.group(2)).replaceFirst("");
-    if (taskName.length() > MAX_TASK_NAME_LENGTH) {
+    String taskName = POINTS_SUFFIX_PATTERN.matcher(matcher.group(2)).replaceFirst("").trim();
+    // The strip above can consume the whole captured group (a double space before the
+    // suffix leaves nothing), and a whitespace-only capture is min(1)-valid junk the
+    // same way an empty one is: either would 400 the whole batch on the server's own
+    // schema (see MAX_TASK_NAME_LENGTH's comment for why that is never acceptable here).
+    if (taskName.isEmpty() || taskName.length() > MAX_TASK_NAME_LENGTH) {
       return;
     }
     emit(TransientEvent.TYPE_COMBAT_ACHIEVEMENT_COMPLETED, payload(tier, taskName));

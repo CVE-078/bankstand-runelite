@@ -68,6 +68,33 @@ public class CollectionLogUnlockCaptureTest {
     return builder.toString();
   }
 
+  /** A whitespace-only capture is min(1)-valid junk on the wire, not a real item
+   *  name, and one bad event 400s the whole batch (see the oversized-name test
+   *  above), permanently blocking every other queued event for the account. */
+  @Test
+  public void doesNotEmitAWhitespaceOnlyItemName() throws IOException {
+    File file = new File(folder.newFolder("bankstand"), "events.json");
+    EventOutbox outbox = new EventOutbox(file, new Gson());
+    CollectionLogUnlockCapture capture = new CollectionLogUnlockCapture(outbox, () -> true, () -> 1L);
+
+    capture.handleMessage("New item added to your collection log:    ");
+
+    assertTrue(outbox.pending().isEmpty());
+  }
+
+  @Test
+  public void trimsSurroundingWhitespaceFromTheItemName() throws IOException {
+    File file = new File(folder.newFolder("bankstand"), "events.json");
+    EventOutbox outbox = new EventOutbox(file, new Gson());
+    CollectionLogUnlockCapture capture = new CollectionLogUnlockCapture(outbox, () -> true, () -> 1L);
+
+    capture.handleMessage("New item added to your collection log:  Abyssal orphan  ");
+
+    assertTrue(!outbox.pending().isEmpty());
+    assertEquals(
+        "Abyssal orphan", outbox.pending().get(0).getEvent().getPayload().get("itemName"));
+  }
+
   @Test
   public void ignoresAnUnrelatedMessage() throws IOException {
     File file = new File(folder.newFolder("bankstand"), "events.json");

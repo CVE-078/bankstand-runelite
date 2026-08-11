@@ -55,8 +55,11 @@ public class CollectionLogUnlockCapture extends BaseCapture {
     if (!matcher.matches()) {
       return;
     }
-    String itemName = matcher.group(1);
-    if (itemName.length() > MAX_ITEM_NAME_LENGTH) {
+    String itemName = matcher.group(1).trim();
+    // A whitespace-only capture is min(1)-valid junk on the server's own schema, the
+    // same way an empty one is, and one bad event 400s the whole batch (see
+    // MAX_ITEM_NAME_LENGTH's comment for why that is never acceptable here).
+    if (itemName.isEmpty() || itemName.length() > MAX_ITEM_NAME_LENGTH) {
       return;
     }
     emit(TransientEvent.TYPE_COLLECTION_LOG_UNLOCK, payload(itemName));

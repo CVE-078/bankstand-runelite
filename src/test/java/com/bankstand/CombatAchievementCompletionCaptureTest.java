@@ -124,6 +124,34 @@ public class CombatAchievementCompletionCaptureTest {
     return builder.toString();
   }
 
+  /** The strip can consume the entire captured group (a double space before the
+   *  suffix leaves nothing behind), and an empty name is worse than useless: the
+   *  server's min(1) rejects it, and one rejected event in a batch 400s the whole
+   *  batch, permanently blocking every other queued event for the account. */
+  @Test
+  public void doesNotEmitWhenTheTaskNameStripsToEmpty() throws IOException {
+    EventOutbox outbox = outboxIn(newFile());
+    CombatAchievementCompletionCapture capture =
+        new CombatAchievementCompletionCapture(outbox, () -> true, () -> 1L);
+
+    capture.handleMessage("Congratulations, you've completed a hard combat task:  (1 point).");
+
+    assertTrue(outbox.pending().isEmpty());
+  }
+
+  /** A whitespace-only name is min(1)-valid junk, not a real task name, and must be
+   *  caught the same way an empty one is. */
+  @Test
+  public void doesNotEmitAWhitespaceOnlyTaskName() throws IOException {
+    EventOutbox outbox = outboxIn(newFile());
+    CombatAchievementCompletionCapture capture =
+        new CombatAchievementCompletionCapture(outbox, () -> true, () -> 1L);
+
+    capture.handleMessage("Congratulations, you've completed a hard combat task:    .");
+
+    assertTrue(outbox.pending().isEmpty());
+  }
+
   @Test
   public void ignoresAnUnrecognisedTierWord() throws IOException {
     // Defends against a mis-parse resolving to something outside the six real
