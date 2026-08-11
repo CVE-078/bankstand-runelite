@@ -37,6 +37,25 @@ public class CombatAchievementCompletionCaptureTest {
   }
 
   @Test
+  public void emitsWhenTheGameTagsTheBroadcastWithACaId() throws IOException {
+    // Observed live (2026-08-11): the real broadcast carries a "CA_ID:<n>|" prefix the
+    // pattern's ^-anchor didn't account for, so every completion silently failed to
+    // capture. Caught by testing against the actual game text, not an assumed wording.
+    EventOutbox outbox = outboxIn(newFile());
+    CombatAchievementCompletionCapture capture =
+        new CombatAchievementCompletionCapture(outbox, () -> true, () -> 1L);
+
+    capture.handleMessage(
+        "CA_ID:632|Congratulations, you've completed an easy combat task: Brutus Novice (1"
+            + " point).");
+
+    assertTrue(!outbox.pending().isEmpty());
+    assertEquals("easy", outbox.pending().get(0).getEvent().getPayload().get("tier"));
+    assertEquals(
+        "Brutus Novice", outbox.pending().get(0).getEvent().getPayload().get("taskName"));
+  }
+
+  @Test
   public void emitsOnAnIndefiniteArticleAnVariant() throws IOException {
     // "an easy"/"an elite" use the "an" article; the pattern must accept both a/an.
     EventOutbox outbox = outboxIn(newFile());
