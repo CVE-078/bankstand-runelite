@@ -700,6 +700,35 @@ public class BankstandPlugin extends Plugin {
         + " Claim it on your account page.";
   }
 
+  // Package-private and static so the wording is testable without a Client, the same
+  // reason syncOutcomeMessage and identityNoticeFor are.
+  /**
+   * Whether a chat line is the game's own quest-completion or diary-tier-completion
+   * broadcast (#770). Deliberately does not extract WHICH quest or tier: {@link
+   * #captureSkills()}, which this triggers, already re-reads every quest and diary
+   * state unconditionally, so the trigger only needs to know that something MAY have
+   * changed, never what.
+   *
+   * <p>Unverified against a live client: written from well-known OSRS wording
+   * conventions, not confirmed against the actual game text. Excludes a bare
+   * "Congratulations" (a level-up, a clue-scroll reward, and others share that
+   * opener) by requiring one of the more specific words a completion broadcast
+   * actually carries.
+   *
+   * <p>The message TYPE this is matched against ({@code ChatMessageType.GAMEMESSAGE},
+   * checked by the caller before this runs) is an equally unverified assumption: a
+   * quest or diary completion notice could plausibly arrive as {@code MESBOX},
+   * {@code BROADCAST} or {@code LEVELUPMESSAGE} instead, in which case this wording
+   * check never gets a message to look at.
+   */
+  static boolean isQuestOrDiaryCompletionMessage(String message) {
+    if (!message.startsWith("Congratulations")) {
+      return false;
+    }
+    String lower = message.toLowerCase(java.util.Locale.ROOT);
+    return lower.contains("quest") || lower.contains("diary") || lower.contains("tasks in the");
+  }
+
   /** True while the log's own search interface is on screen. */
   private boolean isSearchOpen() {
     Widget results = client.getWidget(InterfaceID.Collection.SEARCH_RESULTS);
