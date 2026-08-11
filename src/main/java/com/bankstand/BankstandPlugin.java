@@ -181,6 +181,7 @@ public class BankstandPlugin extends Plugin {
   private NotableDropCapture notableDropCapture;
   private PetDropCapture petDropCapture;
   private CollectionLogUnlockCapture collectionLogUnlockCapture;
+  private CombatAchievementCompletionCapture combatAchievementCompletionCapture;
 
   /**
    * What the server currently ingests.
@@ -240,12 +241,18 @@ public class BankstandPlugin extends Plugin {
     collectionLogUnlockCapture =
         new CollectionLogUnlockCapture(
             eventOutbox, this::isCollectionLogEventCaptureEnabled, this::currentAccountHash);
+    combatAchievementCompletionCapture =
+        new CombatAchievementCompletionCapture(
+            eventOutbox,
+            this::isCombatAchievementCompletionCaptureEnabled,
+            this::currentAccountHash);
     // Registered as separate listeners (#658), not @Subscribe methods on this class:
     // each capture is its own single-purpose class, unit-testable without a live
     // client, and this is the one place that wires them into the running game.
     eventBus.register(notableDropCapture);
     eventBus.register(petDropCapture);
     eventBus.register(collectionLogUnlockCapture);
+    eventBus.register(combatAchievementCompletionCapture);
   }
 
   @Override
@@ -259,6 +266,9 @@ public class BankstandPlugin extends Plugin {
     }
     if (collectionLogUnlockCapture != null) {
       eventBus.unregister(collectionLogUnlockCapture);
+    }
+    if (combatAchievementCompletionCapture != null) {
+      eventBus.unregister(combatAchievementCompletionCapture);
     }
     // An infobox outlives the plugin that added it, so a sync armed when the player
     // disables Bankstand would otherwise sit on screen with nothing behind it.
@@ -793,6 +803,22 @@ public class BankstandPlugin extends Plugin {
 
   private boolean isCombatAchievementCaptureEnabled() {
     return config.collectCombatAchievements() && manifest.allows("combatAchievements");
+  }
+
+  // Sibling-shaped to isNotableDropCaptureEnabled/isPetDropCaptureEnabled and to
+  // CollectionLogUnlockCapture's own isCollectionLogEventCaptureEnabled, but
+  // deliberately NOT folded into isCombatAchievementCaptureEnabled: that method also
+  // gates the tier-count snapshot read in captureSkills(), which already runs behind
+  // its own outer precondition check and so correctly omits pairing/session itself.
+  // A bare chat listener has no such outer check, so without pairing and session gates
+  // of its own, an unpaired capture piles up in the on-disk outbox forever, and one
+  // captured with no active session tags the event with accountHash -1, which the
+  // server rejects as a 400 that poisons the whole batch.
+  private boolean isCombatAchievementCompletionCaptureEnabled() {
+    return pairingClient != null
+        && isPaired()
+        && session.isActive()
+        && isCombatAchievementCaptureEnabled();
   }
 
   private boolean isAccountTypeCaptureEnabled() {
