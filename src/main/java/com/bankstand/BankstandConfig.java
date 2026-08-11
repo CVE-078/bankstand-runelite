@@ -149,9 +149,11 @@ public interface BankstandConfig extends Config {
       keyName = BankstandKeys.KEY_COLLECT_COMBAT_ACHIEVEMENTS,
       name = "Collect combat achievements",
       description =
-          "Sends how many combat achievement tasks you have completed in each tier. Counts"
-              + " only: the client does not expose which tasks, so a tier at 23 of 41 cannot"
-              + " say which 23.",
+          "Sends how many combat achievement tasks you have completed in each tier, plus"
+              + " which task as the game announces its completion in chat. The count comes"
+              + " from what the client exposes for a tier as a whole; the task name only"
+              + " covers tasks completed while this is on, so a tier at 23 of 41 cannot say"
+              + " which 23 from before you turned it on.",
       section = collectSection,
       position = 5)
   default boolean collectCombatAchievements() {

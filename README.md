@@ -18,8 +18,10 @@ Each of these is a separate toggle, and each names exactly what it sends.
   something actually changed, so an idle account sends nothing.
 - **Quest progress** and **achievement diary progress.** Opt-in. Diaries are captured at tier level:
   a tier reads complete or not.
-- **Combat achievements.** Opt-in. Captured as a completed count per tier, because that is all the
-  client exposes. A tier reading 23 of 41 cannot say which 23, and Bankstand shows it that way.
+- **Combat achievements.** Opt-in. Sends a completed count per tier, because that is all the client
+  exposes for the tier as a whole, plus which task as the game announces its completion in chat.
+  A tier reading 23 of 41 cannot say which 23 from before you turned this on; only tasks completed
+  while the plugin is running are named.
 - **Collection log.** Opt-in, and guided by you. **Open your collection log and click Search.** That
   is the whole flow; an infobox counts items as they arrive. The log is not held in the client, so
   it can only be read while the interface enumerates it. A partial read adds to what is known and
@@ -40,8 +42,7 @@ It also takes one last capture as you log out, so the final minute of a session 
 
 Stated plainly, because a gap is easy to mistake for a bug.
 
-- **Individual diary tasks and individual combat achievement tasks.** Neither is exposed per task, so
-  a diary tier at 21 of 22 reports nothing, and a combat achievement tier reports only its count.
+- **Individual diary tasks.** Not exposed per task, so a diary tier at 21 of 22 reports nothing.
 - **Bank value, worn equipment, inventory, chat and your location.** Not captured, not offered, and
   not requestable by the server.
 
