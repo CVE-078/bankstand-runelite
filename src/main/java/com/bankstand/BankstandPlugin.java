@@ -216,6 +216,13 @@ public class BankstandPlugin extends Plugin {
   // and the baseline must be forgotten so the new account submits afresh.
   private int baselineGeneration = -1;
   private BankstandClient pairingClient;
+  // Set the moment a guided read finishes COMPLETE, cleared only once the server has
+  // acknowledged a submission that carried the flag (#466), the same discipline every
+  // baseline in this file already follows: a submission that fails or is never sent
+  // leaves this pending for the next cycle rather than losing the fact. A read finishing
+  // and the next capture cycle are two different call paths (a game tick vs. the
+  // scheduled capture), so this is what bridges them.
+  private boolean pendingFullEnumeration = false;
 
   @Provides
   BankstandConfig provideConfig(ConfigManager configManager) {
@@ -797,6 +804,9 @@ public class BankstandPlugin extends Plugin {
       // Slots filled, not ids held. The accumulator keeps raw ids for submission,
       // so it is canonicalised here; CollectionLogSync already counts that way.
       notice(syncOutcomeMessage(outcome, VariantIds.countEntries(collectionLog.observed())));
+      if (outcome == CollectionLogSync.Outcome.COMPLETE) {
+        pendingFullEnumeration = true;
+      }
     }
   }
 
@@ -1208,6 +1218,12 @@ public class BankstandPlugin extends Plugin {
       // switch would attribute one account's items to another.
       collectionLog.reset();
       collectionLogBaseline.reset();
+      // A pending COMPLETE outcome is a claim about the log just reset above, so it
+      // must not outlive it. Without this, a full search finishing right before a
+      // relog (a world hop, a disconnect, an account switch) leaves the flag set
+      // through the reset, and the next ordinary, un-searched partial read on the
+      // new session would falsely carry collectionLogFullyEnumerated (#466).
+      pendingFullEnumeration = false;
       baselineGeneration = generation;
       loadAckedState(accountHash, generation);
     }
@@ -1242,7 +1258,8 @@ public class BankstandPlugin extends Plugin {
             combatAchievementBaseline,
             combatAchievements,
             accountTypeBaseline,
-            accountType);
+            accountType,
+            pendingFullEnumeration);
     if (!plan.shouldSubmit()) {
       return;
     }
@@ -1263,7 +1280,8 @@ public class BankstandPlugin extends Plugin {
         // than the exception, so the counts would then be the half that never went.
         plan.includesDiaries() ? diaryTaskCounts : null,
         plan.includesCollectionLog() ? clog : Collections.emptySet(),
-        plan.includesAccountType() ? accountType : null);
+        plan.includesAccountType() ? accountType : null,
+        plan.includesFullEnumeration());
   }
 
   /**
@@ -1325,6 +1343,7 @@ public class BankstandPlugin extends Plugin {
     private final boolean quests;
     private final boolean diaries;
     private final boolean collectionLog;
+    private final boolean fullEnumeration;
     private final boolean combatAchievements;
     private final boolean accountType;
 
@@ -1333,12 +1352,14 @@ public class BankstandPlugin extends Plugin {
         boolean quests,
         boolean diaries,
         boolean collectionLog,
+        boolean fullEnumeration,
         boolean combatAchievements,
         boolean accountType) {
       this.submit = submit;
       this.quests = quests;
       this.diaries = diaries;
       this.collectionLog = collectionLog;
+      this.fullEnumeration = fullEnumeration;
       this.combatAchievements = combatAchievements;
       this.accountType = accountType;
     }
@@ -1357,6 +1378,14 @@ public class BankstandPlugin extends Plugin {
 
     boolean includesCollectionLog() {
       return collectionLog;
+    }
+
+    // True only when a pending COMPLETE outcome is actually riding on THIS
+    // submission, not merely pending: a pending flag with no collectionLog block to
+    // attach to (an opt-out mid-cycle, say) must not claim a full enumeration on a
+    // submission that carries no collection log at all.
+    boolean includesFullEnumeration() {
+      return fullEnumeration;
     }
 
     boolean includesCombatAchievements() {
@@ -1418,7 +1447,8 @@ public class BankstandPlugin extends Plugin {
         new CombatAchievementBaseline(),
         null,
         new AccountTypeBaseline(),
-        null);
+        null,
+        false);
   }
 
   /** Without the account type, which every caller predating it omits. */
@@ -1445,7 +1475,38 @@ public class BankstandPlugin extends Plugin {
         combatAchievementBaseline,
         combatAchievements,
         new AccountTypeBaseline(),
-        null);
+        null,
+        false);
+  }
+
+  /** Without the full-enumeration signal, which every caller predating #466 omits. */
+  static SubmitPlan plan(
+      SkillBaseline skillBaseline,
+      Map<String, Integer> skills,
+      QuestBaseline questBaseline,
+      Map<String, String> quests,
+      DiaryBaseline diaryBaseline,
+      Map<String, String> diaries,
+      CollectionLogBaseline collectionLogBaseline,
+      Set<Integer> collectionLogItems,
+      CombatAchievementBaseline combatAchievementBaseline,
+      Map<String, Integer> combatAchievements,
+      AccountTypeBaseline accountTypeBaseline,
+      String accountType) {
+    return plan(
+        skillBaseline,
+        skills,
+        questBaseline,
+        quests,
+        diaryBaseline,
+        diaries,
+        collectionLogBaseline,
+        collectionLogItems,
+        combatAchievementBaseline,
+        combatAchievements,
+        accountTypeBaseline,
+        accountType,
+        false);
   }
 
   static SubmitPlan plan(
@@ -1460,7 +1521,8 @@ public class BankstandPlugin extends Plugin {
       CombatAchievementBaseline combatAchievementBaseline,
       Map<String, Integer> combatAchievements,
       AccountTypeBaseline accountTypeBaseline,
-      String accountType) {
+      String accountType,
+      boolean fullEnumerationPending) {
     boolean sendQuests =
         quests != null && !quests.isEmpty() && questBaseline.changedSince(quests);
     boolean sendDiaries =
@@ -1468,9 +1530,17 @@ public class BankstandPlugin extends Plugin {
     // Without the collection log counting toward the decision, a freshly synced log
     // would sit unsent until the player happened to gain xp, which is exactly when they
     // are least likely to be looking at it.
+    //
+    // `fullEnumerationPending` can force this true on its own (#466), because a
+    // COMPLETE guided read can reveal zero new ids (the exact case worth reporting: an
+    // account whose partial reads had already, coincidentally, covered everything a
+    // full search would show). Still requires a non-empty log: a genuinely empty
+    // account's COMPLETE outcome has no block to ride on, the same "empty means not
+    // observed" limitation this envelope already accepts for every other capability.
     boolean sendCollectionLog =
         !collectionLogItems.isEmpty()
-            && collectionLogBaseline.changedSince(collectionLogItems.size());
+            && (collectionLogBaseline.changedSince(collectionLogItems.size())
+                || fullEnumerationPending);
     boolean sendCombatAchievements =
         combatAchievements != null
             && !combatAchievements.isEmpty()
@@ -1494,6 +1564,7 @@ public class BankstandPlugin extends Plugin {
         sendQuests,
         sendDiaries,
         sendCollectionLog,
+        fullEnumerationPending && sendCollectionLog,
         sendCombatAchievements,
         sendAccountType);
   }
@@ -1591,7 +1662,8 @@ public class BankstandPlugin extends Plugin {
       Map<String, String> diaries,
       Map<String, Integer> diaryTaskCounts,
       Set<Integer> collectionLogItems,
-      String accountType) {
+      String accountType,
+      boolean fullEnumeration) {
     String url = savedServerUrl();
     String token = deviceStore.load().getToken();
     String version = getClass().getPackage().getImplementationVersion();
@@ -1610,7 +1682,8 @@ public class BankstandPlugin extends Plugin {
             collectionLogItems,
             combatAchievementCounts,
             diaryTaskCounts,
-            accountType);
+            accountType,
+            fullEnumeration);
     executor.submit(
         () -> {
           try {
@@ -1638,6 +1711,15 @@ public class BankstandPlugin extends Plugin {
                     }
                     if (shouldAdvanceCollectionLog(res, !collectionLogItems.isEmpty())) {
                       collectionLogBaseline.advance(collectionLogItems.size());
+                    }
+                    // Cleared only once the server has actually stored the collection
+                    // log block this flag rode on, the same discipline every baseline
+                    // above already follows: a submission that failed, or one the
+                    // server otherwise never applied, leaves the fact pending so the
+                    // next cycle resends it rather than losing it silently.
+                    if (fullEnumeration
+                        && shouldAdvanceCollectionLog(res, !collectionLogItems.isEmpty())) {
+                      pendingFullEnumeration = false;
                     }
                     if (shouldAdvanceCombatAchievements(
                         res, combatAchievementCounts != null)) {

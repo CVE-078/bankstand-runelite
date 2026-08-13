@@ -108,4 +108,56 @@ public class SubmitEnvelopeContractTest {
     JsonObject got = new Gson().toJsonTree(body).getAsJsonObject();
     assertEquals(want, got);
   }
+
+  @Test
+  public void javaEnvelopeOmitsFullyEnumeratedOnAnOrdinaryPartialRead() throws Exception {
+    JsonObject want = fixture("submit-v1.collectionlog-partial.json");
+    Map<String, Integer> skills = new LinkedHashMap<>();
+    skills.put("attack", 5500000);
+    Map<String, Object> body =
+        SubmitEnvelope.body(
+            want.get("submissionId").getAsString(),
+            want.get("schemaVersion").getAsInt(),
+            want.get("pluginVersion").getAsString(),
+            want.get("capturedAt").getAsString(),
+            Long.parseLong(want.get("accountHash").getAsString()),
+            want.get("displayName").getAsString(),
+            skills,
+            null,
+            null,
+            java.util.List.of(995, 1000),
+            null,
+            null,
+            null,
+            false);
+    JsonObject got = new Gson().toJsonTree(body).getAsJsonObject();
+    assertEquals(want, got);
+  }
+
+  @Test
+  public void javaEnvelopeMarksAFullEnumerationOnlyWhenFlagged() throws Exception {
+    JsonObject want = fixture("submit-v1.collectionlog-complete.json");
+    Map<String, Integer> skills = new LinkedHashMap<>();
+    skills.put("attack", 5500000);
+    // Built via the fullest overload (#466): the guided Search read finished, so the
+    // envelope carries collectionLogFullyEnumerated alongside the items it always sent.
+    Map<String, Object> body =
+        SubmitEnvelope.body(
+            want.get("submissionId").getAsString(),
+            want.get("schemaVersion").getAsInt(),
+            want.get("pluginVersion").getAsString(),
+            want.get("capturedAt").getAsString(),
+            Long.parseLong(want.get("accountHash").getAsString()),
+            want.get("displayName").getAsString(),
+            skills,
+            null,
+            null,
+            java.util.List.of(995, 1000, 6199),
+            null,
+            null,
+            null,
+            true);
+    JsonObject got = new Gson().toJsonTree(body).getAsJsonObject();
+    assertEquals(want, got);
+  }
 }
