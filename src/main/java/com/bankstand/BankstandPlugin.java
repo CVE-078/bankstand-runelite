@@ -190,6 +190,7 @@ public class BankstandPlugin extends Plugin {
   private PetDropCapture petDropCapture;
   private CollectionLogUnlockCapture collectionLogUnlockCapture;
   private CombatAchievementCompletionCapture combatAchievementCompletionCapture;
+  private DiaryTaskCompletionCapture diaryTaskCompletionCapture;
 
   /**
    * What the server currently ingests.
@@ -254,6 +255,9 @@ public class BankstandPlugin extends Plugin {
             eventOutbox,
             this::isCombatAchievementCompletionCaptureEnabled,
             this::currentAccountHash);
+    diaryTaskCompletionCapture =
+        new DiaryTaskCompletionCapture(
+            eventOutbox, this::isDiaryTaskCompletionCaptureEnabled, this::currentAccountHash);
     // Registered as separate listeners (#658), not @Subscribe methods on this class:
     // each capture is its own single-purpose class, unit-testable without a live
     // client, and this is the one place that wires them into the running game.
@@ -261,6 +265,7 @@ public class BankstandPlugin extends Plugin {
     eventBus.register(petDropCapture);
     eventBus.register(collectionLogUnlockCapture);
     eventBus.register(combatAchievementCompletionCapture);
+    eventBus.register(diaryTaskCompletionCapture);
   }
 
   @Override
@@ -277,6 +282,9 @@ public class BankstandPlugin extends Plugin {
     }
     if (combatAchievementCompletionCapture != null) {
       eventBus.unregister(combatAchievementCompletionCapture);
+    }
+    if (diaryTaskCompletionCapture != null) {
+      eventBus.unregister(diaryTaskCompletionCapture);
     }
     // An infobox outlives the plugin that added it, so a sync armed when the player
     // disables Bankstand would otherwise sit on screen with nothing behind it.
@@ -874,6 +882,16 @@ public class BankstandPlugin extends Plugin {
         && isPaired()
         && session.isActive()
         && isCombatAchievementCaptureEnabled();
+  }
+
+  // Sibling-shaped to isCombatAchievementCompletionCaptureEnabled just above, for the same
+  // reason: a bare chat listener has no outer precondition check the way the scheduled
+  // diary read in captureSkills() already has, so it needs its own pairing/session gates.
+  // Deliberately reuses isDiaryCaptureEnabled() rather than a capability of its own: this is
+  // the same disclosure ("Bankstand reads my diary progress"), matching the server side's
+  // decision to reuse the diaries capability and flag rather than mint new ones.
+  private boolean isDiaryTaskCompletionCaptureEnabled() {
+    return pairingClient != null && isPaired() && session.isActive() && isDiaryCaptureEnabled();
   }
 
   private boolean isAccountTypeCaptureEnabled() {
