@@ -88,6 +88,27 @@ public final class SubmitEnvelope {
       Map<String, Integer> combatAchievementCounts,
       Map<String, Integer> diaryTaskCounts,
       String accountType) {
+    return body(
+        submissionId, schemaVersion, pluginVersion, capturedAt, accountHash, displayName, skillXp,
+        questStates, diaryStates, collectionLogItems, combatAchievementCounts, diaryTaskCounts,
+        accountType, false);
+  }
+
+  public static Map<String, Object> body(
+      String submissionId,
+      int schemaVersion,
+      String pluginVersion,
+      String capturedAt,
+      long accountHash,
+      String displayName,
+      Map<String, Integer> skillXp,
+      Map<String, String> questStates,
+      Map<String, String> diaryStates,
+      Collection<Integer> collectionLogItems,
+      Map<String, Integer> combatAchievementCounts,
+      Map<String, Integer> diaryTaskCounts,
+      String accountType,
+      boolean fullEnumeration) {
     Map<String, Object> body = new LinkedHashMap<>();
     body.put("submissionId", submissionId);
     body.put("schemaVersion", schemaVersion);
@@ -124,6 +145,14 @@ public final class SubmitEnvelope {
     // to distinguish that from "owns nothing".
     if (collectionLogItems != null && !collectionLogItems.isEmpty()) {
       body.put("collectionLog", new ArrayList<>(collectionLogItems));
+      // Present, and true, only on a submission that rode a COMPLETE guided read
+      // (#466): the game's Search interface was seen open while entries streamed, not
+      // incidental page browsing. Never sent false; a partial or ordinary read has
+      // nothing to assert here, the same "absence means not observed" rule the rest
+      // of this envelope follows for every other block.
+      if (fullEnumeration) {
+        body.put("collectionLogFullyEnumerated", true);
+      }
     }
     // Per-tier completed COUNTS, which is all the game exposes. Omitted when empty
     // for the same reason as every other block: an empty block means "not observed",

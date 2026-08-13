@@ -249,4 +249,109 @@ public class SubmitPlanTest {
     assertFalse(plan.includesCombatAchievements());
     assertTrue(plan.shouldSubmit());
   }
+
+  /**
+   * The case #466 exists for: a COMPLETE guided read that revealed zero new ids, because
+   * the account's partial reads had already, coincidentally, covered everything a full
+   * search would show. Without the pending signal counting toward the decision, this
+   * capture would carry no collection log block at all and the completeness fact would
+   * never reach the server.
+   */
+  @Test
+  public void aCompleteEnumerationCarriesTheLogEvenWithNoNewItems() {
+    Acked acked = new Acked();
+
+    BankstandPlugin.SubmitPlan plan =
+        BankstandPlugin.plan(
+            acked.skills,
+            skills("attack", 100),
+            acked.quests,
+            states("COOKS_ASSISTANT", "FINISHED"),
+            acked.diaries,
+            states("VARROCK_EASY", "COMPLETE"),
+            acked.log,
+            new java.util.HashSet<>(Arrays.asList(1, 2)),
+            new CombatAchievementBaseline(),
+            null,
+            new AccountTypeBaseline(),
+            null,
+            true);
+
+    assertTrue(plan.shouldSubmit());
+    assertTrue(plan.includesCollectionLog());
+    assertTrue(plan.includesFullEnumeration());
+  }
+
+  /**
+   * The pending signal cannot manufacture a block out of nothing: a genuinely empty
+   * account has no collection log to attach the fact to, the same "empty means not
+   * observed" limitation every other capability already accepts.
+   */
+  @Test
+  public void aPendingEnumerationNeverCarriesAnEmptyLog() {
+    Acked acked = new Acked();
+
+    BankstandPlugin.SubmitPlan plan =
+        BankstandPlugin.plan(
+            acked.skills,
+            skills("attack", 200),
+            acked.quests,
+            states("COOKS_ASSISTANT", "FINISHED"),
+            acked.diaries,
+            states("VARROCK_EASY", "COMPLETE"),
+            new CollectionLogBaseline(),
+            NO_LOG,
+            new CombatAchievementBaseline(),
+            null,
+            new AccountTypeBaseline(),
+            null,
+            true);
+
+    assertFalse(plan.includesCollectionLog());
+    assertFalse(plan.includesFullEnumeration());
+  }
+
+  /**
+   * An ordinary grown log, with no enumeration pending, must not claim one it was never
+   * told about.
+   */
+  @Test
+  public void anOrdinaryLogChangeNeverClaimsFullEnumeration() {
+    Acked acked = new Acked();
+
+    BankstandPlugin.SubmitPlan plan =
+        BankstandPlugin.plan(
+            acked.skills,
+            skills("attack", 100),
+            acked.quests,
+            states("COOKS_ASSISTANT", "FINISHED"),
+            acked.diaries,
+            states("VARROCK_EASY", "COMPLETE"),
+            acked.log,
+            new java.util.HashSet<>(Arrays.asList(1, 2, 3)),
+            new CombatAchievementBaseline(),
+            null,
+            new AccountTypeBaseline(),
+            null,
+            false);
+
+    assertTrue(plan.includesCollectionLog());
+    assertFalse(plan.includesFullEnumeration());
+  }
+
+  /** The pre-#466 overload still omits the signal entirely, as every existing caller does. */
+  @Test
+  public void theShorterOverloadNeverClaimsFullEnumeration() {
+    Acked acked = new Acked();
+
+    BankstandPlugin.SubmitPlan plan =
+        acked.plan(
+            skills("attack", 100),
+            states("COOKS_ASSISTANT", "FINISHED"),
+            states("VARROCK_EASY", "COMPLETE"),
+            new java.util.HashSet<>(Arrays.asList(1, 2, 3)));
+
+    assertTrue(plan.includesCollectionLog());
+    assertFalse(plan.includesFullEnumeration());
+  }
 }
