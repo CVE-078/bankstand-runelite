@@ -522,22 +522,60 @@ public class BankstandPlugin extends Plugin {
    * seeing what it did. During the incident that prompted this there was no way to
    * retry anything and no way to see why.
    */
-  @Subscribe
-  public void onCommandExecuted(CommandExecuted event) {
-    String command = event.getCommand();
-    if (!BankstandKeys.COMMAND.equalsIgnoreCase(command)
-        && !BankstandKeys.COMMAND_ALIAS.equalsIgnoreCase(command)) {
-      return;
-    }
-    String[] args = event.getArguments();
+  /**
+   * Which action a {@code ::bstand} invocation resolves to. Pure routing, deliberately
+   * kept separate from what each action actually does: those (armCollectionLogRead,
+   * requestManualCapture, ...) need a live Client/ConfigManager and stay untestable
+   * without one, but which one gets called is a plain string decision and does not (#834).
+   */
+  enum CommandAction {
+    STATUS,
+    SYNC,
+    LINK,
+    LOG,
+    REPAIR,
+    UNKNOWN
+  }
+
+  /** Package-private and static: the "is this even our command" half of dispatch,
+   *  unit-testable with a plain string, no {@link CommandExecuted} needed. */
+  static boolean isBankstandCommand(String command) {
+    return BankstandKeys.COMMAND.equalsIgnoreCase(command)
+        || BankstandKeys.COMMAND_ALIAS.equalsIgnoreCase(command);
+  }
+
+  /** Package-private and static for the same reason: resolving "sync" (or nothing, which
+   *  defaults to status) to a {@link CommandAction} needs no live state at all. */
+  static CommandAction actionFor(String[] args) {
     String action = args.length > 0 ? args[0].toLowerCase(java.util.Locale.ROOT) : "status";
     switch (action) {
       case "status":
+        return CommandAction.STATUS;
+      case "sync":
+        return CommandAction.SYNC;
+      case "link":
+        return CommandAction.LINK;
+      case "log":
+        return CommandAction.LOG;
+      case "repair":
+        return CommandAction.REPAIR;
+      default:
+        return CommandAction.UNKNOWN;
+    }
+  }
+
+  @Subscribe
+  public void onCommandExecuted(CommandExecuted event) {
+    if (!isBankstandCommand(event.getCommand())) {
+      return;
+    }
+    switch (actionFor(event.getArguments())) {
+      case STATUS:
         for (String line : statusLines()) {
           notice(line);
         }
         break;
-      case "sync":
+      case SYNC:
         for (String line : StatusReport.syncLines(isPaired(), enabledCapabilities())) {
           notice(line);
         }
@@ -548,16 +586,17 @@ public class BankstandPlugin extends Plugin {
           requestManualCapture();
         }
         break;
-      case "link":
+      case LINK:
         relinkCharacter();
         break;
-      case "log":
+      case LOG:
         armCollectionLogRead();
         break;
-      case "repair":
+      case REPAIR:
         disconnect();
         notice("Paste a fresh pairing code in the Bankstand settings to reconnect.");
         break;
+      case UNKNOWN:
       default:
         notice(
             "Unknown command. Try ::bstand, ::bstand sync, ::bstand link, ::bstand log or"
