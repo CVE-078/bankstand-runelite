@@ -210,8 +210,12 @@ public class BankstandPlugin extends Plugin {
   // rather than trusted blind.
   private Map<String, Integer> lastSkillRead;
   // Zero until something has actually reached the server, so status can say so
-  // rather than always claiming nothing has been sent.
-  private long lastSubmitAtMs;
+  // rather than always claiming nothing has been sent. Written on the
+  // background executor thread (submitSnapshot), read on the client thread
+  // (statusLines, via onCommandExecuted); volatile is the memory barrier
+  // between the two, the same fix already applied to AccountSession.submitted
+  // for the identical cross-thread pattern (#912).
+  private volatile long lastSubmitAtMs;
   // The generation the baseline currently tracks; a change means the account switched
   // and the baseline must be forgotten so the new account submits afresh.
   private int baselineGeneration = -1;
