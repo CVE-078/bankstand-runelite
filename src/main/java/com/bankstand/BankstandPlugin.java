@@ -112,10 +112,90 @@ public class BankstandPlugin extends Plugin {
   private static final String EVENTS_FILE = "events.json";
 
   // Untradeable notable drops have no GE price to threshold on (#659), so they are
-  // judged by name against a curated set instead. Starts empty rather than guessing:
-  // an unreliable list is worse than none, and the tradeable-value path below does
-  // not depend on it.
-  private static final Set<String> NOTABLE_UNTRADEABLE_ALLOWLIST = Collections.emptySet();
+  // judged by name against a curated set instead. Every entry here is a boss/skilling
+  // pet, cross-checked one by one against the game's own cache item definitions
+  // (name text and tradeable=false), not typed from memory or copied from a
+  // wiki-disambiguated display name: roughly a third of a first draft pulled from
+  // collection-log display text (Title Case is inconsistent there, and a few carry a
+  // wiki-only disambiguating suffix like "(pet)"/"(grey)"/"(fire)" that the real item
+  // name does not) would have silently never matched a real drop. A name here must be
+  // the exact string RuneLite's own ItemComposition#getName() returns, since the check
+  // this backs is a plain Set#contains.
+  // Package-private, not private: BankstandPluginTest asserts its real content
+  // directly, so an accidental future wipe (a bad merge, a refactor) fails a test
+  // rather than silently shipping an empty allowlist again.
+  static final Set<String> NOTABLE_UNTRADEABLE_ALLOWLIST = Set.of(
+      "Abyssal orphan",
+      "Abyssal protector",
+      "Aggy",
+      "Baby Mole",
+      "Baby chinchompa",
+      "Baron",
+      "Beaver",
+      "Beef",
+      "Bloodhound",
+      "Bran",
+      "Butch",
+      "Callisto cub",
+      "Chompy chick",
+      "Dom",
+      "Giant Squirrel",
+      "Gull",
+      "Hellpuppy",
+      "Herbi",
+      "Heron",
+      "Huberte",
+      "Ikkle Hydra",
+      "Jal-Nib-Rek",
+      "Kalphite Princess",
+      "Lil' Creator",
+      "Lil' Zik",
+      "Lil'viathan",
+      "Little Nightmare",
+      "Maggot marquess",
+      "Moxi",
+      "Mr McGroot",
+      "Muphin",
+      "Nexling",
+      "Nid",
+      "Noon",
+      "Olmlet",
+      "Pet Chaos Elemental",
+      "Pet Dagannoth Prime",
+      "Pet Dagannoth Rex",
+      "Pet Dagannoth Supreme",
+      "Pet General Graardor",
+      "Pet K'ril Tsutsaroth",
+      "Pet Kraken",
+      "Pet Kree'arra",
+      "Pet Penance Queen",
+      "Pet Smoke Devil",
+      "Pet Snakeling",
+      "Pet Zilyana",
+      "Pet dark core",
+      "Phoenix",
+      "Prince Black Dragon",
+      "Quetzin",
+      "Rift guardian",
+      "Rock golem",
+      "Rocky",
+      "Scorpia's offspring",
+      "Scurry",
+      "Skotos",
+      "Smol Heredit",
+      "Smolcano",
+      "Soup",
+      "Sraracha",
+      "Tangleroot",
+      "Tiny tempor",
+      "Tumeken's guardian",
+      "TzRek-Jad",
+      "Venenatis spiderling",
+      "Vet'ion jr.",
+      "Vorki",
+      "Wisp",
+      "Yami",
+      "Youngllef");
 
 
   // Every chat line the plugin writes carries a coloured prefix, so a message is
