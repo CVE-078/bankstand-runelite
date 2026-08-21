@@ -449,4 +449,32 @@ public class BankstandPluginTest {
 
     assertTrue(ids.isEmpty());
   }
+
+  @Test
+  public void notableUntradeableAllowlistIsNotEmpty() {
+    // #1096: the allowlist shipped empty for a while, so a tradeable-value-only
+    // notable drop capture silently missed every pet/untradeable unique. This just
+    // guards against that regressing again, not against a specific curation choice.
+    assertFalse(BankstandPlugin.NOTABLE_UNTRADEABLE_ALLOWLIST.isEmpty());
+  }
+
+  @Test
+  public void notableUntradeableAllowlistUsesRealInGameCasing() {
+    // Every entry was cross-checked against the game's own cache item definitions
+    // (exact name text, tradeable=false), not typed from a wiki-disambiguated
+    // collection-log display name: a first draft pulled from that source had
+    // inconsistent Title Case on roughly a third of its entries (e.g. "Baby mole"
+    // vs. the real "Baby Mole"), which would have silently never matched a real
+    // drop, since the check this backs is a plain Set#contains against
+    // ItemComposition#getName(). Spot-checking a representative sample here, not
+    // exhaustively: the point is to catch a wholesale reintroduction of that class
+    // of mistake, not to duplicate the verification script's own coverage.
+    Set<String> allowlist = BankstandPlugin.NOTABLE_UNTRADEABLE_ALLOWLIST;
+    assertTrue(allowlist.contains("Baby Mole"));
+    assertTrue(allowlist.contains("Pet Kree'arra"));
+    assertTrue(allowlist.contains("TzRek-Jad"));
+    assertTrue(allowlist.contains("Rift guardian"));
+    assertFalse(allowlist.contains("Baby mole"));
+    assertFalse(allowlist.contains("Rift guardian (fire)"));
+  }
 }
