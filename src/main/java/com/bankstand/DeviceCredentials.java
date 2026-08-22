@@ -1,6 +1,7 @@
 package com.bankstand;
 
 import lombok.Data;
+import lombok.ToString;
 
 /**
  * This client's pairing with a Bankstand account: a bearer token, the server's id for
@@ -15,7 +16,13 @@ import lombok.Data;
 @Data
 public class DeviceCredentials {
 
-  private String token;
+  // Excluded from the generated toString(): NoSecretsInLogsTest bans passing the
+  // literal identifiers `token`/`getToken()` to a log call, by scanning source text, but
+  // cannot see through an object argument whose own toString() embeds the credential
+  // (`log.debug("...", credentials)` reads as passing `credentials`, not `token`). Without
+  // this exclusion the guard's ban would be true of the direct getter and false of the
+  // object holding the exact same value.
+  @ToString.Exclude private String token;
   private String deviceId;
   private String expiresAt;
 
