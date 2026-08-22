@@ -145,8 +145,8 @@ public final class SubmitEnvelope {
     // to distinguish that from "owns nothing".
     if (collectionLogItems != null && !collectionLogItems.isEmpty()) {
       body.put("collectionLog", new ArrayList<>(collectionLogItems));
-      // Present, and true, only on a submission that rode a COMPLETE guided read
-      // (#466): the game's Search interface was seen open while entries streamed, not
+      // Present, and true, only on a submission that rode a COMPLETE guided read:
+      // the game's Search interface was seen open while entries streamed, not
       // incidental page browsing. Never sent false; a partial or ordinary read has
       // nothing to assert here, the same "absence means not observed" rule the rest
       // of this envelope follows for every other block.

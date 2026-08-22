@@ -12,7 +12,7 @@ import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.util.Text;
 
 /**
- * Captures a collection log unlock the moment the game announces it in chat (#770),
+ * Captures a collection log unlock the moment the game announces it in chat,
  * rather than waiting for the player to open the log and click Search.
  *
  * <p>Carries the raw item NAME, not a resolved item id. The log's own display name is

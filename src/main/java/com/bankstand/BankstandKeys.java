@@ -58,7 +58,7 @@ public final class BankstandKeys {
   public static final String KEY_COLLECT_COMBAT_ACHIEVEMENTS = "collectCombatAchievements";
   public static final String KEY_COLLECT_ACCOUNT_TYPE = "collectAccountType";
 
-  // Events (#658): each transient-event detector gets its own enable toggle,
+  // Events: each transient-event detector gets its own enable toggle,
   // matching the pattern above, plus its own threshold/filter setting where
   // one applies.
   public static final String KEY_COLLECT_NOTABLE_DROPS = "collectNotableDrops";

@@ -79,7 +79,7 @@ public class BankstandPlugin extends Plugin {
   // cooldown so a change is reported at most once per window.
   private static final int CAPTURE_INTERVAL_SECONDS = 60;
 
-  // The outbox drains on the same cadence as skill capture (#656): events are not
+  // The outbox drains on the same cadence as skill capture: events are not
   // urgent, and a single interval is one fewer schedule to reason about. Each drain
   // is its own bounded-retry attempt (MAX_SUBMIT_ATTEMPTS, capped backoff); a batch
   // that still fails after that just waits for the next scheduled drain, which is
@@ -111,7 +111,7 @@ public class BankstandPlugin extends Plugin {
   private static final String MANIFEST_FILE = "manifest.json";
   private static final String EVENTS_FILE = "events.json";
 
-  // Untradeable notable drops have no GE price to threshold on (#659), so they are
+  // Untradeable notable drops have no GE price to threshold on, so they are
   // judged by name against a curated set instead. Every entry here is a boss/skilling
   // pet, cross-checked one by one against the game's own cache item definitions
   // (name text and tradeable=false), not typed from memory or copied from a
@@ -294,14 +294,14 @@ public class BankstandPlugin extends Plugin {
   // background executor thread (submitSnapshot), read on the client thread
   // (statusLines, via onCommandExecuted); volatile is the memory barrier
   // between the two, the same fix already applied to AccountSession.submitted
-  // for the identical cross-thread pattern (#912).
+  // for the identical cross-thread pattern.
   private volatile long lastSubmitAtMs;
   // The generation the baseline currently tracks; a change means the account switched
   // and the baseline must be forgotten so the new account submits afresh.
   private int baselineGeneration = -1;
   private BankstandClient pairingClient;
   // Set the moment a guided read finishes COMPLETE, cleared only once the server has
-  // acknowledged a submission that carried the flag (#466), the same discipline every
+  // acknowledged a submission that carried the flag, the same discipline every
   // baseline in this file already follows: a submission that fails or is never sent
   // leaves this pending for the next cycle rather than losing the fact. A read finishing
   // and the next capture cycle are two different call paths (a game tick vs. the
@@ -349,7 +349,7 @@ public class BankstandPlugin extends Plugin {
     diaryTaskCompletionCapture =
         new DiaryTaskCompletionCapture(
             eventOutbox, this::isDiaryTaskCompletionCaptureEnabled, this::currentAccountHash);
-    // Registered as separate listeners (#658), not @Subscribe methods on this class:
+    // Registered as separate listeners, not @Subscribe methods on this class:
     // each capture is its own single-purpose class, unit-testable without a live
     // client, and this is the one place that wires them into the running game.
     eventBus.register(notableDropCapture);
@@ -418,7 +418,7 @@ public class BankstandPlugin extends Plugin {
   }
 
   /**
-   * Drains the event outbox (#656): every pending entry, grouped by the account it
+   * Drains the event outbox: every pending entry, grouped by the account it
    * was captured under (see {@link OutboxEntry}), then each group split into chunks
    * of at most {@link #MAX_EVENTS_PER_SUBMIT} (see {@link #chunkEvents}) so a group
    * that grew past the server's own per-request cap is submitted as several requests
@@ -625,7 +625,7 @@ public class BankstandPlugin extends Plugin {
    * Which action a {@code ::bstand} invocation resolves to. Pure routing, deliberately
    * kept separate from what each action actually does: those (armCollectionLogRead,
    * requestManualCapture, ...) need a live Client/ConfigManager and stay untestable
-   * without one, but which one gets called is a plain string decision and does not (#834).
+   * without one, but which one gets called is a plain string decision and does not.
    */
   enum CommandAction {
     STATUS,
@@ -705,7 +705,7 @@ public class BankstandPlugin extends Plugin {
   }
 
   /**
-   * Arms a guided collection log read on demand (#612), so a player does not have to
+   * Arms a guided collection log read on demand, so a player does not have to
    * discover that opening Search on an already-open log is what starts one. Arming
    * only changes whether the infobox appears proactively; capture itself was never
    * gated on it (see {@link CollectionLogSync#arm}), so this is safe to call even
@@ -916,14 +916,14 @@ public class BankstandPlugin extends Plugin {
   // Package-private and static so the wording is testable without a Client, the same
   // reason syncOutcomeMessage is.
   /**
-   * The chat line for an identity submit's result (#608). `verified` alone used to be
+   * The chat line for an identity submit's result. `verified` alone used to be
    * the whole story, and it conflated two situations a player needs to tell apart:
    * "you have not claimed this character" is fixed on the account page in ten
    * seconds, and "another account already holds this character" cannot be fixed
    * there at all. Reporting both the same way is what sent a real player in circles
    * across three pairing attempts in the incident that opened this issue.
    *
-   * <p>{@code outcome} is additive on the wire (#753): a server this build predates
+   * <p>{@code outcome} is additive on the wire: a server this build predates
    * never sends it, and a future value this build does not recognise is just as
    * unreadable. Both fall back to the original not-claimed copy, so a client that
    * cannot read the field keeps behaving exactly as it did before the field existed.
@@ -944,7 +944,7 @@ public class BankstandPlugin extends Plugin {
   // reason syncOutcomeMessage and identityNoticeFor are.
   /**
    * Whether a chat line is the game's own quest-completion or diary-tier-completion
-   * broadcast (#770). Deliberately does not extract WHICH quest or tier: {@link
+   * broadcast. Deliberately does not extract WHICH quest or tier: {@link
    * #captureSkills()}, which this triggers, already re-reads every quest and diary
    * state unconditionally, so the trigger only needs to know that something MAY have
    * changed, never what.
@@ -1032,7 +1032,7 @@ public class BankstandPlugin extends Plugin {
   }
 
   // Rides the game's own broadcast rather than waiting for the next scheduled
-  // captureSkills() tick (#770), so a quest or diary completion reaches Bankstand
+  // captureSkills() tick, so a quest or diary completion reaches Bankstand
   // within moments instead of up to CAPTURE_INTERVAL_SECONDS later. Gated on the
   // same two capabilities captureSkills() itself gates its quest/diary reads on, so
   // this never fires a capture that would just read null for both anyway.
@@ -1306,7 +1306,7 @@ public class BankstandPlugin extends Plugin {
       // must not outlive it. Without this, a full search finishing right before a
       // relog (a world hop, a disconnect, an account switch) leaves the flag set
       // through the reset, and the next ordinary, un-searched partial read on the
-      // new session would falsely carry collectionLogFullyEnumerated (#466).
+      // new session would falsely carry collectionLogFullyEnumerated.
       pendingFullEnumeration = false;
       baselineGeneration = generation;
       loadAckedState(accountHash, generation);
@@ -1563,7 +1563,7 @@ public class BankstandPlugin extends Plugin {
         false);
   }
 
-  /** Without the full-enumeration signal, which every caller predating #466 omits. */
+  /** Without the full-enumeration signal, which every caller predating it omits. */
   static SubmitPlan plan(
       SkillBaseline skillBaseline,
       Map<String, Integer> skills,
@@ -1615,7 +1615,7 @@ public class BankstandPlugin extends Plugin {
     // would sit unsent until the player happened to gain xp, which is exactly when they
     // are least likely to be looking at it.
     //
-    // `fullEnumerationPending` can force this true on its own (#466), because a
+    // `fullEnumerationPending` can force this true on its own, because a
     // COMPLETE guided read can reveal zero new ids (the exact case worth reporting: an
     // account whose partial reads had already, coincidentally, covered everything a
     // full search would show). Still requires a non-empty log: a genuinely empty
