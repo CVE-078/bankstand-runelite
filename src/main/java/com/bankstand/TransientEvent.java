@@ -5,7 +5,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * One discrete, one-shot fact for the outbox (#656): a notable drop, a pet drop,
+ * One discrete, one-shot fact for the outbox: a notable drop, a pet drop,
  * and whatever else joins later. Unlike the skills/quests/diaries snapshot, this
  * is never overwritten by a newer capture of the same thing; each occurrence is
  * its own event with its own {@link UuidV7} id, which is what lets the server ack

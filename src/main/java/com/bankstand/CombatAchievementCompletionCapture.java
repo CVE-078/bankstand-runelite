@@ -14,9 +14,9 @@ import net.runelite.client.util.Text;
 
 /**
  * Captures which specific combat achievement task was just completed, from the
- * game's own chat broadcast (#770). The only source that can ever name a
+ * game's own chat broadcast. The only source that can ever name a
  * specific task: RuneLite exposes a per-tier completed count and nothing per
- * task, and Jagex publishes no per-task identity anywhere (#618, #662).
+ * task, and Jagex publishes no per-task identity anywhere.
  *
  * <p>Wording verified against Dink's own {@code CombatTaskNotifier} and its test
  * fixtures, a Hub-approved plugin whose combat achievement notifier is
@@ -28,8 +28,8 @@ import net.runelite.client.util.Text;
  */
 public class CombatAchievementCompletionCapture extends BaseCapture {
 
-  // The game itself tags this broadcast with a "CA_ID:<n>|" prefix (observed live,
-  // 2026-08-11) that carries no information this capture needs; the task name alone
+  // The game itself tags this broadcast with a "CA_ID:<n>|" prefix (observed live)
+  // that carries no information this capture needs; the task name alone
   // is the identity. Matched and discarded rather than stripped beforehand, so a
   // message with no prefix at all still matches too.
   private static final Pattern COMPLETION_PATTERN =

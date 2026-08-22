@@ -15,16 +15,16 @@ import net.runelite.client.game.ItemStack;
 import net.runelite.client.plugins.loottracker.LootReceived;
 
 /**
- * Captures notable drops (#659): a unique or untradeable item on a curated
+ * Captures notable drops: a unique or untradeable item on a curated
  * allowlist, or any tradeable drop whose total GE value clears a configurable
  * threshold.
  *
  * <p><b>Scope, deliberately narrow</b>, matching the issue: tradeable-value
  * threshold and a curated untradeable allowlist. Collection-log-unlock framing
- * and pet drops (#660) are NOT this class; a pet is a separate detector because
+ * and pet drops are NOT this class; a pet is a separate detector because
  * the first chat line never names it (prime-then-resolve), and a collection-log
  * "first observed" trigger would need to cross-reference the slot tracking
- * #469 already ships, which is a bigger, separate design question.
+ * that already ships, which is a bigger, separate design question.
  *
  * <p><b>Known limits, stated rather than papered over</b>: {@code LootReceived}
  * lives in the loot-tracker plugin's own package and does not fire unless that

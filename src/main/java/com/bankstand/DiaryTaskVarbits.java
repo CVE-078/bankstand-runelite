@@ -17,7 +17,7 @@ import net.runelite.api.gameval.VarbitID;
  *
  * <p><b>These are counts, not task identities.</b> A tier reading 21 says nothing about
  * which 21, exactly as the combat achievement tier counts do not say which tasks moved.
- * Per-task state stays with #444, and the reader's per-task marks stay unmarked.
+ * Per-task state remains unresolved, and the reader's per-task marks stay unmarked.
  *
  * <p>Wire keys match {@link DiaryVarbits} exactly, because the two halves describe the
  * same 48 tiers and a key that existed in one and not the other would be a tier whose

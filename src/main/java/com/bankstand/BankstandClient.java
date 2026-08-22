@@ -217,7 +217,7 @@ public class BankstandClient {
   }
 
   /**
-   * Submits a batch of {@link TransientEvent}s for one account hash (#656/#657).
+   * Submits a batch of {@link TransientEvent}s for one account hash.
    * Status handling mirrors {@link #submitSnapshot}: 401/403 terminal, 429/5xx
    * retryable, other non-200 terminal, IOException retryable. The events field
    * names are exactly what {@code lib/plugin/events-envelope.ts} validates.
