@@ -123,4 +123,49 @@ public class DeviceCredentialStoreTest {
 
     assertEquals("tok_second", storeIn(file).load().getToken());
   }
+
+  @Test
+  public void cachesAfterTheFirstLoadRatherThanReReadingTheFile() throws IOException {
+    // Every gate the plugin registers calls load() on nearly every in-game event, so a
+    // second load() on the same instance must not touch disk again: deleting the file out
+    // from under an already-loaded instance must not flip it back to unpaired.
+    File file = newFile();
+    DeviceCredentials saved = new DeviceCredentials();
+    saved.setToken("tok_abc");
+    DeviceCredentialStore store = storeIn(file);
+    store.save(saved);
+
+    assertTrue(store.load().isPaired());
+    Files.delete(file.toPath());
+
+    assertTrue(store.load().isPaired());
+    assertEquals("tok_abc", store.load().getToken());
+  }
+
+  @Test
+  public void aSaveIsVisibleToTheSameInstancesNextLoadWithoutTouchingDisk() throws IOException {
+    File file = newFile();
+    DeviceCredentialStore store = storeIn(file);
+    assertFalse(store.load().isPaired());
+
+    DeviceCredentials saved = new DeviceCredentials();
+    saved.setToken("tok_new");
+    store.save(saved);
+
+    assertEquals("tok_new", store.load().getToken());
+  }
+
+  @Test
+  public void clearIsVisibleToTheSameInstancesNextLoad() throws IOException {
+    File file = newFile();
+    DeviceCredentialStore store = storeIn(file);
+    DeviceCredentials saved = new DeviceCredentials();
+    saved.setToken("tok_abc");
+    store.save(saved);
+    assertTrue(store.load().isPaired());
+
+    store.clear();
+
+    assertFalse(store.load().isPaired());
+  }
 }

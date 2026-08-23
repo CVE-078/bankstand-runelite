@@ -30,13 +30,25 @@ import java.nio.file.StandardCopyOption;
  * rather than sending with a credential we could not read. That is the safe direction:
  * the alternative is a submit loop against a token that may not be ours.
  *
- * <p>Not thread-safe; the plugin calls it from the client thread and its executor, never
- * concurrently for the same file.
+ * <p>Not thread-safe across a save/clear racing a load; the plugin calls those from the
+ * client thread and its executor, never concurrently for the same file. {@link #cached}
+ * is {@code volatile} for a narrower reason: a pairing written on one thread must be
+ * visible to the very next {@link #load()} on the other, with no other synchronization
+ * between them, the same cross-thread guarantee {@code AccountSession.submitted} already
+ * needs one for.
  */
 public class DeviceCredentialStore {
 
   private final File file;
   private final Gson gson;
+
+  // Every gate the plugin registers (isPaired() and its callers) reads the credential on
+  // nearly every in-game event, so re-reading and re-parsing the file on each call cost
+  // real client-thread time for no reason: the credential only ever changes via save/clear,
+  // both of which keep this field in step. Null means "not yet loaded this session", not
+  // "not paired": DeviceCredentials.none() is itself a valid cached value once a real read
+  // (or a clear) has established that.
+  private volatile DeviceCredentials cached;
 
   public DeviceCredentialStore(File file, Gson gson) {
     this.file = file;
@@ -45,6 +57,16 @@ public class DeviceCredentialStore {
 
   /** Never null. */
   public DeviceCredentials load() {
+    DeviceCredentials current = cached;
+    if (current != null) {
+      return current;
+    }
+    DeviceCredentials loaded = readFromDisk();
+    cached = loaded;
+    return loaded;
+  }
+
+  private DeviceCredentials readFromDisk() {
     if (!file.exists()) {
       return DeviceCredentials.none();
     }
@@ -76,6 +98,10 @@ public class DeviceCredentialStore {
       } catch (AtomicMoveNotSupportedException e) {
         Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING);
       }
+      // Only on the success path: a save that threw below never touched disk, so the
+      // cache must keep reflecting whatever WAS there, the same "previous pairing
+      // intact" guarantee the temp-then-move above already gives the file itself.
+      cached = credentials;
     } catch (IOException | RuntimeException e) {
       // Swallowed like every other write on this path. A pairing that failed to persist
       // costs one re-pair; throwing out of the pairing handler costs the chat reply that
@@ -87,9 +113,10 @@ public class DeviceCredentialStore {
   public void clear() {
     try {
       Files.deleteIfExists(file.toPath());
+      cached = DeviceCredentials.none();
     } catch (IOException | RuntimeException e) {
       // Fall back to an empty document, so a delete the filesystem refuses still leaves
-      // no usable credential behind.
+      // no usable credential behind. save() sets the cache itself on its own success path.
       save(DeviceCredentials.none());
     }
   }
