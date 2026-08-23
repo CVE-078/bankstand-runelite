@@ -14,9 +14,9 @@ import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.util.Text;
 
 /**
- * Captures that SOME diary task completed, from its own chat broadcast (CVE-078/bankstand#842):
- * tier and area only, never which specific task. The tier-completion broadcast #770 already
- * matches ("Congratulations, you have completed all of the &lt;tier&gt; tasks in the
+ * Captures that SOME diary task completed, from its own chat broadcast:
+ * tier and area only, never which specific task. The tier-completion broadcast already matched
+ * elsewhere ("Congratulations, you have completed all of the &lt;tier&gt; tasks in the
  * &lt;area&gt; area...") fires once per finished tier; this one fires once per task, well
  * before the tier is complete, and starts with a different word entirely so the two can never
  * collide.
@@ -25,7 +25,9 @@ import net.runelite.client.util.Text;
  * Provinces area. Your Achievement Diary has been updated."
  *
  * <p>Full per-task identity (which task, not just which tier/area) needs a varbit-to-task map
- * that does not exist publicly (CVE-078/bankstand#843, separate scope, its own design).
+ * that does not exist publicly: the client exposes only per-tier completion and per-tier task
+ * counts, never which individual task changed, so resolving one is a bigger, separate design
+ * question than this broadcast can answer.
  */
 public class DiaryTaskCompletionCapture extends BaseCapture {
 

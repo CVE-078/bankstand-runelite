@@ -20,8 +20,8 @@ import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * The append-only outbox for {@link TransientEvent}s (#656). Not a coalescing
- * 4-slot structure like the skills/quests/diaries snapshot outbox (#362): each
+ * The append-only outbox for {@link TransientEvent}s. Not a coalescing
+ * 4-slot structure like the skills/quests/diaries snapshot outbox: each
  * event is a distinct, one-shot fact, so a newer one cannot overwrite an older
  * one the way a fresher skill total can.
  *

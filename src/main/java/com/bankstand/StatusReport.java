@@ -7,7 +7,7 @@ import java.util.List;
  * The lines {@code ::bstand} prints, built from plain values.
  *
  * <p>Separated from the plugin so the wording is testable without a client. Half the value of a
- * manual trigger is being able to see what it did, and during the #606 incident there was no way
+ * manual trigger is being able to see what it did, and during an earlier incident there was no way
  * to see anything at all: every action was implicit, on a schedule or a game event, and a failure
  * left nothing on screen to read.
  *

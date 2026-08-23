@@ -5,7 +5,7 @@ import java.util.function.BooleanSupplier;
 import java.util.function.LongSupplier;
 
 /**
- * One single-purpose class per transient event type, all extending this (#658).
+ * One single-purpose class per transient event type, all extending this.
  * Dink's structure: rather than a growing switch in the plugin class, each
  * detector is its own listener the plugin registers with the event bus.
  *

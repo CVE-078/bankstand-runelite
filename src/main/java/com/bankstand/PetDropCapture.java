@@ -14,7 +14,7 @@ import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.util.Text;
 
 /**
- * Detects pet drops with the prime-then-resolve pattern (#660). Non-obvious
+ * Detects pet drops with the prime-then-resolve pattern. Non-obvious
  * enough to be worth copying rather than re-deriving: the game's first message
  * never contains the pet's name.
  *
