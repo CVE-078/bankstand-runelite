@@ -11,8 +11,17 @@ package com.bankstand;
  *
  * <p>The pairing credentials below are deliberately NOT config items: a device token
  * is a bearer credential and has no business in a settings screen. They live only
- * under this group, read and written directly. Storing them unencrypted is acceptable
- * for a dogfood build, and the token is never logged.
+ * under this group, read and written directly through {@link DeviceCredentialStore},
+ * which persists them as plain JSON under {@code RUNELITE_DIR}, never through {@code
+ * ConfigManager}.
+ *
+ * <p><b>Plaintext at rest is a deliberate call for the Hub submission, not an inherited
+ * assumption.</b> Several Hub-approved plugins keep an API credential in synced {@code
+ * ConfigManager} storage, which is a strictly larger exposure than a local file this
+ * plugin already keeps out of config for the separate reason above. Encrypting the file
+ * would need a key that itself has to live somewhere on the same machine, which does not
+ * remove a local attacker's access, only relocates it. The token is never logged, at any
+ * level, everywhere it is handled.
  */
 public final class BankstandKeys {
   private BankstandKeys() {}

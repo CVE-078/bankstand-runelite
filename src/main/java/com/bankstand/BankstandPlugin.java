@@ -62,8 +62,8 @@ import okhttp3.OkHttpClient;
 @PluginDescriptor(
     name = "Bankstand",
     description =
-        "Sync your skills, quests, diaries, combat achievements and collection log to your"
-            + " Bankstand account",
+        "Sync your skills, quests, achievement diaries, combat achievements and collection log to"
+            + " your Bankstand account. Sends data to an external server.",
     tags = {"bankstand", "account", "progress", "external"})
 public class BankstandPlugin extends Plugin {
 
