@@ -45,6 +45,29 @@ public class PetDropCaptureTest {
     assertNull(PetDropCapture.resolvePetName("Untradeable drop: Clue scroll (elite)"));
   }
 
+  /**
+   * The game's own broadcast lines use the pet's real display casing (title case for
+   * most compound names), not the lowercase-first-word form several {@link
+   * PetDropCapture#KNOWN_PETS} entries were typed as. A case-sensitive check silently
+   * dropped every one of these: TzRek-Jad, Baby Mole, Giant Squirrel, Jal-Nib-Rek and
+   * every "Pet &lt;Boss&gt;" pet never resolved at all before this fix.
+   */
+  @Test
+  public void resolvesAKnownPetRegardlessOfCasing() {
+    assertEquals(
+        "TzRek-Jad",
+        PetDropCapture.resolvePetName("Untradeable drop: TzRek-Jad"));
+    assertEquals(
+        "Baby Mole",
+        PetDropCapture.resolvePetName("New item added to your collection log: Baby Mole"));
+    assertEquals(
+        "Giant Squirrel",
+        PetDropCapture.resolvePetName("Untradeable drop: Giant Squirrel"));
+    assertEquals(
+        "Pet Dagannoth Prime",
+        PetDropCapture.resolvePetName("Untradeable drop: Pet Dagannoth Prime"));
+  }
+
   @Test
   public void anUnrecognisedMessageResolvesToNull() {
     assertNull(PetDropCapture.resolvePetName("Congratulations, you've completed a hard Combat Task."));

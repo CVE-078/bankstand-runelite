@@ -12,7 +12,6 @@ import net.runelite.client.events.NpcLootReceived;
 import net.runelite.client.events.PlayerLootReceived;
 import net.runelite.client.game.ItemManager;
 import net.runelite.client.game.ItemStack;
-import net.runelite.client.plugins.loottracker.LootReceived;
 
 /**
  * Captures notable drops: a unique or untradeable item on a curated
@@ -26,11 +25,16 @@ import net.runelite.client.plugins.loottracker.LootReceived;
  * "first observed" trigger would need to cross-reference the slot tracking
  * that already ships, which is a bigger, separate design question.
  *
- * <p><b>Known limits, stated rather than papered over</b>: {@code LootReceived}
- * lives in the loot-tracker plugin's own package and does not fire unless that
- * plugin is enabled, so chests and some reward interfaces are not covered by
- * any of the three events this subscribes to. GE price is client-side and can
- * differ from the server's view at the moment of the drop.
+ * <p><b>Only these two events, deliberately.</b> The built-in Loot Tracker
+ * plugin's own {@code LootReceived} looked like a third source worth also
+ * subscribing to, but it is not: Loot Tracker constructs and posts it from the
+ * exact same NPC-kill and player-kill moments the client already posts as
+ * {@link NpcLootReceived}/{@link PlayerLootReceived}, so subscribing to all
+ * three double-fired {@link #handleLoot} for every qualifying drop, one call
+ * per event. It covers no loot source the other two miss (chests and some
+ * reward interfaces are not covered by any of them), so it added duplication
+ * with no coverage in return. GE price is client-side and can differ from the
+ * server's view at the moment of the drop.
  */
 public class NotableDropCapture extends BaseCapture {
 
@@ -59,11 +63,6 @@ public class NotableDropCapture extends BaseCapture {
   @Subscribe
   public void onPlayerLootReceived(PlayerLootReceived event) {
     handleLoot(event.getPlayer().getName(), event.getItems());
-  }
-
-  @Subscribe
-  public void onLootReceived(LootReceived event) {
-    handleLoot(event.getName(), event.getItems());
   }
 
   /** Package-private, not private: {@code NotableDropCaptureTest} calls this directly

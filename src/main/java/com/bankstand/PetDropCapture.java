@@ -1,9 +1,9 @@
 package com.bankstand;
 
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.function.BooleanSupplier;
 import java.util.function.LongSupplier;
 import java.util.regex.Matcher;
@@ -48,9 +48,18 @@ public class PetDropCapture extends BaseCapture {
   private static final Pattern UNTRADEABLE_DROP_PATTERN =
       Pattern.compile("^Untradeable drop: (.+)$");
 
-  static final Set<String> KNOWN_PETS =
-      new HashSet<>(
-          java.util.Arrays.asList(
+  // Case-insensitive: several entries below were typed in a casing that does not
+  // match the game's own broadcast lines (TzRek-Jad, Baby Mole, Giant Squirrel and
+  // every "Pet <Boss>" pet all use title case in the actual chat/collection-log
+  // text), so a plain case-sensitive Set silently dropped every one of them. The
+  // resolved name still comes from the message itself (see resolvePetName), so this
+  // only relaxes the membership check, never what gets emitted.
+  static final Set<String> KNOWN_PETS = knownPets();
+
+  private static Set<String> knownPets() {
+    Set<String> pets = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+    pets.addAll(
+        java.util.Arrays.asList(
               "Baby mole",
               "Prince black dragon",
               "Callisto cub",
@@ -102,6 +111,8 @@ public class PetDropCapture extends BaseCapture {
               "Abyssal protector",
               "Pet smoke devil",
               "Pet snakeling"));
+    return pets;
+  }
 
   private boolean primed;
 
