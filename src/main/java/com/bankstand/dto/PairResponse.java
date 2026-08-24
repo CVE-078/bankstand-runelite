@@ -3,8 +3,8 @@ package com.bankstand.dto;
 /**
  * The successful pairing response from {@code POST /api/plugin/v1/pair}:
  * {@code { deviceToken, deviceId, expiresAt }}. Populated by Gson. The device
- * token is a bearer credential returned exactly once; store it via ConfigManager,
- * never log it.
+ * token is a bearer credential returned exactly once; store it via {@link
+ * com.bankstand.DeviceCredentialStore}, never {@code ConfigManager}, and never log it.
  */
 public class PairResponse {
   private String deviceToken;
