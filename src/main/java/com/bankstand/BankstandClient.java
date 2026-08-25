@@ -13,7 +13,10 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Talks to the Bankstand pairing endpoint. Given a raw pairing code and the
@@ -34,10 +37,17 @@ public class BankstandClient {
 
   private final HttpTransport transport;
   private final Gson gson;
+  private final ScheduledExecutorService executor;
 
-  public BankstandClient(HttpTransport transport, Gson gson) {
+  /**
+   * @param executor Backs the retry backoff (see {@link #withRetry}). Never blocked on: a
+   *     retry is scheduled onto it, never awaited from it, so this may be the same executor
+   *     the caller's own submissions already run on.
+   */
+  public BankstandClient(HttpTransport transport, Gson gson, ScheduledExecutorService executor) {
     this.transport = transport;
     this.gson = gson;
+    this.executor = executor;
   }
 
   public PairResponse exchangePairingCode(String baseUrl, String rawCode) throws PairingException {
@@ -137,17 +147,19 @@ public class BankstandClient {
   /**
    * Submits identity with a bounded retry. Retryable failures (network, 429, 5xx)
    * are retried up to {@code maxAttempts} with a linear backoff of
-   * {@code baseDelayMillis * attempt}; terminal failures fail fast. Blocks the
-   * calling thread during backoff, so it runs on the plugin's background executor.
+   * {@code baseDelayMillis * attempt}; terminal failures fail fast. Never blocks:
+   * each retry is a task scheduled after the backoff delay, not a sleep, so this
+   * itself never needs to run on any particular thread. The returned future
+   * completes (successfully or exceptionally, with the {@link SubmitException})
+   * on whichever executor thread ran the deciding attempt.
    */
-  public SubmitResponse submitIdentityWithRetry(
+  public CompletableFuture<SubmitResponse> submitIdentityWithRetry(
       String baseUrl,
       String deviceToken,
       long accountHash,
       String displayName,
       int maxAttempts,
-      long baseDelayMillis)
-      throws SubmitException {
+      long baseDelayMillis) {
     return withRetry(
         () -> submitIdentity(baseUrl, deviceToken, accountHash, displayName),
         maxAttempts,
@@ -205,13 +217,12 @@ public class BankstandClient {
    * Submits a snapshot with the same bounded retry policy as
    * {@link #submitIdentityWithRetry}.
    */
-  public SubmitSnapshotResponse submitSnapshotWithRetry(
+  public CompletableFuture<SubmitSnapshotResponse> submitSnapshotWithRetry(
       String baseUrl,
       String deviceToken,
       Map<String, Object> envelopeBody,
       int maxAttempts,
-      long baseDelayMillis)
-      throws SubmitException {
+      long baseDelayMillis) {
     return withRetry(
         () -> submitSnapshot(baseUrl, deviceToken, envelopeBody), maxAttempts, baseDelayMillis);
   }
@@ -277,14 +288,13 @@ public class BankstandClient {
 
   /** Submits an events batch with the same bounded retry policy as
    *  {@link #submitIdentityWithRetry}. */
-  public SubmitEventsResponse submitEventsWithRetry(
+  public CompletableFuture<SubmitEventsResponse> submitEventsWithRetry(
       String baseUrl,
       String deviceToken,
       long accountHash,
       List<TransientEvent> events,
       int maxAttempts,
-      long baseDelayMillis)
-      throws SubmitException {
+      long baseDelayMillis) {
     return withRetry(
         () -> submitEvents(baseUrl, deviceToken, accountHash, events), maxAttempts, baseDelayMillis);
   }
@@ -313,36 +323,43 @@ public class BankstandClient {
 
   /**
    * Generic bounded retry shared by every submit endpoint: retryable failures are
-   * retried up to {@code maxAttempts}, terminal ones fail fast. Blocks the calling
-   * thread during backoff, so it runs on the plugin's background executor.
+   * retried up to {@code maxAttempts}, terminal ones fail fast.
+   *
+   * <p>Never blocks a thread to wait out the backoff. Each attempt after the first
+   * is a fresh task scheduled on {@link #executor} after the delay, not a sleep in
+   * a loop: Plugin Hub review rejects {@code Thread.sleep} outright (a blocked
+   * thread parked on a timer is exactly what a scheduled executor exists to avoid),
+   * and this codebase already has one injected for every other piece of scheduled
+   * work. The first attempt still runs synchronously, on whichever thread calls
+   * this, so the caller is responsible for that being an executor thread rather
+   * than the client thread, same as before.
    */
-  private static <T> T withRetry(SubmitCall<T> call, int maxAttempts, long baseDelayMillis)
-      throws SubmitException {
-    SubmitException last = null;
-    for (int attempt = 1; attempt <= maxAttempts; attempt++) {
-      try {
-        return call.call();
-      } catch (SubmitException e) {
-        last = e;
-        if (!e.isRetryable() || attempt == maxAttempts) {
-          throw e;
-        }
-        sleep(backoffMillis(attempt, baseDelayMillis, ThreadLocalRandom.current().nextDouble()));
-      }
-    }
-    // Unreachable for maxAttempts >= 1: the final attempt always returns or throws.
-    throw last;
+  private <T> CompletableFuture<T> withRetry(
+      SubmitCall<T> call, int maxAttempts, long baseDelayMillis) {
+    CompletableFuture<T> result = new CompletableFuture<>();
+    attempt(call, 1, maxAttempts, baseDelayMillis, result);
+    return result;
   }
 
-  private static void sleep(long millis) {
-    if (millis <= 0) {
-      return;
-    }
+  private <T> void attempt(
+      SubmitCall<T> call,
+      int attemptNumber,
+      int maxAttempts,
+      long baseDelayMillis,
+      CompletableFuture<T> result) {
     try {
-      Thread.sleep(millis);
-    } catch (InterruptedException e) {
-      // A shutdown interrupt: stop backing off but let the bounded loop finish.
-      Thread.currentThread().interrupt();
+      result.complete(call.call());
+    } catch (SubmitException e) {
+      if (!e.isRetryable() || attemptNumber == maxAttempts) {
+        result.completeExceptionally(e);
+        return;
+      }
+      long delay =
+          backoffMillis(attemptNumber, baseDelayMillis, ThreadLocalRandom.current().nextDouble());
+      executor.schedule(
+          () -> attempt(call, attemptNumber + 1, maxAttempts, baseDelayMillis, result),
+          delay,
+          TimeUnit.MILLISECONDS);
     }
   }
 
