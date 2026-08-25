@@ -63,12 +63,15 @@ If the character is not one you have tracked, the plugin says so rather than bin
 
 ## Configuration
 
-Everything lives under **Settings > Bankstand**, in two sections.
+Everything lives under **Settings > Bankstand**: a **Connection** section, then one section per
+capability, in the same order as the table above.
 
-The split matters. **Connection** is which Bankstand account this client is tied to. **Collect** is
-what this client reads and sends. Who may then *see* any of it is a third question, answered in your
-Bankstand privacy settings and deliberately not here: a setting in a game client cannot be the source
-of truth for a server-side audience, which is why nothing in this plugin is called "share".
+The split matters. **Connection** is which Bankstand account this client is tied to. Every other
+section is what this client reads and sends, and each capability gets its own section rather than a
+shared checkbox list, so a threshold or filter field (where a capability has one) lives right beside
+its own toggle. Who may then *see* any of it is a separate question, answered in your Bankstand
+privacy settings and deliberately not here: a setting in a game client cannot be the source of truth
+for a server-side audience, which is why nothing in this plugin is called "share".
 
 ### Connection
 
@@ -82,11 +85,12 @@ Your pairing is stored in `<RUNELITE_DIR>/bankstand/device.json`, not in RuneLit
 configuration, so it is never uploaded by config sync. **Each machine pairs separately**, and each
 appears as its own device on Bankstand with its own name and its own revoke button.
 
-### Collect
+### Every capability
 
-One toggle per capability, as listed above. **Collect skill XP** gates the whole capture rather than
-just its own block: the submission format makes skills required and the rest optional riders on it,
-so with it off there is nothing for the others to attach to and a paired client goes quiet.
+One toggle per section, as listed above; Notable drops also carries its own gp-value threshold field
+right beside it. **Collect skill XP** gates the whole capture rather than just its own section: the
+submission format makes skills required and the rest optional riders on it, so with it off there is
+nothing for the others to attach to and a paired client goes quiet.
 
 If you paired before version 0.1.0, these toggles were renamed and reverted to off. Re-tick the ones
 you want. Your pairing and server URL are untouched.
