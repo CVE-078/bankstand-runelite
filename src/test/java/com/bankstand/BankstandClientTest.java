@@ -19,6 +19,10 @@ import java.io.IOException;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import org.junit.Test;
 
 public class BankstandClientTest {
@@ -97,8 +101,22 @@ public class BankstandClientTest {
     }
   }
 
+  // Real, not a stub: the retry tests below need actual scheduling to happen.
+  // Single-threaded and shared for the whole class rather than one per test,
+  // matching how a plugin holds exactly one; every test here uses a zero base
+  // delay, so nothing queues up waiting on it.
+  private static final ScheduledExecutorService EXECUTOR = Executors.newSingleThreadScheduledExecutor();
+
+  private static final long GET_TIMEOUT_SECONDS = 5;
+
   private static BankstandClient client(FakeTransport transport) {
-    return new BankstandClient(transport, new Gson());
+    return new BankstandClient(transport, new Gson(), EXECUTOR);
+  }
+
+  /** Unwraps the {@link SubmitException} a retrying call's future fails with,
+   *  the same shape {@code Future.get()} always reports a failure in. */
+  private static SubmitException unwrapSubmitException(ExecutionException e) {
+    return (SubmitException) e.getCause();
   }
 
   @Test
@@ -232,28 +250,31 @@ public class BankstandClientTest {
             new HttpResponse(200, "{\"verified\":true,\"linkedRsn\":\"Zezima\"}"));
 
     SubmitResponse res =
-        new BankstandClient(t, new Gson())
-            .submitIdentityWithRetry(BASE, "bsd_tok", 1L, "Zezima", 3, 0L);
+        new BankstandClient(t, new Gson(), EXECUTOR)
+            .submitIdentityWithRetry(BASE, "bsd_tok", 1L, "Zezima", 3, 0L)
+            .get(GET_TIMEOUT_SECONDS, TimeUnit.SECONDS);
 
     assertTrue(res.isVerified());
     assertEquals("succeeded on the second attempt", 2, t.calls);
   }
 
   @Test
-  public void aTerminalFailureIsNotRetried() {
+  public void aTerminalFailureIsNotRetried() throws Exception {
     SequencedTransport t =
         new SequencedTransport(new HttpResponse(401, "{\"error\":\"unauthorized\"}"));
     try {
-      new BankstandClient(t, new Gson())
-          .submitIdentityWithRetry(BASE, "bsd_tok", 1L, "Zezima", 3, 0L);
+      new BankstandClient(t, new Gson(), EXECUTOR)
+          .submitIdentityWithRetry(BASE, "bsd_tok", 1L, "Zezima", 3, 0L)
+          .get(GET_TIMEOUT_SECONDS, TimeUnit.SECONDS);
       fail("expected SubmitException");
-    } catch (SubmitException e) {
+    } catch (ExecutionException e) {
+      unwrapSubmitException(e);
       assertEquals("terminal failure fails fast without retrying", 1, t.calls);
     }
   }
 
   @Test
-  public void retryableFailuresStopAtTheAttemptCap() {
+  public void retryableFailuresStopAtTheAttemptCap() throws Exception {
     SequencedTransport t =
         new SequencedTransport(
             new IOException("a"),
@@ -261,12 +282,14 @@ public class BankstandClientTest {
             new IOException("c"),
             new IOException("d"));
     try {
-      new BankstandClient(t, new Gson())
-          .submitIdentityWithRetry(BASE, "bsd_tok", 1L, "Zezima", 3, 0L);
+      new BankstandClient(t, new Gson(), EXECUTOR)
+          .submitIdentityWithRetry(BASE, "bsd_tok", 1L, "Zezima", 3, 0L)
+          .get(GET_TIMEOUT_SECONDS, TimeUnit.SECONDS);
       fail("expected SubmitException");
-    } catch (SubmitException e) {
+    } catch (ExecutionException e) {
+      SubmitException cause = unwrapSubmitException(e);
       assertEquals("stopped at maxAttempts", 3, t.calls);
-      assertTrue("an exhausted retryable failure stays retryable", e.isRetryable());
+      assertTrue("an exhausted retryable failure stays retryable", cause.isRetryable());
     }
   }
 
@@ -317,7 +340,7 @@ public class BankstandClientTest {
     body.put("schemaVersion", 1);
 
     SubmitSnapshotResponse res =
-        new BankstandClient(t, new Gson())
+        new BankstandClient(t, new Gson(), EXECUTOR)
             .submitSnapshot(BASE + "/", "bsd_tok", body);
 
     assertTrue(res.isAccepted());
@@ -332,7 +355,7 @@ public class BankstandClientTest {
   public void submitSnapshotWithoutTokenFailsBeforeAnyRequest() {
     FakeTransport t = new FakeTransport(new HttpResponse(200, "{}"));
     try {
-      new BankstandClient(t, new Gson())
+      new BankstandClient(t, new Gson(), EXECUTOR)
           .submitSnapshot(BASE, "", new java.util.LinkedHashMap<>());
       fail("expected SubmitException");
     } catch (SubmitException e) {
@@ -347,21 +370,23 @@ public class BankstandClientTest {
             new IOException("blip"),
             new HttpResponse(200, "{\"accepted\":true,\"stored\":true,\"reason\":\"persisted\"}"));
     SubmitSnapshotResponse res =
-        new BankstandClient(t, new Gson())
-            .submitSnapshotWithRetry(BASE, "bsd_tok", new java.util.LinkedHashMap<>(), 3, 0L);
+        new BankstandClient(t, new Gson(), EXECUTOR)
+            .submitSnapshotWithRetry(BASE, "bsd_tok", new java.util.LinkedHashMap<>(), 3, 0L)
+            .get(GET_TIMEOUT_SECONDS, TimeUnit.SECONDS);
     assertTrue(res.isStored());
     assertEquals(2, t.calls);
   }
 
   @Test
-  public void submitSnapshotMapsA401ToATerminalFailure() {
+  public void submitSnapshotMapsA401ToATerminalFailure() throws Exception {
     FakeTransport t = new FakeTransport(new HttpResponse(401, "{\"error\":\"unauthorized\"}"));
     try {
-      new BankstandClient(t, new Gson())
-          .submitSnapshotWithRetry(BASE, "bsd_tok", new java.util.LinkedHashMap<>(), 3, 0L);
+      new BankstandClient(t, new Gson(), EXECUTOR)
+          .submitSnapshotWithRetry(BASE, "bsd_tok", new java.util.LinkedHashMap<>(), 3, 0L)
+          .get(GET_TIMEOUT_SECONDS, TimeUnit.SECONDS);
       fail("expected SubmitException");
-    } catch (SubmitException e) {
-      assertFalse(e.isRetryable());
+    } catch (ExecutionException e) {
+      assertFalse(unwrapSubmitException(e).isRetryable());
     }
   }
 
@@ -429,8 +454,9 @@ public class BankstandClientTest {
             new IOException("blip"),
             new HttpResponse(200, "{\"routed\":true,\"acks\":[]}"));
     SubmitEventsResponse res =
-        new BankstandClient(t, new Gson())
-            .submitEventsWithRetry(BASE, "bsd_tok", 1L, Collections.emptyList(), 3, 0L);
+        new BankstandClient(t, new Gson(), EXECUTOR)
+            .submitEventsWithRetry(BASE, "bsd_tok", 1L, Collections.emptyList(), 3, 0L)
+            .get(GET_TIMEOUT_SECONDS, TimeUnit.SECONDS);
     assertTrue(res.isRouted());
     assertEquals(2, t.calls);
   }
@@ -457,7 +483,7 @@ public class BankstandClientTest {
                 200,
                 "{\"schemaVersion\":1,\"capabilities\":[\"skills\"],\"uploadIntervalSeconds\":300}"));
     CapabilityManifest.RawManifest raw =
-        new BankstandClient(transport, new Gson()).fetchManifest(BASE);
+        new BankstandClient(transport, new Gson(), EXECUTOR).fetchManifest(BASE);
 
     assertEquals(BASE + "/api/plugin/v1/manifest", transport.url);
     assertEquals(1, raw.schemaVersion);
@@ -469,13 +495,13 @@ public class BankstandClientTest {
     // Null, never an exception. The manifest is an optimisation and a client that cannot
     // fetch one falls back to its cache or its bundle and carries on working.
     assertNull(
-        new BankstandClient(new FakeTransport(null, new IOException("offline")), new Gson())
+        new BankstandClient(new FakeTransport(null, new IOException("offline")), new Gson(), EXECUTOR)
             .fetchManifest(BASE));
     assertNull(
-        new BankstandClient(new FakeTransport(new HttpResponse(500, "")), new Gson())
+        new BankstandClient(new FakeTransport(new HttpResponse(500, "")), new Gson(), EXECUTOR)
             .fetchManifest(BASE));
     assertNull(
-        new BankstandClient(new FakeTransport(new HttpResponse(200, "<html>")), new Gson())
+        new BankstandClient(new FakeTransport(new HttpResponse(200, "<html>")), new Gson(), EXECUTOR)
             .fetchManifest(BASE));
   }
 
@@ -484,7 +510,7 @@ public class BankstandClientTest {
     // The document is public and inert, and a client may need it before it has a token.
     // Sending one anyway would put a credential on a request that does not need it.
     FakeTransport transport = new FakeTransport(new HttpResponse(200, "{\"schemaVersion\":1}"));
-    new BankstandClient(transport, new Gson()).fetchManifest(BASE);
+    new BankstandClient(transport, new Gson(), EXECUTOR).fetchManifest(BASE);
     for (String key : transport.headers.keySet()) {
       assertNotEquals("Authorization", key);
     }

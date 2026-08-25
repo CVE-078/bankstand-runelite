@@ -324,7 +324,7 @@ public class BankstandPlugin extends Plugin {
   @Override
   protected void startUp() {
     HttpTransport transport = new OkHttpTransport(okHttpClient);
-    pairingClient = new BankstandClient(transport, gson);
+    pairingClient = new BankstandClient(transport, gson, executor);
     // A file, not ConfigManager. AckedStateStore says why that is not a preference.
     ackedStore = new AckedStateStore(new File(ACKED_STATE_DIR, ACKED_STATE_FILE), gson);
     manifestStore = new ManifestStore(new File(ACKED_STATE_DIR, MANIFEST_FILE), gson);
@@ -461,24 +461,27 @@ public class BankstandPlugin extends Plugin {
         () -> {
           for (Map.Entry<Long, List<TransientEvent>> group : byAccount.entrySet()) {
             for (List<TransientEvent> chunk : chunkEvents(group.getValue(), MAX_EVENTS_PER_SUBMIT)) {
-              try {
-                SubmitEventsResponse response =
-                    pairingClient.submitEventsWithRetry(
-                        url,
-                        token,
-                        group.getKey(),
-                        chunk,
-                        MAX_SUBMIT_ATTEMPTS,
-                        SUBMIT_RETRY_BASE_DELAY_MS);
-                if (!response.isRouted()) {
-                  // Unclaimed: leave every entry pending, exactly like a network
-                  // failure, rather than acking anything that was not actually stored.
-                  continue;
-                }
-                eventOutbox.ack(idsToAck(response.getAcks()));
-              } catch (SubmitException e) {
-                log.debug("event drain failed for one account group's chunk: {}", e.getMessage());
-              }
+              // Each chunk's retry is independent of every other chunk's, so this fires
+              // them all rather than waiting on one before starting the next; the retry
+              // itself is a scheduled task, never a blocked thread, per BankstandClient.
+              pairingClient
+                  .submitEventsWithRetry(
+                      url, token, group.getKey(), chunk, MAX_SUBMIT_ATTEMPTS, SUBMIT_RETRY_BASE_DELAY_MS)
+                  .whenComplete(
+                      (response, failure) -> {
+                        if (failure != null) {
+                          log.debug(
+                              "event drain failed for one account group's chunk: {}",
+                              failure.getMessage());
+                          return;
+                        }
+                        if (!response.isRouted()) {
+                          // Unclaimed: leave every entry pending, exactly like a network
+                          // failure, rather than acking anything that was not actually stored.
+                          return;
+                        }
+                        eventOutbox.ack(idsToAck(response.getAcks()));
+                      });
             }
           }
         });
@@ -1778,91 +1781,101 @@ public class BankstandPlugin extends Plugin {
             fullEnumeration);
     executor.submit(
         () -> {
-          try {
-            SubmitSnapshotResponse res =
-                pairingClient.submitSnapshotWithRetry(
-                    url, token, body, MAX_SUBMIT_ATTEMPTS, SUBMIT_RETRY_BASE_DELAY_MS);
-            // Advance each baseline only for a block the server says it wrote, so an
-            // unstored or throttled submit self-heals on the next capture without a
-            // client-side queue.
-            //
-            // Advance on the client thread, and only if this submit's login instance is
-            // still current, so a stale ack from a superseded account cannot clobber the
-            // current account's baseline (the same guard the notice below uses).
-            clientThread.invoke(
-                () -> {
-                  if (session.isCurrent(accountHash, generation)) {
-                    if (shouldAdvanceSkills(res)) {
-                      skillBaseline.advance(skills);
+          pairingClient
+              .submitSnapshotWithRetry(url, token, body, MAX_SUBMIT_ATTEMPTS, SUBMIT_RETRY_BASE_DELAY_MS)
+              .whenComplete(
+                  (res, failure) -> {
+                    if (failure != null) {
+                      // Do not advance the baseline: the change is unsent, retry next
+                      // cycle. The token and account hash are never logged.
+                      SubmitException e = (SubmitException) failure;
+                      if (e.isAuthFailure()) {
+                        // Retrying cannot fix a revoked token, so stop rather than fail
+                        // every capture in silence. Announced by the gate, not
+                        // NoticeGate, because this is the one failure the player has
+                        // to act on.
+                        log.debug("submit refused: token rejected, halting until re-paired");
+                        if (submitGate.onAuthFailure()) {
+                          notice("This client is no longer paired. Re-pair from your Bankstand account.");
+                        }
+                        return;
+                      }
+                      // The message, never the body: a body carries the account hash,
+                      // the display name and the whole capture.
+                      log.debug("submit failed: {}", e.getMessage());
+                      submitGate.onFailure();
+                      if (session.isCurrent(accountHash, generation)
+                          && noticeGate.onFailure(e.getMessage())) {
+                        notice("Could not sync your progress. " + e.getMessage());
+                      }
+                      return;
                     }
-                    if (shouldAdvanceQuests(res, quests != null)) {
-                      questBaseline.advance(quests);
+                    // Advance each baseline only for a block the server says it wrote,
+                    // so an unstored or throttled submit self-heals on the next capture
+                    // without a client-side queue.
+                    //
+                    // Advance on the client thread, and only if this submit's login
+                    // instance is still current, so a stale ack from a superseded
+                    // account cannot clobber the current account's baseline (the same
+                    // guard the notice below uses).
+                    clientThread.invoke(
+                        () -> {
+                          if (session.isCurrent(accountHash, generation)) {
+                            if (shouldAdvanceSkills(res)) {
+                              skillBaseline.advance(skills);
+                            }
+                            if (shouldAdvanceQuests(res, quests != null)) {
+                              questBaseline.advance(quests);
+                            }
+                            if (shouldAdvanceDiaries(res, diaries != null)) {
+                              diaryBaseline.advance(diaries);
+                            }
+                            if (shouldAdvanceCollectionLog(res, !collectionLogItems.isEmpty())) {
+                              collectionLogBaseline.advance(collectionLogItems.size());
+                            }
+                            // Cleared only once the server has actually stored the
+                            // collection log block this flag rode on, the same
+                            // discipline every baseline above already follows: a
+                            // submission that failed, or one the server otherwise
+                            // never applied, leaves the fact pending so the next cycle
+                            // resends it rather than losing it silently.
+                            if (fullEnumeration
+                                && shouldAdvanceCollectionLog(res, !collectionLogItems.isEmpty())) {
+                              pendingFullEnumeration = false;
+                            }
+                            if (shouldAdvanceCombatAchievements(
+                                res, combatAchievementCounts != null)) {
+                              combatAchievementBaseline.advance(combatAchievementCounts);
+                            }
+                            if (shouldAdvanceAccountType(res, accountType != null)) {
+                              accountTypeBaseline.advance(accountType);
+                            }
+                            // Unconditional, not only when a baseline advanced: passive
+                            // browsing can have grown the accumulator even on a submit
+                            // that stored nothing.
+                            saveAckedState(accountHash);
+                          }
+                        });
+                    // A reached server is a success for notice purposes even when it
+                    // stored nothing: "stale" or "not_applied" is the server working
+                    // as intended, and is not something the player can act on. Only
+                    // announce the recovery, so a healthy client stays silent rather
+                    // than narrating every 60 seconds.
+                    submitGate.onSuccess();
+                    lastSubmitAtMs = System.currentTimeMillis();
+                    // Which blocks the server actually wrote, which is the one thing a
+                    // report cannot tell us and the baselines key off. Never the body:
+                    // it carries the account hash, the display name and the whole
+                    // capture.
+                    log.debug(
+                        "submit {}: reason={} storedBlocks=[{}]",
+                        res.isStored() ? "stored" : "accepted",
+                        res.getReason(),
+                        String.join(",", res.getStoredBlocks()));
+                    if (session.isCurrent(accountHash, generation) && noticeGate.onSuccess()) {
+                      notice("Reconnected. Your progress is syncing again.");
                     }
-                    if (shouldAdvanceDiaries(res, diaries != null)) {
-                      diaryBaseline.advance(diaries);
-                    }
-                    if (shouldAdvanceCollectionLog(res, !collectionLogItems.isEmpty())) {
-                      collectionLogBaseline.advance(collectionLogItems.size());
-                    }
-                    // Cleared only once the server has actually stored the collection
-                    // log block this flag rode on, the same discipline every baseline
-                    // above already follows: a submission that failed, or one the
-                    // server otherwise never applied, leaves the fact pending so the
-                    // next cycle resends it rather than losing it silently.
-                    if (fullEnumeration
-                        && shouldAdvanceCollectionLog(res, !collectionLogItems.isEmpty())) {
-                      pendingFullEnumeration = false;
-                    }
-                    if (shouldAdvanceCombatAchievements(
-                        res, combatAchievementCounts != null)) {
-                      combatAchievementBaseline.advance(combatAchievementCounts);
-                    }
-                    if (shouldAdvanceAccountType(res, accountType != null)) {
-                      accountTypeBaseline.advance(accountType);
-                    }
-                    // Unconditional, not only when a baseline advanced: passive browsing
-                    // can have grown the accumulator even on a submit that stored nothing.
-                    saveAckedState(accountHash);
-                  }
-                });
-            // A reached server is a success for notice purposes even when it stored
-            // nothing: "stale" or "not_applied" is the server working as intended, and
-            // is not something the player can act on. Only announce the recovery, so a
-            // healthy client stays silent rather than narrating every 60 seconds.
-            submitGate.onSuccess();
-            lastSubmitAtMs = System.currentTimeMillis();
-            // Which blocks the server actually wrote, which is the one thing a
-            // report cannot tell us and the baselines key off. Never the body: it
-            // carries the account hash, the display name and the whole capture.
-            log.debug(
-                "submit {}: reason={} storedBlocks=[{}]",
-                res.isStored() ? "stored" : "accepted",
-                res.getReason(),
-                String.join(",", res.getStoredBlocks()));
-            if (session.isCurrent(accountHash, generation) && noticeGate.onSuccess()) {
-              notice("Reconnected. Your progress is syncing again.");
-            }
-          } catch (SubmitException e) {
-            // Do not advance the baseline: the change is unsent, retry next cycle. The
-            // token and account hash are never logged.
-            if (e.isAuthFailure()) {
-              // Retrying cannot fix a revoked token, so stop rather than fail every
-              // capture in silence. Announced by the gate, not NoticeGate, because this
-              // is the one failure the player has to act on.
-              log.debug("submit refused: token rejected, halting until re-paired");
-              if (submitGate.onAuthFailure()) {
-                notice("This client is no longer paired. Re-pair from your Bankstand account.");
-              }
-              return;
-            }
-            // The message, never the body: a body carries the account hash, the
-            // display name and the whole capture.
-            log.debug("submit failed: {}", e.getMessage());
-            submitGate.onFailure();
-            if (session.isCurrent(accountHash, generation) && noticeGate.onFailure(e.getMessage())) {
-              notice("Could not sync your progress. " + e.getMessage());
-            }
-          }
+                  });
         });
   }
 
@@ -1928,39 +1941,40 @@ public class BankstandPlugin extends Plugin {
     String token = deviceStore.load().getToken();
     executor.submit(
         () -> {
-          try {
-            SubmitResponse res =
-                pairingClient.submitIdentityWithRetry(
-                    url,
-                    token,
-                    accountHash,
-                    displayName,
-                    MAX_SUBMIT_ATTEMPTS,
-                    SUBMIT_RETRY_BASE_DELAY_MS);
-            // Drop the result unless this login instance is still current. Guards two
-            // cases opened by the multi-second retry backoff: a relog to a different
-            // character, and a logout/relog to the SAME account (a fresh generation),
-            // so the player never reads a status from a superseded submit.
-            if (session.isCurrent(accountHash, generation)) {
-              notice(identityNoticeFor(res.isVerified(), res.getLinkedRsn(), res.getOutcome()));
-            }
-          } catch (SubmitException e) {
-            // A transient failure has already been retried to the cap. Release the
-            // in-flight mark so a later tick can try the whole thing again, rather than
-            // leaving the session permanently unbound: the identity submit is what binds
-            // the account hash, and every capture path refuses until it has. Without
-            // this, a server that recovers a minute later goes on refusing this client
-            // until the player logs out and back in, which is exactly what happened.
-            //
-            // Guarded on the login instance so a late failure cannot re-arm a submit for
-            // a character who has since switched or logged out.
-            session.markSubmitFailed(accountHash, generation);
-            // Surface the reason rather than failing silently. The token and account
-            // hash are never logged.
-            if (session.isCurrent(accountHash, generation)) {
-              notice("Could not verify this character. " + e.getMessage());
-            }
-          }
+          pairingClient
+              .submitIdentityWithRetry(
+                  url, token, accountHash, displayName, MAX_SUBMIT_ATTEMPTS, SUBMIT_RETRY_BASE_DELAY_MS)
+              .whenComplete(
+                  (res, failure) -> {
+                    if (failure != null) {
+                      // A transient failure has already been retried to the cap.
+                      // Release the in-flight mark so a later tick can try the whole
+                      // thing again, rather than leaving the session permanently
+                      // unbound: the identity submit is what binds the account hash,
+                      // and every capture path refuses until it has. Without this, a
+                      // server that recovers a minute later goes on refusing this
+                      // client until the player logs out and back in, which is
+                      // exactly what happened.
+                      //
+                      // Guarded on the login instance so a late failure cannot re-arm
+                      // a submit for a character who has since switched or logged out.
+                      session.markSubmitFailed(accountHash, generation);
+                      // Surface the reason rather than failing silently. The token
+                      // and account hash are never logged.
+                      if (session.isCurrent(accountHash, generation)) {
+                        notice("Could not verify this character. " + failure.getMessage());
+                      }
+                      return;
+                    }
+                    // Drop the result unless this login instance is still current.
+                    // Guards two cases opened by the multi-second retry backoff: a
+                    // relog to a different character, and a logout/relog to the SAME
+                    // account (a fresh generation), so the player never reads a
+                    // status from a superseded submit.
+                    if (session.isCurrent(accountHash, generation)) {
+                      notice(identityNoticeFor(res.isVerified(), res.getLinkedRsn(), res.getOutcome()));
+                    }
+                  });
         });
   }
 
