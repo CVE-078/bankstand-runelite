@@ -74,8 +74,9 @@ public class BankstandPlugin extends Plugin {
   private static final int MAX_SUBMIT_ATTEMPTS = 3;
   private static final long SUBMIT_RETRY_BASE_DELAY_MS = 1000L;
 
-  // Capture the 23 skills on a fixed cadence and submit only when they changed since
-  // the last acknowledged submit. The interval matches the server's per-device
+  // Capture the tracked skills (CAPTURED_SKILLS) on a fixed cadence and submit only
+  // when they changed since the last acknowledged submit. The interval matches the
+  // server's per-device
   // cooldown so a change is reported at most once per window.
   private static final int CAPTURE_INTERVAL_SECONDS = 60;
 
@@ -210,11 +211,17 @@ public class BankstandPlugin extends Plugin {
   private static final Color BRAND = new Color(0xB3730A);
   private static final String NOTICE_PREFIX = "Bankstand: ";
 
-  // The server's v1 contract is frozen to these 23 XP skills. Skill.values() can
-  // include entries the contract never anticipated (a client-only OVERALL total, or
-  // a skill added to the game after the contract was frozen); an unknown key fails
-  // the whole submission, so this allowlist is read instead of Skill.values().
-  private static final EnumSet<Skill> CAPTURED_SKILLS =
+  // The server's v1 contract is frozen to an explicit allowlist of XP skills, not
+  // Skill.values(): that includes entries the contract never anticipated (a
+  // client-only OVERALL total, or a skill added to the game after the contract was
+  // frozen), and an unknown key fails the whole submission. Sailing was added here
+  // once the server's own allowlist (bankstand's lib/plugin/envelope.ts,
+  // SKILL_NAMES) widened to accept it; ship that server change first, always, since
+  // an unrecognised key rejects the whole skills block, not just the new one.
+  // Package-private, not private: BankstandPluginTest asserts its exact content
+  // directly, the same pattern this class already uses for its other
+  // otherwise-untestable decision logic.
+  static final EnumSet<Skill> CAPTURED_SKILLS =
       EnumSet.of(
           Skill.ATTACK,
           Skill.DEFENCE,
@@ -238,7 +245,8 @@ public class BankstandPlugin extends Plugin {
           Skill.FARMING,
           Skill.RUNECRAFT,
           Skill.HUNTER,
-          Skill.CONSTRUCTION);
+          Skill.CONSTRUCTION,
+          Skill.SAILING);
 
   @Inject private Client client;
   @Inject private ConfigManager configManager;
@@ -1212,7 +1220,7 @@ public class BankstandPlugin extends Plugin {
         && !worldType.contains(WorldType.PVP_ARENA);
   }
 
-  // Reads current XP for the 23 tracked skills, keyed by lowercase name. Runs on the
+  // Reads current XP for every skill in CAPTURED_SKILLS, keyed by lowercase name. Runs on the
   // client thread (getSkillExperience must not be called off it). Iterates the
   // frozen allowlist rather than Skill.values() so a client-only OVERALL total, or a
   // skill the game added after the server contract was frozen, is never sent.

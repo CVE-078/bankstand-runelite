@@ -15,6 +15,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import net.runelite.api.Skill;
 import net.runelite.client.RuneLite;
 import net.runelite.client.externalplugins.ExternalPluginManager;
 import org.junit.Test;
@@ -476,5 +477,16 @@ public class BankstandPluginTest {
     assertTrue(allowlist.contains("Rift guardian"));
     assertFalse(allowlist.contains("Baby mole"));
     assertFalse(allowlist.contains("Rift guardian (fire)"));
+  }
+
+  @Test
+  public void capturedSkillsIncludesSailing() {
+    // Sailing was OSRS's 24th skill and this allowlist missed it for a while,
+    // silently never reading or sending its XP even though nothing else in the
+    // pipeline was broken. This guards against that regressing again. The exact
+    // count (24) is asserted too, since a future skill addition should fail this
+    // test rather than pass it silently.
+    assertEquals(24, BankstandPlugin.CAPTURED_SKILLS.size());
+    assertTrue(BankstandPlugin.CAPTURED_SKILLS.contains(Skill.SAILING));
   }
 }
