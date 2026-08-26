@@ -14,10 +14,16 @@ public class AccountSession {
 
   // accountHash and generation are read from the submit executor thread (see
   // isCurrent) while written on the game thread, so both are volatile for visibility
-  // across the two. submitted is touched only on the game thread, so it is not.
+  // across the two. submitted crosses the same boundary in the other direction:
+  // markSubmitFailed is called from the executor thread's whenComplete callback (a
+  // failed identity submit, not hopped onto the client thread the way the neighbouring
+  // notice() call is), while isSubmitted is read every game tick on the client thread.
+  // Without volatile there is no happens-before edge guaranteeing that write is ever
+  // observed, so a failed submit could go on being read as still in-flight forever,
+  // the exact incident markSubmitInFlight's own doc comment already describes.
   private volatile long accountHash = LOGGED_OUT;
   private volatile int generation = 0;
-  private boolean submitted = false;
+  private volatile boolean submitted = false;
 
   public long getAccountHash() {
     return accountHash;
