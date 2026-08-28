@@ -210,9 +210,7 @@ public class DiaryTaskCompletionCaptureTest {
 
   @Test
   public void attachesNoTaskNameForAnUnverifiedRegion() throws IOException {
-    // DiaryTaskManifest.shipped() has no verified regions, matching production today:
-    // the region resolves and its varplayer is read and diffed, but nothing is ever
-    // looked up while unverified.
+    // shipped() has no verified regions, matching production today.
     EventOutbox outbox = outboxIn(newFile());
     DiaryTaskCompletionCapture capture =
         new DiaryTaskCompletionCapture(
@@ -229,9 +227,7 @@ public class DiaryTaskCompletionCaptureTest {
       throws IOException {
     EventOutbox outbox = outboxIn(newFile());
     DiaryTaskBits bits = new DiaryTaskBits();
-    // Establish the baseline at 0 first: the manifest bit must be observed transitioning
-    // from unset to set, not merely present on the very first read.
-    bits.diff(WESTERN_VARPLAYER, 0);
+    bits.diff(WESTERN_VARPLAYER, 0); // baseline at 0 first, so the bit has to transition
     DiaryTaskCompletionCapture capture =
         new DiaryTaskCompletionCapture(
             outbox,
@@ -251,9 +247,8 @@ public class DiaryTaskCompletionCaptureTest {
   @Test
   public void firstObservationNeverAttachesATaskNameEvenWhenVerifiedAndAlreadySet()
       throws IOException {
-    // The most important fail-safe: a player who already had this task done before the
-    // manifest shipped (or before a restart lost the in-memory baseline) must not have
-    // it reported as freshly completed the instant it is first read.
+    // A player who already had this done before the manifest shipped must not have it
+    // reported as freshly completed the instant it's first read.
     EventOutbox outbox = outboxIn(newFile());
     DiaryTaskCompletionCapture capture =
         new DiaryTaskCompletionCapture(
@@ -281,8 +276,7 @@ public class DiaryTaskCompletionCaptureTest {
             () -> 1L,
             id -> id == WESTERN_VARPLAYER ? 0b1 : 0,
             bits,
-            // The manifest says this bit is a hard task; the chat line says elite.
-            verifiedWesternManifest("hard", "Enter the Kalphite Lair"));
+            verifiedWesternManifest("hard", "Enter the Kalphite Lair")); // chat line says elite
 
     capture.handleMessage(WESTERN_TASK_MESSAGE);
 
@@ -291,8 +285,7 @@ public class DiaryTaskCompletionCaptureTest {
 
   @Test
   public void failsClosedWhenMoreThanOneBitResolvesFromOneObservation() throws IOException {
-    // Ambiguous: this capture fires once per chat line and cannot safely guess which of
-    // two simultaneously-flipped, independently resolvable bits the line refers to.
+    // Can't tell which of two simultaneously-flipped bits this chat line is about.
     int otherVarplayer = DiaryTaskVarplayers.ALL.get(WESTERN_REGION)[1];
     DiaryTaskManifest manifest = new DiaryTaskManifest(
         Set.of(WESTERN_REGION),
@@ -314,11 +307,8 @@ public class DiaryTaskCompletionCaptureTest {
 
   @Test
   public void failsClosedWhenOneOfTwoSimultaneouslyFlippedBitsIsUnmapped() throws IOException {
-    // The gap counting only resolved bits missed: two bits flip at once, but only one
-    // has a manifest entry (a real, expected state for a verified region with partial
-    // coverage). This capture cannot know whether THIS chat line refers to the bit that
-    // resolved or the other, unmapped one that flipped in the same window, so it must
-    // fail closed exactly as it would if both had resolved.
+    // Two bits flip at once, only one has a manifest entry. Same ambiguity as both
+    // resolving: no way to tell which one this chat line is about.
     int otherVarplayer = DiaryTaskVarplayers.ALL.get(WESTERN_REGION)[1];
     DiaryTaskManifest manifest = new DiaryTaskManifest(
         Set.of(WESTERN_REGION),

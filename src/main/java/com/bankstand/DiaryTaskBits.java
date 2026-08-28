@@ -7,29 +7,23 @@ import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * The last-known value of every tracked diary varplayer, keyed by varplayer id, so a fresh
- * read can be XORed against it to find which individual bit(s) just flipped.
+ * Last-known value of every tracked diary varplayer, keyed by varplayer id, so a fresh
+ * read can be XORed against it to find which bit(s) just flipped.
  *
- * <p>Unlike {@link DiaryVarbits}/{@link DiaryTaskVarbits}, whose "baseline" is really just a
- * digest (a tier is cheap to re-read whole, so only whether it changed matters), per-task
- * identity needs the actual prior bit pattern: a digest can say something changed, never
- * which bit. This is the same reason {@link CollectionLogAccumulator} persists raw observed
- * ids rather than a hash, and for the same restart-survival reason: a transition observed
- * only once, between two client sessions, cannot be re-asked of the game.
+ * <p>{@link DiaryVarbits}/{@link DiaryTaskVarbits} get away with a digest because a tier is
+ * cheap to re-read whole; per-task identity needs the real prior bit pattern, since a
+ * digest only says something changed, not which bit. Same reason
+ * {@link CollectionLogAccumulator} persists raw ids instead of a hash.
  *
- * <p><b>First observation of any one varplayer establishes its baseline and reports no
- * bits</b>, deliberately. Without this, a player who already has tasks done before this
- * ships (or before a client restart lost this class's in-memory state) would have every
- * already-set bit reported as newly flipped the moment it is first read, exactly the
- * "a first-seen player must not spam its baseline as events" rule the engine already
- * enforces, applied here to a per-varplayer baseline instead of a whole account.
+ * <p>First read of a varplayer sets its baseline and reports nothing, on purpose: without
+ * that, a player with pre-existing progress (or a client that just restarted and lost this
+ * in-memory state) would have every already-set bit reported as freshly completed.
  *
- * <p>Always advances to the freshly read value, whether or not any bit resolves to a task,
- * so a later read diffs from the right baseline regardless of resolution outcome.
+ * <p>Always advances to the value it just read, whether or not anything resolved, so the
+ * next diff has the right baseline regardless.
  *
- * <p>Persisted per character, restored from {@link AckedState#getDiaryTaskBits()} the same
- * way {@link CollectionLogAccumulator} restores from {@code collectionLogItems}, and reset
- * on an account switch like every other per-character baseline in this plugin.
+ * <p>Persisted per character via {@link AckedState#getDiaryTaskBits()}, reset on account
+ * switch like every other baseline here.
  */
 @Slf4j
 public class DiaryTaskBits {
@@ -37,10 +31,9 @@ public class DiaryTaskBits {
   private final Map<Integer, Integer> lastKnown = new LinkedHashMap<>();
 
   /**
-   * Diffs {@code newValue} against the stored value for {@code varplayerId}, advances the
-   * stored value to {@code newValue} regardless of the outcome, and returns the 0-based bit
-   * positions that went from unset to set. Empty when this varplayer has never been read
-   * before (baseline establishes silently) or when nothing newly set.
+   * Diffs {@code newValue} against the stored value, advances the baseline regardless, and
+   * returns the 0-based bit positions that went from unset to set. Empty on a first read of
+   * this varplayer, or when nothing newly set.
    */
   public int[] diff(int varplayerId, int newValue) {
     Integer previous = lastKnown.put(varplayerId, newValue);
@@ -50,9 +43,7 @@ public class DiaryTaskBits {
     int newlySet = ~previous & newValue;
     int unset = previous & ~newValue;
     if (unset != 0) {
-      // Should not happen for a diary task: nothing in the game un-completes one. Not
-      // transmitted, not thrown; a local note for whoever reads the log, the same
-      // treatment DiaryTaskCompletionCapture already gives a mismatch below.
+      // Nothing un-completes a diary task, so this shouldn't happen. Log it, don't crash.
       log.debug("varplayer {} lost bits {} (0x{}), reading a diary task backwards",
           varplayerId, Integer.toBinaryString(unset), Integer.toHexString(unset));
     }
@@ -72,9 +63,8 @@ public class DiaryTaskBits {
     return result;
   }
 
-  /** Forgets every varplayer's baseline. Called on an account switch: a bit pattern
-   *  belongs to one character, and carrying it across would diff one account's diary
-   *  against another's. */
+  /** Forgets every varplayer's baseline. Called on an account switch, so one account's
+   *  diary is never diffed against another's. */
   public void reset() {
     lastKnown.clear();
   }
@@ -85,7 +75,7 @@ public class DiaryTaskBits {
     lastKnown.putAll(stored);
   }
 
-  /** Everything currently known, for persisting. */
+  /** For persisting. */
   public Map<Integer, Integer> snapshot() {
     return new LinkedHashMap<>(lastKnown);
   }

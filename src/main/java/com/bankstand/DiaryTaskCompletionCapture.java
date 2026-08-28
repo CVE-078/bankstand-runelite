@@ -28,15 +28,13 @@ import net.runelite.client.util.Text;
  * <p>Verified live wording: "Well done! You have completed an elite task in the Western
  * Provinces area. Your Achievement Diary has been updated."
  *
- * <p><b>Per-task identity</b> (which task, not just which tier/area) is resolved here when
- * possible, per the region's own {@link DiaryTaskManifest} entry: the client exposes no
- * varbit or widget field naming an individual task, only bits packed into a region's own
- * varplayer(s) ({@link DiaryTaskVarplayers}), diffed against the last-known value
- * ({@link DiaryTaskBits}) to find which bit just flipped. Resolution is attempted only for
- * a region {@link DiaryTaskManifest#isVerified} has confirmed; every other region still
- * reads and advances its baseline the same way, so it is never corrupted for whenever it is
- * verified later, it just never attaches a name. A miss, a tier mismatch, or more than one
- * bit resolving at once all fail closed to the plain tier/area event, never a guess.
+ * <p>Per-task identity, when possible, comes from the region's {@link DiaryTaskManifest}:
+ * no varbit or widget names an individual task, so a bit packed into the region's own
+ * varplayer(s) ({@link DiaryTaskVarplayers}) is diffed against the last-known value
+ * ({@link DiaryTaskBits}) to find what flipped. Only attempted for a region
+ * {@link DiaryTaskManifest#isVerified} has confirmed; other regions still read and advance
+ * their baseline, just never attach a name. A miss, a tier mismatch, or more than one bit
+ * resolving at once all fail closed rather than guess.
  */
 @Slf4j
 public class DiaryTaskCompletionCapture extends BaseCapture {
@@ -61,8 +59,7 @@ public class DiaryTaskCompletionCapture extends BaseCapture {
   private final DiaryTaskBits bits;
   private final DiaryTaskManifest manifest;
 
-  /** No task-identity resolution: reads and advances nothing, every completion stays
-   *  tier/area only. What every existing caller and test uses. */
+  /** No task-identity resolution, tier/area only. Used by every existing caller. */
   public DiaryTaskCompletionCapture(
       EventOutbox outbox, BooleanSupplier enabled, LongSupplier accountHash) {
     this(outbox, enabled, accountHash, id -> 0, new DiaryTaskBits(), DiaryTaskManifest.shipped());
@@ -106,17 +103,15 @@ public class DiaryTaskCompletionCapture extends BaseCapture {
     if (area.isEmpty() || area.length() > MAX_AREA_NAME_LENGTH) {
       return;
     }
-    emit(TransientEvent.TYPE_DIARY_TASK_COMPLETED, payload(tier, area, resolveTaskName(tier, area)));
+    emit(
+        TransientEvent.TYPE_DIARY_TASK_COMPLETED,
+        payload(tier, area, resolveTaskName(tier, area)));
   }
 
   /**
-   * Reads and diffs the region's own varplayer(s) regardless of whether the region is
-   * verified, so the baseline never goes stale for whenever it is. Only attempts a
-   * manifest lookup, and only ever returns a name, for a verified region.
-   *
-   * <p>Never guesses: a bit the manifest does not know, a bit whose manifest tier
-   * disagrees with the chat line's own tier, or more than one bit resolving from this one
-   * observation all return null, exactly like an unrecognised region does.
+   * Reads and diffs the region's varplayer(s) regardless of verification, so the baseline
+   * never goes stale. Only looks up the manifest, and only ever returns a name, for a
+   * verified region, and only when exactly one bit flipped and resolved cleanly.
    */
   private String resolveTaskName(String tier, String area) {
     String region = DiaryTaskRegions.forAreaText(area);
@@ -128,19 +123,14 @@ public class DiaryTaskCompletionCapture extends BaseCapture {
       return null;
     }
     boolean verified = manifest.isVerified(region);
-    // Every bit that newly flipped, whether or not it resolves through the manifest:
-    // this is the actual ambiguity signal, not how many happened to resolve. Two bits
-    // flipping at once where only one has a manifest entry (a real, expected state for
-    // a verified region with partial coverage) is exactly as ambiguous as two bits that
-    // both resolve, because this capture cannot know which of the two the CURRENT chat
-    // line refers to; counting only resolved bits let that case slip through.
+    // Every bit that newly flipped, not just how many resolved: two bits flipping where
+    // only one has a manifest entry is just as ambiguous as two that both resolve, since
+    // there's no way to know which one this chat line is about.
     int totalNewlySet = 0;
     List<String> resolved = new ArrayList<>();
     boolean mismatch = false;
     for (int varplayerId : varplayerIds) {
       int newValue = varpReader.applyAsInt(varplayerId);
-      // Always diffed, whether or not verified: this is what keeps an unverified
-      // region's baseline correct for the day its own manifest ships.
       int[] newlySetBits = bits.diff(varplayerId, newValue);
       totalNewlySet += newlySetBits.length;
       if (!verified) {
@@ -149,15 +139,12 @@ public class DiaryTaskCompletionCapture extends BaseCapture {
       for (int bitIndex : newlySetBits) {
         DiaryTaskManifest.Entry entry = manifest.lookup(region, varplayerId, bitIndex);
         if (entry == null) {
-          // An unmapped bit within an otherwise-mapped region. Expected and safe; the
-          // manifest simply has not resolved this one yet.
-          continue;
+          continue; // unmapped bit in an otherwise-mapped region, expected and safe
         }
         if (!entry.tier().equals(tier)) {
-          // The manifest disagrees with the chat line about which tier this bit
-          // belongs to. A stronger signal than an ordinary miss: something is wrong
-          // upstream (a shifted bit, a wrong region), never a case to prefer one
-          // source over the other.
+          // Manifest and chat line disagree on tier. A stronger signal than an
+          // ordinary miss (a shifted bit, a wrong region), never one to prefer over
+          // the other.
           log.debug(
               "diary task manifest tier mismatch: region={} varplayer={} bit={} manifest={}"
                   + " chat={}",

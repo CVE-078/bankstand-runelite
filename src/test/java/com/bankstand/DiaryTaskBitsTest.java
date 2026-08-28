@@ -11,9 +11,7 @@ public class DiaryTaskBitsTest {
 
   @Test
   public void firstObservationEstablishesTheBaselineAndReportsNothing() {
-    // A player who already has tasks done before this ever ran (or before a client
-    // restart lost the in-memory baseline) must not have every already-set bit reported
-    // as newly completed the moment it is first read.
+    // Pre-existing progress must not read as freshly completed on the first read.
     DiaryTaskBits bits = new DiaryTaskBits();
 
     int[] newlySet = bits.diff(1196, 0b101);
@@ -53,8 +51,7 @@ public class DiaryTaskBitsTest {
 
   @Test
   public void doesNotReportABitGoingFromSetToUnset() {
-    // Should not happen for a diary task (nothing un-completes one), and must not crash
-    // or be misreported as a newly-set bit.
+    // Shouldn't happen (nothing un-completes a diary task), must not crash either way.
     DiaryTaskBits bits = new DiaryTaskBits();
     bits.diff(1196, 0b0111);
 
@@ -94,9 +91,7 @@ public class DiaryTaskBitsTest {
 
     bits.reset();
 
-    // Re-reading the same already-set bits after a reset is a first observation again,
-    // not a report of three newly completed tasks: an account switch must not attribute
-    // one character's diary progress to the next.
+    // A reset makes this a first observation again, not three newly completed tasks.
     assertArrayEquals(new int[0], bits.diff(1196, 0b0111));
   }
 
@@ -110,9 +105,7 @@ public class DiaryTaskBitsTest {
     DiaryTaskBits restored = new DiaryTaskBits();
     restored.restore(saved);
 
-    // A value already known before restore must diff against the restored baseline, not
-    // be treated as a fresh first observation, which is exactly what a lost restart
-    // baseline would otherwise cause.
+    // Diffs against the restored baseline, not a fresh first observation.
     assertArrayEquals(new int[] {1}, restored.diff(1196, 0b0011));
     assertEquals(2, saved.size());
     assertTrue(saved.containsKey(1196));

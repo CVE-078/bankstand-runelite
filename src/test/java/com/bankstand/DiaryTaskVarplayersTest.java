@@ -25,8 +25,7 @@ public class DiaryTaskVarplayersTest {
 
   @Test
   public void totalsTwentySevenVarplayers() {
-    // 10 standard regions x 2, Kourend & Kebos's extra MULTISTAGE, Karamja's four
-    // ATJUN_TASKS ids: 20 + 3 + 4 = 27, the design's own re-verified inventory.
+    // 10 regions x 2, plus Kourend & Kebos's extra MULTISTAGE, plus Karamja's four.
     int total = 0;
     for (int[] ids : DiaryTaskVarplayers.ALL.values()) {
       total += ids.length;

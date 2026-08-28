@@ -6,34 +6,25 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * The bit-to-task lookup {@link DiaryTaskCompletionCapture} resolves a newly-set bit
- * against, and the per-region gate on whether it is even attempted.
+ * Bit-to-task lookup {@link DiaryTaskCompletionCapture} resolves a newly-set bit against,
+ * plus the per-region gate on whether that's even attempted.
  *
- * <p><b>Correctness here is a different kind of risk than every other capability's
- * disclosure flag</b>: a wrong entry does not leak data, it silently misattributes one
- * task's completion to another. The tool for that is this per-region allowlist
- * ({@link #isVerified}), not a second environment variable: a region ships the moment its
- * own manifest is verified against a live account, independent of every other region's
- * state, and a bad region can be pulled from the list without touching the
- * {@code PLUGIN_DIARIES_INGEST_ENABLED} disclosure everyone else's data depends on.
+ * <p>A wrong entry here doesn't leak data, it misattributes one task's completion to
+ * another, so the gate is a per-region allowlist ({@link #isVerified}) rather than a second
+ * env var: one region ships the moment it's verified, and a bad one gets pulled without
+ * touching {@code PLUGIN_DIARIES_INGEST_ENABLED}.
  *
- * <p><b>{@link #shipped()} starts with no verified regions and no entries at all.</b> This
- * class only exists so the mechanics (varplayer read, bit diff, lookup, tier
- * cross-check) can be built, wired and unit-tested now; the actual per-region content is
- * live-account verification work, region by region, tracked separately. Every lookup
- * against the shipped instance misses until a region's own PR adds its entries and adds
- * that region to {@code VERIFIED_REGIONS}, which is the same "falls through to the plain
- * tier/area event" behaviour as an unmapped bit within an otherwise-mapped region.
+ * <p>{@link #shipped()} has no verified regions and no entries. The mechanics are built
+ * and tested now; the actual per-region content is live-account work, tracked separately.
+ * A future region's PR adds its entries and adds itself to {@code VERIFIED_REGIONS}.
  *
- * <p>Not a static utility like {@link DiaryTaskVarplayers}: a test constructs its own
- * instance with fabricated entries to exercise the resolution logic without needing a
- * single real, live-verified entry.
+ * <p>Not a static utility like {@link DiaryTaskVarplayers}: tests construct their own
+ * instance with fabricated entries.
  */
 public final class DiaryTaskManifest {
 
-  /** One resolved task: which tier it belongs to, and its own text, read directly off the
-   *  achievement diary journal by whoever verified this entry. Never derived from a third
-   *  party's own reverse-engineered data; see the design doc's licensing note. */
+  /** One resolved task: its tier, and its text as read off the diary journal by whoever
+   *  verified it. Never copied from a third party's own reverse-engineered data. */
   public static final class Entry {
     private final String tier;
     private final String taskName;
@@ -66,23 +57,20 @@ public final class DiaryTaskManifest {
     this.byRegion = Collections.unmodifiableMap(copy);
   }
 
-  /** The real, in-production manifest. No verified regions yet; see the class javadoc. */
+  /** The real, in-production manifest. No verified regions yet. */
   public static DiaryTaskManifest shipped() {
     return new DiaryTaskManifest(Set.of(), Map.of());
   }
 
-  /** Whether a region's manifest has been verified against a live account and is safe to
-   *  resolve identity from. {@link DiaryTaskCompletionCapture} still reads and diffs an
-   *  unverified region's varplayers (so the baseline stays fresh for whenever it is
-   *  verified later); it just never attempts a lookup while this is false. */
+  /** Whether a region is safe to resolve identity from. An unverified region still gets
+   *  read and diffed (see {@link DiaryTaskCompletionCapture}), just never looked up. */
   public boolean isVerified(String region) {
     return verifiedRegions.contains(region);
   }
 
-  /** The task at this bit, or null when the region, varplayer or bit is not in the
-   *  manifest. A miss here is the normal, expected state for every region before its own
-   *  manifest ships, and for any residual bit an otherwise-mapped region has not resolved
-   *  yet; it is never treated as an error. */
+  /** The task at this bit, or null when the region, varplayer or bit isn't in the manifest.
+   *  A miss is the expected state, not an error, until a region ships or a residual bit
+   *  gets resolved. */
   public Entry lookup(String region, int varplayerId, int bitIndex) {
     Map<Integer, Map<Integer, Entry>> byVarplayer = byRegion.get(region);
     if (byVarplayer == null) {

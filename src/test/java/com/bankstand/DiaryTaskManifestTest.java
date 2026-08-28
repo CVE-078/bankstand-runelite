@@ -12,8 +12,6 @@ public class DiaryTaskManifestTest {
 
   @Test
   public void shippedHasNoVerifiedRegions() {
-    // The mechanics ship now; the per-region content is live-account verification work,
-    // tracked separately. Every region must miss until its own PR adds it.
     DiaryTaskManifest manifest = DiaryTaskManifest.shipped();
 
     for (String region : DiaryTaskVarplayers.ALL.keySet()) {
@@ -30,9 +28,10 @@ public class DiaryTaskManifestTest {
 
   @Test
   public void aFabricatedEntryResolvesForATestedRegion() {
+    DiaryTaskManifest.Entry taskEntry =
+        new DiaryTaskManifest.Entry("easy", "Enter the Yanille agility dungeon");
     DiaryTaskManifest manifest = new DiaryTaskManifest(
-        Set.of("ARDOUGNE"),
-        Map.of("ARDOUGNE", Map.of(1196, Map.of(0, new DiaryTaskManifest.Entry("easy", "Enter the Yanille agility dungeon")))));
+        Set.of("ARDOUGNE"), Map.of("ARDOUGNE", Map.of(1196, Map.of(0, taskEntry))));
 
     assertEquals(true, manifest.isVerified("ARDOUGNE"));
     DiaryTaskManifest.Entry entry = manifest.lookup("ARDOUGNE", 1196, 0);

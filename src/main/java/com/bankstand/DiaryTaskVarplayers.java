@@ -7,28 +7,21 @@ import net.runelite.api.gameval.VarPlayerID;
 
 /**
  * Maps the same wire region keys {@link DiaryVarbits}/{@link DiaryTaskVarbits} use to the
- * varplayer(s) that pack per-task completion state for that region.
+ * varplayer(s) that pack that region's per-task completion bits.
  *
- * <p>Per-task identity is not a varbit anywhere in the client: {@code VarbitID} names only
- * {@code *_COMPLETE}/{@code *_REWARD}/{@code *_COUNT} per tier, never an individual task.
- * Individual tasks are bits packed into these varplayers instead, with no name RuneLite
- * exposes for what any single bit means. That mapping is {@link DiaryTaskManifest}'s job;
- * this table only says which varplayer(s) to read for a region, verified directly against
- * {@code VarPlayerID} rather than assumed.
+ * <p>No varbit names an individual task, only {@code *_COMPLETE}/{@code *_REWARD}/
+ * {@code *_COUNT} per tier. The bits live in these varplayers instead, with no RuneLite
+ * name for what any one means; that mapping is {@link DiaryTaskManifest}'s job. This table
+ * just says which varplayer(s) to read, verified against {@code VarPlayerID} rather than
+ * assumed.
  *
- * <p>Ten regions use exactly two ({@code _ACHIEVEMENT_DIARY}, {@code _ACHIEVEMENT_DIARY2}).
- * Kourend & Kebos has a third ({@code _MULTISTAGE}); Karamja uses four differently-named
- * ones ({@code ATJUN_TASKS_1..4}) because its diary predates the standard naming, the same
- * split {@link DiaryVarbits} and {@link DiaryTaskVarbits} already document for their own
- * ids. 20 + 3 + 4 = 27 varplayers total.
+ * <p>Ten regions use two ({@code _ACHIEVEMENT_DIARY}/{@code _ACHIEVEMENT_DIARY2}). Kourend
+ * & Kebos has a third ({@code _MULTISTAGE}); Karamja predates the standard naming and uses
+ * four ({@code ATJUN_TASKS_1..4}). 20 + 3 + 4 = 27.
  *
- * <p>Two of {@code VarPlayerID}'s own names are worth flagging so a future reader does not
- * mistake them for typos introduced here: Jagex's own constant spells Ardougne as {@code
- * ARDOUNGE_ACHIEVEMENT_DIARY}, and Lumbridge & Draynor's is {@code
- * LUMB_DRAY_ACHIEVEMENT_DIARY}. Both are copied verbatim from the field, not corrected.
- *
- * <p>A plain data table with no {@code Client} dependency, unit-testable without a live
- * game client, the same shape as {@link DiaryVarbits} and {@link DiaryTaskVarbits}.
+ * <p>{@code VarPlayerID} really does spell Ardougne's constant {@code
+ * ARDOUNGE_ACHIEVEMENT_DIARY} and Lumbridge & Draynor's {@code LUMB_DRAY_ACHIEVEMENT_DIARY}.
+ * Copied as-is, not typos.
  */
 public final class DiaryTaskVarplayers {
   private DiaryTaskVarplayers() {}

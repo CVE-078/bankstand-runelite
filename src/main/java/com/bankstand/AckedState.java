@@ -44,12 +44,11 @@ public class AckedState {
   private int collectionLogAcked;
 
   /**
-   * The last-known value of every diary varplayer this client has ever read, keyed by
-   * varplayer id, for {@link DiaryTaskCompletionCapture}'s per-task identity resolution
-   * (#843). A raw value, not a digest, unlike the diary completion state above: identity
-   * resolution needs the actual prior bit pattern to XOR against, and a digest can only
-   * say something changed, never which bit. See {@link DiaryTaskBits} for why this must
-   * survive a restart the same way {@code collectionLogItems} does.
+   * Last-known value of every diary varplayer read so far, keyed by varplayer id. A raw
+   * value rather than a digest, because {@link DiaryTaskCompletionCapture}'s per-task
+   * identity resolution needs the actual prior bit pattern to XOR against. See
+   * {@link DiaryTaskBits} for why this has to survive a restart, same as
+   * {@code collectionLogItems}.
    */
   private Map<Integer, Integer> diaryTaskBits;
 

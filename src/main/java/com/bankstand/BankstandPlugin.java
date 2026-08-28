@@ -264,13 +264,9 @@ public class BankstandPlugin extends Plugin {
   private final SkillBaseline skillBaseline = new SkillBaseline();
   private final QuestBaseline questBaseline = new QuestBaseline();
   private final DiaryBaseline diaryBaseline = new DiaryBaseline();
-  // The per-varplayer bit baseline behind DiaryTaskCompletionCapture's own task identity
-  // resolution (#843), a raw last-known-value store rather than a digest like diaryBaseline
-  // above; see DiaryTaskBits for why identity resolution needs the actual prior bit
-  // pattern. diaryTaskManifest ships with no verified regions, so this stays inert (every
-  // lookup misses, every completion stays tier/area only) until a region's own PR adds to
-  // it; not to be confused with the CapabilityManifest `manifest` field below, an unrelated
-  // concept (what the server currently ingests) that happens to share the word.
+  // Backs DiaryTaskCompletionCapture's task identity resolution. diaryTaskManifest ships
+  // with no verified regions, so this stays inert until a region's own PR adds to it.
+  // Not the same thing as the CapabilityManifest `manifest` field below.
   private final DiaryTaskBits diaryTaskBits = new DiaryTaskBits();
   private final DiaryTaskManifest diaryTaskManifest = DiaryTaskManifest.shipped();
   private final AccountTypeBaseline accountTypeBaseline = new AccountTypeBaseline();
@@ -1321,8 +1317,8 @@ public class BankstandPlugin extends Plugin {
       skillBaseline.reset();
       questBaseline.reset();
       diaryBaseline.reset();
-      // A varplayer's bit pattern belongs to one character; carrying it across would
-      // diff one account's diary against another's and misattribute a completion.
+      // Belongs to one character; carrying it across would diff one account's diary
+      // against another's.
       diaryTaskBits.reset();
       combatAchievementBaseline.reset();
       accountTypeBaseline.reset();

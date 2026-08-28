@@ -5,24 +5,16 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * Resolves the diary task completion broadcast's own area text ("Well done! You have
- * completed an elite task in the Western Provinces area...") to the wire region key used
- * by {@link DiaryVarbits}, {@link DiaryTaskVarbits} and {@link DiaryTaskVarplayers}.
+ * Resolves the diary task broadcast's own area text ("...completed an elite task in the
+ * Western Provinces area...") to the wire region key {@link DiaryVarbits}/
+ * {@link DiaryTaskVarbits}/{@link DiaryTaskVarplayers} use.
  *
- * <p><b>Nine of these twelve are corroborated by an existing live-verified source</b>: this
- * plugin's own {@code DiaryTaskCompletionCapture} javadoc and test suite already exercise
- * "Western Provinces", "Kandarin", "Varrock" and "Lumbridge &amp; Draynor" as real chat
- * text, and the other single-word regions follow the same plain-region-name pattern those
- * confirm. <b>"Kourend &amp; Kebos" is not independently confirmed here</b>: it is the one
- * double-barrelled region without a corroborating capture or test, assumed by analogy to
- * the other two ampersand-joined names rather than observed. Per this plugin's own standing
- * rule ("an assumed chat-message wording is not a fact until it is corroborated or
- * observed"), do not treat it as verified until it is checked against a live broadcast.
+ * <p>Nine of twelve match wording {@code DiaryTaskCompletionCapture}'s own tests already
+ * confirm as real chat text. {@code KOUREND_KEBOS} is not confirmed, guessed by analogy to
+ * the other two ampersand-joined names. Not yet checked against a live broadcast.
  *
- * <p>A miss here (unrecognised area text, including a wrong guess for Kourend &amp; Kebos)
- * is a safe failure: {@code DiaryTaskCompletionCapture} falls through to the plain
- * tier/area event with no task identity, exactly the behaviour that shipped before this
- * table existed.
+ * <p>A miss (unrecognised text, including a wrong Kourend &amp; Kebos guess) just falls
+ * through to the plain tier/area event, same as before this table existed.
  */
 public final class DiaryTaskRegions {
   private DiaryTaskRegions() {}
