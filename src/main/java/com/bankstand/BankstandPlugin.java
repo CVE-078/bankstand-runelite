@@ -1631,6 +1631,18 @@ public class BankstandPlugin extends Plugin {
     return counts;
   }
 
+  // Same idea as readCombatAchievementCounts, per boss/activity instead of per tier.
+  // Rides on the same isCombatAchievementCaptureEnabled gate and the same
+  // combatAchievementBaseline: see the "no baseline of its own" comment where this is
+  // sent, which is the diaryTaskCounts precedent applied here.
+  private Map<String, Integer> readCombatAchievementBossCounts() {
+    Map<String, Integer> counts = new LinkedHashMap<>();
+    for (Map.Entry<String, Integer> e : CombatAchievementBossVarbits.ALL.entrySet()) {
+      counts.put(e.getKey(), client.getVarbitValue(e.getValue()));
+    }
+    return counts;
+  }
+
   private void onSkillsCaptured(
       long accountHash,
       int generation,
@@ -1681,6 +1693,10 @@ public class BankstandPlugin extends Plugin {
         isCombatAchievementCaptureEnabled()
             ? readCombatAchievementCounts()
             : Collections.emptyMap();
+    Map<String, Integer> combatAchievementBossCounts =
+        isCombatAchievementCaptureEnabled()
+            ? readCombatAchievementBossCounts()
+            : Collections.emptyMap();
     // Null rather than empty when the opt-in is off, matching the scalar's own absent
     // shape. Null also when the varbit holds a value this build has no name for: a wrong
     // type is worse than none, because it is the badge on the player's own profile.
@@ -1711,6 +1727,11 @@ public class BankstandPlugin extends Plugin {
     // per-block acknowledgement keeps keying off what actually went on the wire.
     submitSnapshot(
         plan.includesCombatAchievements() ? combatAchievements : null,
+        // No baseline of its own, same reasoning as diaryTaskCounts riding on diaries:
+        // a boss count moving while the tier count it belongs to does not is the
+        // normal case, not the exception, so a separate baseline would just be the
+        // half that never gets sent.
+        plan.includesCombatAchievements() ? combatAchievementBossCounts : null,
         accountHash,
         generation,
         name,
@@ -2103,6 +2124,7 @@ public class BankstandPlugin extends Plugin {
 
   private void submitSnapshot(
       Map<String, Integer> combatAchievementCounts,
+      Map<String, Integer> combatAchievementBossCounts,
       long accountHash,
       int generation,
       String name,
@@ -2132,7 +2154,8 @@ public class BankstandPlugin extends Plugin {
             combatAchievementCounts,
             diaryTaskCounts,
             accountType,
-            fullEnumeration);
+            fullEnumeration,
+            combatAchievementBossCounts);
     executor.submit(
         () -> {
           pairingClient

@@ -94,6 +94,7 @@ public final class SubmitEnvelope {
         accountType, false);
   }
 
+  /** Kept for callers built before {@code combatAchievementBossCounts} existed. */
   public static Map<String, Object> body(
       String submissionId,
       int schemaVersion,
@@ -109,6 +110,28 @@ public final class SubmitEnvelope {
       Map<String, Integer> diaryTaskCounts,
       String accountType,
       boolean fullEnumeration) {
+    return body(
+        submissionId, schemaVersion, pluginVersion, capturedAt, accountHash, displayName, skillXp,
+        questStates, diaryStates, collectionLogItems, combatAchievementCounts, diaryTaskCounts,
+        accountType, fullEnumeration, null);
+  }
+
+  public static Map<String, Object> body(
+      String submissionId,
+      int schemaVersion,
+      String pluginVersion,
+      String capturedAt,
+      long accountHash,
+      String displayName,
+      Map<String, Integer> skillXp,
+      Map<String, String> questStates,
+      Map<String, String> diaryStates,
+      Collection<Integer> collectionLogItems,
+      Map<String, Integer> combatAchievementCounts,
+      Map<String, Integer> diaryTaskCounts,
+      String accountType,
+      boolean fullEnumeration,
+      Map<String, Integer> combatAchievementBossCounts) {
     Map<String, Object> body = new LinkedHashMap<>();
     body.put("submissionId", submissionId);
     body.put("schemaVersion", schemaVersion);
@@ -159,6 +182,13 @@ public final class SubmitEnvelope {
     // and the server treats a present-but-empty one as an erase.
     if (combatAchievementCounts != null && !combatAchievementCounts.isEmpty()) {
       body.put("combatAchievements", new LinkedHashMap<>(combatAchievementCounts));
+    }
+    // How many of each VERIFIED boss/activity's tasks are done, keyed by the corpus's
+    // own source name (see CombatAchievementBossVarbits). Rides on the same
+    // "omitted when empty means not observed" rule as diaryTasks above, for the same
+    // reason.
+    if (combatAchievementBossCounts != null && !combatAchievementBossCounts.isEmpty()) {
+      body.put("combatAchievementBossCounts", new LinkedHashMap<>(combatAchievementBossCounts));
     }
     // One word, and the only block that is not a collection: the game has exactly one
     // answer. Sent because the hiscores cannot answer it at all for a Group Ironman,
