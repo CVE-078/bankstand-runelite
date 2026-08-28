@@ -1,6 +1,8 @@
 package com.bankstand;
 
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -41,11 +43,27 @@ public class AckedState {
   private Set<Integer> collectionLogItems;
   private int collectionLogAcked;
 
+  /**
+   * When each capability last had a fresh acknowledgement from the server, epoch millis,
+   * keyed by the same capability name {@code manifest.allows(...)} and {@code
+   * SubmitSnapshotResponse#isBlockStored(...)} already use ("skills", "collectionLog", and
+   * so on).
+   *
+   * <p>A digest says whether a capability's last-known value differs from what the server
+   * has; it says nothing about when that last happened, which is what the panel's
+   * per-capability list needs. Stamped only on a cycle where the server actually
+   * acknowledged fresh data for that capability, never on a resend of something already
+   * acknowledged, so it answers "when did this last genuinely sync" rather than "when did
+   * the plugin last try".
+   */
+  private Map<String, Long> lastSyncedAt;
+
   /** The state of a character nothing is known about yet: everything resends once. */
   public static AckedState empty() {
     AckedState state = new AckedState();
     state.collectionLogItems = new LinkedHashSet<>();
     state.collectionLogAcked = -1;
+    state.lastSyncedAt = new LinkedHashMap<>();
     return state;
   }
 
@@ -111,5 +129,21 @@ public class AckedState {
 
   public void setCollectionLogAcked(int acked) {
     this.collectionLogAcked = acked;
+  }
+
+  /**
+   * Never null, even when the stored document omitted the field or set it null, so a
+   * hand-edited or older file cannot hand a caller a null map to iterate.
+   */
+  public Map<String, Long> getLastSyncedAt() {
+    if (lastSyncedAt == null) {
+      lastSyncedAt = new LinkedHashMap<>();
+    }
+    return lastSyncedAt;
+  }
+
+  /** Copied, so a caller mutating the map it passed in cannot reach back into this state. */
+  public void setLastSyncedAt(Map<String, Long> lastSyncedAt) {
+    this.lastSyncedAt = new LinkedHashMap<>(lastSyncedAt);
   }
 }

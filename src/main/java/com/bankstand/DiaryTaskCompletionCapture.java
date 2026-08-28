@@ -5,6 +5,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.BooleanSupplier;
+import java.util.function.Consumer;
 import java.util.function.LongSupplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -50,6 +51,14 @@ public class DiaryTaskCompletionCapture extends BaseCapture {
   public DiaryTaskCompletionCapture(
       EventOutbox outbox, BooleanSupplier enabled, LongSupplier accountHash) {
     super(outbox, enabled, accountHash);
+  }
+
+  public DiaryTaskCompletionCapture(
+      EventOutbox outbox,
+      BooleanSupplier enabled,
+      LongSupplier accountHash,
+      Consumer<TransientEvent> onEmit) {
+    super(outbox, enabled, accountHash, onEmit);
   }
 
   @Subscribe

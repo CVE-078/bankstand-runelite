@@ -5,6 +5,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.BooleanSupplier;
+import java.util.function.Consumer;
 import java.util.function.LongSupplier;
 import net.runelite.api.ItemComposition;
 import net.runelite.client.eventbus.Subscribe;
@@ -50,6 +51,20 @@ public class NotableDropCapture extends BaseCapture {
       LongSupplier thresholdValue,
       Set<String> untradeableAllowlist) {
     super(outbox, enabled, accountHash);
+    this.itemManager = itemManager;
+    this.thresholdValue = thresholdValue;
+    this.untradeableAllowlist = untradeableAllowlist;
+  }
+
+  public NotableDropCapture(
+      EventOutbox outbox,
+      BooleanSupplier enabled,
+      LongSupplier accountHash,
+      ItemManager itemManager,
+      LongSupplier thresholdValue,
+      Set<String> untradeableAllowlist,
+      Consumer<TransientEvent> onEmit) {
+    super(outbox, enabled, accountHash, onEmit);
     this.itemManager = itemManager;
     this.thresholdValue = thresholdValue;
     this.untradeableAllowlist = untradeableAllowlist;

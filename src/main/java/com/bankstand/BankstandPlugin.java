@@ -23,8 +23,10 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ScheduledExecutorService;
 import javax.inject.Inject;
+import javax.swing.SwingUtilities;
 import net.runelite.api.ChatMessageType;
 import net.runelite.api.Client;
 import net.runelite.api.GameState;
@@ -52,8 +54,11 @@ import net.runelite.client.RuneLite;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
 import net.runelite.client.task.Schedule;
+import net.runelite.client.ui.ClientToolbar;
+import net.runelite.client.ui.NavigationButton;
 import net.runelite.client.ui.overlay.infobox.InfoBoxManager;
 import net.runelite.client.util.ImageUtil;
+import net.runelite.client.util.LinkBrowser;
 import net.runelite.client.util.Text;
 import lombok.extern.slf4j.Slf4j;
 import okhttp3.OkHttpClient;
@@ -259,6 +264,7 @@ public class BankstandPlugin extends Plugin {
   @Inject private InfoBoxManager infoBoxManager;
   @Inject private EventBus eventBus;
   @Inject private ItemManager itemManager;
+  @Inject private ClientToolbar clientToolbar;
 
   private final AccountSession session = new AccountSession();
   private final SkillBaseline skillBaseline = new SkillBaseline();
@@ -279,6 +285,31 @@ public class BankstandPlugin extends Plugin {
   private CollectionLogUnlockCapture collectionLogUnlockCapture;
   private CombatAchievementCompletionCapture combatAchievementCompletionCapture;
   private DiaryTaskCompletionCapture diaryTaskCompletionCapture;
+  // The sidebar panel and its toolbar entry point (#1174). Both null while the plugin
+  // is stopped; neither is rebuilt on an account switch, only re-rendered.
+  //
+  // volatile: shutDown() clears this from the thread RuneLite calls plugin lifecycle
+  // methods on, but refreshPanel() reads it from a background executor thread, then
+  // again implicitly on the client thread and the EDT after two more hops. Without
+  // volatile, shutDown()'s write is not guaranteed visible to a refresh already in
+  // flight, and refreshPanel snapshots the reference into a local specifically so
+  // that a torn-down mid-refresh still finishes rendering into the (now-detached,
+  // still safe to touch) panel it captured rather than risking a stale read.
+  private volatile BankstandPanel panel;
+  private NavigationButton navButton;
+  // Session-scoped, like lastSkillRead: a restart or an account switch has nothing
+  // meaningful to show and starting empty is the honest answer, not a bug.
+  private final RecentActivityLog recentActivityLog = new RecentActivityLog();
+  // Written from the client thread (a capture's own emit, or a submit acknowledgement)
+  // and read from the Swing event dispatch thread when the panel repaints; a
+  // ConcurrentHashMap is what makes that safe without a lock, the same role
+  // `volatile` plays for the scalar fields below. Keyed by the same capability names
+  // `manifest.allows(...)` and `SubmitSnapshotResponse#isBlockStored(...)` already use.
+  private final Map<String, Long> lastSyncedAt = new ConcurrentHashMap<>();
+  // Cross-thread visibility like lastSubmitAtMs below: set from the submit
+  // completion callback, which runs on whatever thread the HTTP client completes on,
+  // and read from the client thread (buildPanelModel) and indirectly from the panel.
+  private volatile String lastFailureReason;
 
   /**
    * What the server currently ingests.
@@ -336,6 +367,10 @@ public class BankstandPlugin extends Plugin {
     migrateCredentialsOutOfConfig();
 
     eventOutbox = new EventOutbox(new File(ACKED_STATE_DIR, EVENTS_FILE), gson);
+    // Feeds the panel's recent-activity list and its per-capability sync times from
+    // the exact same emit these captures already make to the outbox, never a second
+    // read derived later from a stored id (see RecentActivityLog's own javadoc).
+    java.util.function.Consumer<TransientEvent> onEmit = this::recordEmittedActivity;
     notableDropCapture =
         new NotableDropCapture(
             eventOutbox,
@@ -343,20 +378,23 @@ public class BankstandPlugin extends Plugin {
             this::currentAccountHash,
             itemManager,
             () -> (long) config.notableDropThreshold(),
-            NOTABLE_UNTRADEABLE_ALLOWLIST);
+            NOTABLE_UNTRADEABLE_ALLOWLIST,
+            onEmit);
     petDropCapture =
-        new PetDropCapture(eventOutbox, this::isPetDropCaptureEnabled, this::currentAccountHash);
+        new PetDropCapture(
+            eventOutbox, this::isPetDropCaptureEnabled, this::currentAccountHash, onEmit);
     collectionLogUnlockCapture =
         new CollectionLogUnlockCapture(
-            eventOutbox, this::isCollectionLogEventCaptureEnabled, this::currentAccountHash);
+            eventOutbox, this::isCollectionLogEventCaptureEnabled, this::currentAccountHash, onEmit);
     combatAchievementCompletionCapture =
         new CombatAchievementCompletionCapture(
             eventOutbox,
             this::isCombatAchievementCompletionCaptureEnabled,
-            this::currentAccountHash);
+            this::currentAccountHash,
+            onEmit);
     diaryTaskCompletionCapture =
         new DiaryTaskCompletionCapture(
-            eventOutbox, this::isDiaryTaskCompletionCaptureEnabled, this::currentAccountHash);
+            eventOutbox, this::isDiaryTaskCompletionCaptureEnabled, this::currentAccountHash, onEmit);
     // Registered as separate listeners, not @Subscribe methods on this class:
     // each capture is its own single-purpose class, unit-testable without a live
     // client, and this is the one place that wires them into the running game.
@@ -365,6 +403,28 @@ public class BankstandPlugin extends Plugin {
     eventBus.register(collectionLogUnlockCapture);
     eventBus.register(combatAchievementCompletionCapture);
     eventBus.register(diaryTaskCompletionCapture);
+
+    // A toolbar icon, not a permanent sidebar tab: this plugin's whole design is chat
+    // lines and ::bstand commands for something looked at once per device, and the
+    // panel exists to answer "did my sync actually work" on demand, not to be lived
+    // in. Closed by default, one click away either way.
+    panel =
+        new BankstandPanel(
+            () -> clientThread.invoke(this::runManualSync),
+            () -> LinkBrowser.browse(savedServerUrl()),
+            this::refreshPanel);
+    navButton =
+        NavigationButton.builder()
+            .tooltip("Bankstand")
+            .icon(icon())
+            .panel(panel)
+            .priority(5)
+            .build();
+    clientToolbar.addNavigation(navButton);
+    // Populates the panel with real (if still mostly empty, this early) state rather
+    // than leaving it on PanelModel's placeholder until the first capture or button
+    // click.
+    refreshPanel();
   }
 
   @Override
@@ -385,6 +445,11 @@ public class BankstandPlugin extends Plugin {
     if (diaryTaskCompletionCapture != null) {
       eventBus.unregister(diaryTaskCompletionCapture);
     }
+    if (navButton != null) {
+      clientToolbar.removeNavigation(navButton);
+    }
+    panel = null;
+    navButton = null;
     // An infobox outlives the plugin that added it, so a sync armed when the player
     // disables Bankstand would otherwise sit on screen with nothing behind it.
     collectionLogSync.reset();
@@ -582,6 +647,22 @@ public class BankstandPlugin extends Plugin {
   }
 
   /**
+   * What both {@code ::bstand sync} and the panel's "Sync now" button run: the printed
+   * chat lines plus, when there is anything to send, the real capture-and-submit path.
+   * Extracted so the button calls exactly this rather than a second copy that can
+   * drift from the command's own behaviour, the same "one existing path" reasoning
+   * {@link #requestManualCapture} already documents for captureSkills itself.
+   */
+  private void runManualSync() {
+    for (String line : StatusReport.syncLines(isPaired(), enabledCapabilities())) {
+      notice(line);
+    }
+    if (isPaired() && !enabledCapabilities().isEmpty()) {
+      requestManualCapture();
+    }
+  }
+
+  /**
    * Re-runs the identity submit, ignoring the once-per-session flag.
    *
    * <p>This is the action that was impossible during the incident: identity is
@@ -686,15 +767,7 @@ public class BankstandPlugin extends Plugin {
         }
         break;
       case SYNC:
-        for (String line : StatusReport.syncLines(isPaired(), enabledCapabilities())) {
-          notice(line);
-        }
-        if (isPaired() && !enabledCapabilities().isEmpty()) {
-          // Re-reads and submits through the one existing path, so a manual sync
-          // inherits every rule an automatic one has rather than becoming a second
-          // submit route that can drift from it.
-          requestManualCapture();
-        }
+        runManualSync();
         break;
       case LINK:
         relinkCharacter();
@@ -738,6 +811,73 @@ public class BankstandPlugin extends Plugin {
     collectionLogSync.arm();
     showSyncInfoBox();
     notice("Armed. Click Search in the collection log to read it.");
+  }
+
+  // Which panel capability key a chat-triggered capture's event type feeds into, so a
+  // live unlock or completion updates the same "last synced" figure the periodic
+  // snapshot ack does, whichever happened more recently. The vocabulary is the same
+  // one manifest.allows(...) and SubmitSnapshotResponse#isBlockStored(...) already
+  // use, so the panel's per-capability list never disagrees with this plugin's own
+  // gates about what a capability is called.
+  private static final Map<String, String> CAPABILITY_KEY_BY_EVENT_TYPE = capabilityKeyByEventType();
+
+  private static Map<String, String> capabilityKeyByEventType() {
+    Map<String, String> map = new LinkedHashMap<>();
+    map.put(TransientEvent.TYPE_NOTABLE_DROP, "notableDrops");
+    map.put(TransientEvent.TYPE_PET_DROP, "petDrops");
+    map.put(TransientEvent.TYPE_COLLECTION_LOG_UNLOCK, "collectionLog");
+    map.put(TransientEvent.TYPE_COMBAT_ACHIEVEMENT_COMPLETED, "combatAchievements");
+    map.put(TransientEvent.TYPE_DIARY_TASK_COMPLETED, "diaries");
+    return map;
+  }
+
+  /**
+   * The panel's per-capability rows, in the same stable display order as {@link
+   * #capabilityNames}, skipping anything switched off. Static and taking plain flags
+   * plus the synced-at map for the same reason {@code capabilityNames} already is: the
+   * ordering and skip logic are then testable without a live client.
+   */
+  static List<PanelModel.CapabilityRow> capabilityRows(
+      boolean skills,
+      boolean quests,
+      boolean diaries,
+      boolean collectionLog,
+      boolean combat,
+      boolean accountType,
+      boolean notableDrops,
+      boolean petDrops,
+      Map<String, Long> lastSyncedAt) {
+    List<PanelModel.CapabilityRow> rows = new ArrayList<>();
+    if (skills) {
+      rows.add(capabilityRow("Skills", "skills", lastSyncedAt));
+    }
+    if (quests) {
+      rows.add(capabilityRow("Quests", "quests", lastSyncedAt));
+    }
+    if (diaries) {
+      rows.add(capabilityRow("Diaries", "diaries", lastSyncedAt));
+    }
+    if (collectionLog) {
+      rows.add(capabilityRow("Collection log", "collectionLog", lastSyncedAt));
+    }
+    if (combat) {
+      rows.add(capabilityRow("Combat achievements", "combatAchievements", lastSyncedAt));
+    }
+    if (accountType) {
+      rows.add(capabilityRow("Account type", "accountType", lastSyncedAt));
+    }
+    if (notableDrops) {
+      rows.add(capabilityRow("Notable drops", "notableDrops", lastSyncedAt));
+    }
+    if (petDrops) {
+      rows.add(capabilityRow("Pet drops", "petDrops", lastSyncedAt));
+    }
+    return rows;
+  }
+
+  private static PanelModel.CapabilityRow capabilityRow(
+      String label, String key, Map<String, Long> lastSyncedAt) {
+    return new PanelModel.CapabilityRow(label, lastSyncedAt.get(key));
   }
 
   private java.util.List<String> enabledCapabilities() {
@@ -1002,6 +1142,135 @@ public class BankstandPlugin extends Plugin {
 
   private BufferedImage icon() {
     return ImageUtil.loadImageResource(BankstandPlugin.class, "icon.png");
+  }
+
+  /**
+   * What a capture's own emit contributes to the panel: a short description in the
+   * recent-activity list, and, for the capability the event belongs to, a fresh
+   * last-synced stamp. Runs on the client thread (the same thread every
+   * {@code @Subscribe} capture handler already runs on), so {@link #refreshPanel} is
+   * safe to call inline from here.
+   */
+  private void recordEmittedActivity(TransientEvent event) {
+    String description = RecentActivityLog.describe(event.getType(), event.getPayload());
+    if (description != null) {
+      recentActivityLog.record(description);
+    }
+    String capability = CAPABILITY_KEY_BY_EVENT_TYPE.get(event.getType());
+    if (capability != null) {
+      lastSyncedAt.put(capability, System.currentTimeMillis());
+    }
+    refreshPanel();
+  }
+
+  /**
+   * Which capabilities a submit's acknowledgement genuinely synced this cycle, and the
+   * recent-activity line for each, or null for one that gets a fresh sync time but no
+   * line. Static and taking plain flags for the same reason {@code shouldAdvanceX} is:
+   * it is the decision the wiring above needs, and this way it is testable without a
+   * live {@code Client}.
+   *
+   * <p>Quests, diaries, the collection log, combat achievements and account type each
+   * already carry their own "did this specific capability change" signal in their own
+   * {@code advanced} flag, because {@code submitSnapshot} only receives a non-null
+   * value for one of those when {@code plan()} decided it had changed. Skills is the
+   * one exception: it rides along on every submission whatever triggered it, so {@code
+   * skillsAdvanced} alone would fire even when xp is unchanged and only, say, a diary
+   * tier moved; {@code skillsChanged} is what the call site checks separately, against
+   * the baseline, before this cycle's advance overwrote it.
+   *
+   * <p>No line for the collection log or combat achievements even when they did
+   * change: their own chat-triggered captures ({@link CollectionLogUnlockCapture},
+   * {@link CombatAchievementCompletionCapture}) already contribute a more specific one
+   * the moment an item or task is observed, and a second, generic line on every
+   * snapshot ack would just repeat that with less detail.
+   */
+  static Map<String, String> syncedCapabilitiesThisCycle(
+      boolean skillsAdvanced,
+      boolean skillsChanged,
+      boolean questsAdvanced,
+      boolean diariesAdvanced,
+      boolean collectionLogAdvanced,
+      boolean combatAchievementsAdvanced,
+      boolean accountTypeAdvanced) {
+    Map<String, String> synced = new LinkedHashMap<>();
+    if (skillsAdvanced && skillsChanged) {
+      synced.put("skills", "Skills synced");
+    }
+    if (questsAdvanced) {
+      synced.put("quests", "Quests synced");
+    }
+    if (diariesAdvanced) {
+      synced.put("diaries", "Diaries synced");
+    }
+    if (collectionLogAdvanced) {
+      synced.put("collectionLog", null);
+    }
+    if (combatAchievementsAdvanced) {
+      synced.put("combatAchievements", null);
+    }
+    if (accountTypeAdvanced) {
+      synced.put("accountType", "Account type synced");
+    }
+    return synced;
+  }
+
+  /**
+   * Rebuilds and repaints the panel from live state. Safe to call from any thread:
+   * {@code client.getLocalPlayer()} and the rest of {@link #buildPanelModel} must
+   * only run on the client thread, and a Swing component must only be touched on the
+   * event dispatch thread, so this hops through both regardless of which thread the
+   * caller is on. A no-op before {@code startUp} has built the panel, or after {@code
+   * shutDown} has torn it down.
+   *
+   * <p>The field is read exactly once, into {@code current}, before either hop. A
+   * caller can race {@code shutDown()} (this is called from a background executor
+   * callback as well as the client thread), and re-reading the {@code panel} field
+   * inside the client-thread or EDT lambda instead of closing over a local would let
+   * {@code shutDown()}'s {@code panel = null} land in between, throwing a
+   * {@code NullPointerException} out of the EDT. Finishing the render into the local
+   * snapshot instead is harmless even if the panel has since been torn down: it is
+   * already detached from the toolbar by then, so a late repaint has no visible
+   * effect and nothing left holding a reference to it once this call returns.
+   */
+  private void refreshPanel() {
+    BankstandPanel current = panel;
+    if (current == null) {
+      return;
+    }
+    clientThread.invoke(
+        () -> {
+          PanelModel model = buildPanelModel();
+          SwingUtilities.invokeLater(() -> current.render(model));
+        });
+  }
+
+  /** Assembled on the client thread: {@code client.getLocalPlayer()} must not be read
+   *  off it. Handed to the panel as a plain, frozen snapshot; see {@link PanelModel}. */
+  private PanelModel buildPanelModel() {
+    Player local = client.getLocalPlayer();
+    String name = session.isActive() && local != null ? local.getName() : null;
+    List<PanelModel.CapabilityRow> rows =
+        capabilityRows(
+            isSkillCaptureEnabled(),
+            isQuestCaptureEnabled(),
+            isDiaryCaptureEnabled(),
+            isCollectionLogCaptureEnabled(),
+            isCombatAchievementCaptureEnabled(),
+            isAccountTypeCaptureEnabled(),
+            isNotableDropCaptureEnabled(),
+            isPetDropCaptureEnabled(),
+            lastSyncedAt);
+    PanelPresentation.SyncDot dot =
+        PanelPresentation.resolveDot(isPaired(), lastSubmitAtMs > 0L, lastFailureReason != null);
+    return new PanelModel(
+        isPaired(),
+        name == null || name.isEmpty() ? null : name,
+        dot,
+        rows,
+        recentActivityLog.recent(),
+        lastFailureReason,
+        savedServerUrl());
   }
 
   private boolean isCollectionLogCaptureEnabled() {
@@ -1319,6 +1588,12 @@ public class BankstandPlugin extends Plugin {
       // through the reset, and the next ordinary, un-searched partial read on the
       // new session would falsely carry collectionLogFullyEnumerated.
       pendingFullEnumeration = false;
+      // Both belong to one character too: a sync time or a recent-activity line left
+      // over from the last one reads as a bug on the new one. loadAckedState below
+      // repopulates lastSyncedAt for whichever character this account hash actually
+      // is; recentActivityLog has nothing to repopulate from, being session-only.
+      lastSyncedAt.clear();
+      recentActivityLog.clear();
       baselineGeneration = generation;
       loadAckedState(accountHash, generation);
     }
@@ -1404,6 +1679,9 @@ public class BankstandPlugin extends Plugin {
                 // Together, never one alone. CollectionLogBaseline.restore says why.
                 collectionLog.restore(state.getCollectionLogItems());
                 collectionLogBaseline.restore(state.getCollectionLogAcked());
+                lastSyncedAt.clear();
+                lastSyncedAt.putAll(state.getLastSyncedAt());
+                refreshPanel();
               });
         });
   }
@@ -1424,6 +1702,7 @@ public class BankstandPlugin extends Plugin {
     state.setAccountType(accountTypeBaseline.ackedValue());
     state.setCollectionLogItems(collectionLog.observed());
     state.setCollectionLogAcked(collectionLogBaseline.ackedCount());
+    state.setLastSyncedAt(lastSyncedAt);
     executor.submit(() -> ackedStore.save(accountHash, state));
   }
 
@@ -1789,6 +2068,11 @@ public class BankstandPlugin extends Plugin {
                       // Do not advance the baseline: the change is unsent, retry next
                       // cycle. The token and account hash are never logged.
                       SubmitException e = (SubmitException) failure;
+                      // Surfaced on the panel's header dot and failure footer. Set
+                      // before branching, so both the auth-halt and the ordinary
+                      // failure below leave it recorded the same way.
+                      lastFailureReason = e.getMessage();
+                      refreshPanel();
                       if (e.isAuthFailure()) {
                         // Retrying cannot fix a revoked token, so stop rather than fail
                         // every capture in silence. Announced by the gate, not
@@ -1821,16 +2105,32 @@ public class BankstandPlugin extends Plugin {
                     clientThread.invoke(
                         () -> {
                           if (session.isCurrent(accountHash, generation)) {
-                            if (shouldAdvanceSkills(res)) {
+                            // shouldAdvanceSkills alone cannot say whether xp actually
+                            // moved: skills is the one capability with no
+                            // included-or-not gate of its own (it rides along on every
+                            // submission, whatever triggered it), unlike
+                            // quests/diaries/collectionLog/combatAchievements/
+                            // accountType, whose own "included" argument below already
+                            // is that signal (submitSnapshot only receives a non-null
+                            // value for one of those when plan() decided it changed).
+                            // Read before advance() overwrites what it would compare
+                            // against.
+                            boolean skillsChanged = skillBaseline.changedSince(skills);
+                            boolean skillsAdvanced = shouldAdvanceSkills(res);
+                            if (skillsAdvanced) {
                               skillBaseline.advance(skills);
                             }
-                            if (shouldAdvanceQuests(res, quests != null)) {
+                            boolean questsAdvanced = shouldAdvanceQuests(res, quests != null);
+                            if (questsAdvanced) {
                               questBaseline.advance(quests);
                             }
-                            if (shouldAdvanceDiaries(res, diaries != null)) {
+                            boolean diariesAdvanced = shouldAdvanceDiaries(res, diaries != null);
+                            if (diariesAdvanced) {
                               diaryBaseline.advance(diaries);
                             }
-                            if (shouldAdvanceCollectionLog(res, !collectionLogItems.isEmpty())) {
+                            boolean collectionLogAdvanced =
+                                shouldAdvanceCollectionLog(res, !collectionLogItems.isEmpty());
+                            if (collectionLogAdvanced) {
                               collectionLogBaseline.advance(collectionLogItems.size());
                             }
                             // Cleared only once the server has actually stored the
@@ -1839,21 +2139,47 @@ public class BankstandPlugin extends Plugin {
                             // submission that failed, or one the server otherwise
                             // never applied, leaves the fact pending so the next cycle
                             // resends it rather than losing it silently.
-                            if (fullEnumeration
-                                && shouldAdvanceCollectionLog(res, !collectionLogItems.isEmpty())) {
+                            if (fullEnumeration && collectionLogAdvanced) {
                               pendingFullEnumeration = false;
                             }
-                            if (shouldAdvanceCombatAchievements(
-                                res, combatAchievementCounts != null)) {
+                            boolean combatAchievementsAdvanced =
+                                shouldAdvanceCombatAchievements(
+                                    res, combatAchievementCounts != null);
+                            if (combatAchievementsAdvanced) {
                               combatAchievementBaseline.advance(combatAchievementCounts);
                             }
-                            if (shouldAdvanceAccountType(res, accountType != null)) {
+                            boolean accountTypeAdvanced =
+                                shouldAdvanceAccountType(res, accountType != null);
+                            if (accountTypeAdvanced) {
                               accountTypeBaseline.advance(accountType);
+                            }
+                            // The panel's per-capability sync times and recent-activity
+                            // line, decided by the pure, testable helper above rather
+                            // than repeated inline: a null activity line means "stamp
+                            // the time, but say nothing new" (collection log and
+                            // combat achievements, whose own chat-triggered captures
+                            // already contribute a more specific line).
+                            long now = System.currentTimeMillis();
+                            for (Map.Entry<String, String> synced :
+                                syncedCapabilitiesThisCycle(
+                                        skillsAdvanced,
+                                        skillsChanged,
+                                        questsAdvanced,
+                                        diariesAdvanced,
+                                        collectionLogAdvanced,
+                                        combatAchievementsAdvanced,
+                                        accountTypeAdvanced)
+                                    .entrySet()) {
+                              lastSyncedAt.put(synced.getKey(), now);
+                              if (synced.getValue() != null) {
+                                recentActivityLog.record(synced.getValue());
+                              }
                             }
                             // Unconditional, not only when a baseline advanced: passive
                             // browsing can have grown the accumulator even on a submit
                             // that stored nothing.
                             saveAckedState(accountHash);
+                            refreshPanel();
                           }
                         });
                     // A reached server is a success for notice purposes even when it
@@ -1863,6 +2189,7 @@ public class BankstandPlugin extends Plugin {
                     // than narrating every 60 seconds.
                     submitGate.onSuccess();
                     lastSubmitAtMs = System.currentTimeMillis();
+                    lastFailureReason = null;
                     // Which blocks the server actually wrote, which is the one thing a
                     // report cannot tell us and the baselines key off. Never the body:
                     // it carries the account hash, the display name and the whole

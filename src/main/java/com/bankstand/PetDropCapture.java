@@ -5,6 +5,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.function.BooleanSupplier;
+import java.util.function.Consumer;
 import java.util.function.LongSupplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -118,6 +119,14 @@ public class PetDropCapture extends BaseCapture {
 
   public PetDropCapture(EventOutbox outbox, BooleanSupplier enabled, LongSupplier accountHash) {
     super(outbox, enabled, accountHash);
+  }
+
+  public PetDropCapture(
+      EventOutbox outbox,
+      BooleanSupplier enabled,
+      LongSupplier accountHash,
+      Consumer<TransientEvent> onEmit) {
+    super(outbox, enabled, accountHash, onEmit);
   }
 
   @Subscribe
