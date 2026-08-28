@@ -739,6 +739,8 @@ public class BankstandPlugin extends Plugin {
     LINK,
     LOG,
     REPAIR,
+    EXPORT,
+    HELP,
     UNKNOWN
   }
 
@@ -764,6 +766,11 @@ public class BankstandPlugin extends Plugin {
         return CommandAction.LOG;
       case "repair":
         return CommandAction.REPAIR;
+      case "export":
+        return CommandAction.EXPORT;
+      case "help":
+      case "commands":
+        return CommandAction.HELP;
       default:
         return CommandAction.UNKNOWN;
     }
@@ -793,11 +800,17 @@ public class BankstandPlugin extends Plugin {
         disconnect();
         notice("Paste a fresh pairing code in the Bankstand settings to reconnect.");
         break;
+      case EXPORT:
+        exportConfig();
+        break;
+      case HELP:
+        for (String line : StatusReport.helpLines()) {
+          notice(line);
+        }
+        break;
       case UNKNOWN:
       default:
-        notice(
-            "Unknown command. Try ::bstand, ::bstand sync, ::bstand link, ::bstand log or"
-                + " ::bstand repair.");
+        notice("Unknown command. Try ::bstand help to see what's available.");
         break;
     }
   }
@@ -825,6 +838,49 @@ public class BankstandPlugin extends Plugin {
     collectionLogSync.arm();
     showSyncInfoBox();
     notice("Armed. Click Search in the collection log to read it.");
+  }
+
+  /**
+   * {@code ::bstand export}: prints the current Collect/Events toggle state and copies
+   * it to the system clipboard where one is reachable, so a player can hand it to
+   * another device or paste it into a support thread. Chat gets the same lines
+   * regardless of whether the clipboard copy succeeds, since a player can select and
+   * copy chat text by hand either way and should see exactly what was exported.
+   */
+  private void exportConfig() {
+    List<String> lines =
+        StatusReport.exportLines(
+            config.collectSkills(),
+            config.collectQuests(),
+            config.collectDiaries(),
+            config.collectCollectionLog(),
+            config.collectCombatAchievements(),
+            config.collectAccountType(),
+            config.collectNotableDrops(),
+            config.notableDropThreshold(),
+            config.collectPetDrops());
+    for (String line : lines) {
+      notice(line);
+    }
+    if (copyToClipboard(String.join("\n", lines))) {
+      notice("Copied to clipboard.");
+    }
+  }
+
+  /**
+   * Best-effort clipboard copy. A headless or display-less environment throws rather
+   * than failing quietly, so that stays contained here instead of surprising a caller
+   * that wants the chat lines printed regardless of whether the copy succeeds.
+   */
+  private static boolean copyToClipboard(String text) {
+    try {
+      java.awt.Toolkit.getDefaultToolkit()
+          .getSystemClipboard()
+          .setContents(new java.awt.datatransfer.StringSelection(text), null);
+      return true;
+    } catch (RuntimeException e) {
+      return false;
+    }
   }
 
   // Which panel capability key a chat-triggered capture's event type feeds into, so a

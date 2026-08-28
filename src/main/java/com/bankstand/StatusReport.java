@@ -106,6 +106,64 @@ public final class StatusReport {
   }
 
   /**
+   * What {@code ::bstand export} prints: the current Collect/Events toggle state,
+   * plain booleans and the one numeric threshold so this is testable without a live
+   * config. Meant to be copied to another device or into a support message, so it
+   * names only the toggles themselves and never the pairing code, device token, or
+   * server URL: none of the three would mean anything on a different account or
+   * client anyway, and two of them are secrets.
+   */
+  public static List<String> exportLines(
+      boolean skills,
+      boolean quests,
+      boolean diaries,
+      boolean collectionLog,
+      boolean combatAchievements,
+      boolean accountType,
+      boolean notableDrops,
+      int notableDropThreshold,
+      boolean petDrops) {
+    List<String> out = new ArrayList<>();
+    out.add("Bankstand collect/events config:");
+    out.add(onOff("Skill XP", skills));
+    out.add(onOff("Quest progress", quests));
+    out.add(onOff("Diary progress", diaries));
+    out.add(onOff("Collection log", collectionLog));
+    out.add(onOff("Combat achievements", combatAchievements));
+    out.add(onOff("Account type", accountType));
+    out.add(onOff("Notable drops", notableDrops) + " (threshold " + notableDropThreshold + " gp)");
+    out.add(onOff("Pet drops", petDrops));
+    return out;
+  }
+
+  private static String onOff(String label, boolean value) {
+    return "- " + label + ": " + (value ? "on" : "off");
+  }
+
+  /**
+   * What {@code ::bstand help} (or {@code ::bstand commands}) prints: every real
+   * command, in the order {@code CommandAction} resolves them, with what each one
+   * actually does. A fixed list rather than one built from {@code CommandAction}
+   * reflectively, so a name typed here can never silently drift from the enum: the
+   * matching {@code HelpLinesTest} pins the count, and a command added to one
+   * without the other fails there rather than shipping a list a player cannot
+   * trust.
+   */
+  public static List<String> helpLines() {
+    List<String> out = new ArrayList<>();
+    out.add("Bankstand commands:");
+    out.add("- ::bstand - shows connection status: account, character, last sync.");
+    out.add("- ::bstand sync - sends now instead of waiting for the next cycle.");
+    out.add("- ::bstand link - re-links this character to your account.");
+    out.add(
+        "- ::bstand log - arms a guided collection log read; open the log and click Search.");
+    out.add("- ::bstand export - prints and copies your current Collect/Events toggle state.");
+    out.add("- ::bstand repair - clears a stale pairing so you can paste a fresh code.");
+    out.add("- ::bstand help - shows this list.");
+    return out;
+  }
+
+  /**
    * What {@code ::bstand sync} reports.
    *
    * <p>States plainly that the collection log is not included. A sync that silently leaves it out
