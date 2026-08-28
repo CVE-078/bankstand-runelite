@@ -366,7 +366,10 @@ public class BankstandPlugin extends Plugin {
             this::currentAccountHash,
             client::getVarpValue,
             diaryTaskBits,
-            diaryTaskManifest);
+            diaryTaskManifest,
+            // Persists diaryTaskBits right when it actually changes, decoupled from
+            // whether the periodic snapshot has any other reason to resubmit.
+            () -> saveAckedState(currentAccountHash()));
     // Registered as separate listeners, not @Subscribe methods on this class:
     // each capture is its own single-purpose class, unit-testable without a live
     // client, and this is the one place that wires them into the running game.

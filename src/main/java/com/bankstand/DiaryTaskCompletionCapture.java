@@ -58,24 +58,40 @@ public class DiaryTaskCompletionCapture extends BaseCapture {
   private final IntUnaryOperator varpReader;
   private final DiaryTaskBits bits;
   private final DiaryTaskManifest manifest;
+  private final Runnable onBaselineTouched;
 
   /** No task-identity resolution, tier/area only. Used by every existing caller. */
   public DiaryTaskCompletionCapture(
       EventOutbox outbox, BooleanSupplier enabled, LongSupplier accountHash) {
-    this(outbox, enabled, accountHash, id -> 0, new DiaryTaskBits(), DiaryTaskManifest.shipped());
+    this(
+        outbox,
+        enabled,
+        accountHash,
+        id -> 0,
+        new DiaryTaskBits(),
+        DiaryTaskManifest.shipped(),
+        () -> {});
   }
 
+  /**
+   * @param onBaselineTouched fires once per recognised region, right after its varplayer(s)
+   *     are read and diffed. Asks the caller to persist {@code bits} soon, decoupled from
+   *     the periodic snapshot's own, unrelated reasons to resubmit; otherwise the persisted
+   *     copy could lag real progress indefinitely, and a crash in that gap loses it.
+   */
   public DiaryTaskCompletionCapture(
       EventOutbox outbox,
       BooleanSupplier enabled,
       LongSupplier accountHash,
       IntUnaryOperator varpReader,
       DiaryTaskBits bits,
-      DiaryTaskManifest manifest) {
+      DiaryTaskManifest manifest,
+      Runnable onBaselineTouched) {
     super(outbox, enabled, accountHash);
     this.varpReader = varpReader;
     this.bits = bits;
     this.manifest = manifest;
+    this.onBaselineTouched = onBaselineTouched;
   }
 
   @Subscribe
@@ -155,6 +171,10 @@ public class DiaryTaskCompletionCapture extends BaseCapture {
         resolved.add(entry.taskName());
       }
     }
+    // After every varplayer in this region has been diffed, never before: the callback
+    // persists bits, and persisting ahead of this call's own diff would always be one
+    // message behind, losing the very update a crash right after this call would need.
+    onBaselineTouched.run();
     if (mismatch || totalNewlySet != 1 || resolved.size() != 1) {
       return null;
     }
