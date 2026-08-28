@@ -127,7 +127,11 @@ class BankstandPanel extends PluginPanel {
         return Color.ORANGE;
       case GREY:
       default:
-        return ColorScheme.MEDIUM_GRAY_COLOR;
+        // MEDIUM_GRAY_COLOR (77,77,77) on this panel's DARKER_GRAY_COLOR (30,30,30)
+        // background is a ~2:1 contrast ratio, under WCAG's 3:1 floor for anything
+        // meant to be seen. LIGHT_GRAY_COLOR is already this panel's own muted-text
+        // colour (the paired-with line, timestamps, placeholders) and reads clearly.
+        return ColorScheme.LIGHT_GRAY_COLOR;
     }
   }
 
