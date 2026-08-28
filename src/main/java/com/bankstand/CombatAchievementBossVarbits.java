@@ -70,11 +70,18 @@ public final class CombatAchievementBossVarbits {
     m.put("Crazy Archaeologist", VarbitID.CA_TOTAL_TASKS_COMPLETED_CRAZYARCHAEOLOGIST);
     m.put("Deranged Archaeologist", VarbitID.CA_TOTAL_TASKS_COMPLETED_DERANGEDARCHAEOLOGIST);
     m.put("Duke Sucellus", VarbitID.CA_TOTAL_TASKS_COMPLETED_DUKESUCELLUS);
-    m.put("Gargoyle", VarbitID.CA_TOTAL_TASKS_COMPLETED_GARGBOSS);
+    // GARGBOSS reads as "Gargoyle Boss": the Grotesque Guardians encounter (Dawn and
+    // Dusk), not the plain slayer monster. The corpus itself proves which is right:
+    // "Gargoyle" has exactly one task (not boss-shaped), "Grotesque Guardians" has 15.
+    m.put("Grotesque Guardians", VarbitID.CA_TOTAL_TASKS_COMPLETED_GARGBOSS);
     // Gauntlet's normal and Corrupted modes have different boss forms and different
-    // corpus sources.
-    m.put("Corrupted Hunllef", VarbitID.CA_TOTAL_TASKS_COMPLETED_GAUNTLET);
-    m.put("Crystalline Hunllef", VarbitID.CA_TOTAL_TASKS_COMPLETED_GAUNTLET_HM);
+    // corpus sources. The corpus's own task text says which is which: every
+    // Crystalline Hunllef task reads "Complete the Gauntlet" (the base mode, the
+    // unsuffixed varbit); every Corrupted Hunllef task reads "Complete the Corrupted
+    // Gauntlet" (hard mode, the _HM varbit), matching this file's other base/hard
+    // pairs (THEATREOFBLOOD/_HARD, XERICCHAMBERS/_CHALLENGE).
+    m.put("Crystalline Hunllef", VarbitID.CA_TOTAL_TASKS_COMPLETED_GAUNTLET);
+    m.put("Corrupted Hunllef", VarbitID.CA_TOTAL_TASKS_COMPLETED_GAUNTLET_HM);
     m.put("Shellbane gryphon", VarbitID.CA_TOTAL_TASKS_COMPLETED_GRYPHON_BOSS);
     m.put("Hespori", VarbitID.CA_TOTAL_TASKS_COMPLETED_HESPORI);
     // The corpus's one "Giants" task covers hill, moss and fire giants together; this

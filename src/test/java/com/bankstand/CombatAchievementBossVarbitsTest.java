@@ -8,6 +8,7 @@ import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Set;
 import net.runelite.api.Varbits;
+import net.runelite.api.gameval.VarbitID;
 import org.junit.Test;
 
 public class CombatAchievementBossVarbitsTest {
@@ -57,5 +58,30 @@ public class CombatAchievementBossVarbitsTest {
     for (String key : CombatAchievementBossVarbits.ALL.keySet()) {
       assertTrue(key, !key.trim().isEmpty());
     }
+  }
+
+  @Test
+  public void gargbossIsGrotesqueGuardiansNotThePlainMonster() {
+    // Caught by review: GARGBOSS reads as "Gargoyle Boss", easy to misread as the
+    // plain slayer monster. The corpus itself settles it: "Gargoyle" has one task
+    // (not boss-shaped), "Grotesque Guardians" has fifteen.
+    assertEquals(
+        (Integer) VarbitID.CA_TOTAL_TASKS_COMPLETED_GARGBOSS,
+        CombatAchievementBossVarbits.ALL.get("Grotesque Guardians"));
+    assertFalse(CombatAchievementBossVarbits.ALL.containsKey("Gargoyle"));
+  }
+
+  @Test
+  public void gauntletModesAreNotSwapped() {
+    // Caught by review: the base/hard-mode pairing was backwards on first pass.
+    // The corpus's own task text is unambiguous: every Crystalline Hunllef task
+    // reads "Complete the Gauntlet" (the unsuffixed, base-mode varbit); every
+    // Corrupted Hunllef task reads "Complete the Corrupted Gauntlet" (_HM).
+    assertEquals(
+        (Integer) VarbitID.CA_TOTAL_TASKS_COMPLETED_GAUNTLET,
+        CombatAchievementBossVarbits.ALL.get("Crystalline Hunllef"));
+    assertEquals(
+        (Integer) VarbitID.CA_TOTAL_TASKS_COMPLETED_GAUNTLET_HM,
+        CombatAchievementBossVarbits.ALL.get("Corrupted Hunllef"));
   }
 }
