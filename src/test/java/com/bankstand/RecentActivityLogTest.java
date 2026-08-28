@@ -4,6 +4,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -25,7 +26,7 @@ public class RecentActivityLogTest {
     log.record("first");
     log.record("second");
 
-    assertEquals(List.of("second", "first"), log.recent());
+    assertEquals(List.of("second", "first"), descriptions(log.recent()));
   }
 
   @Test
@@ -35,12 +36,12 @@ public class RecentActivityLogTest {
       log.record("entry-" + i);
     }
 
-    List<String> recent = log.recent();
+    List<PanelModel.ActivityRow> recent = log.recent();
 
     assertEquals(RecentActivityLog.MAX_ENTRIES, recent.size());
     // Newest first, and the three oldest ("entry-0".."entry-2") are gone.
-    assertEquals("entry-" + (RecentActivityLog.MAX_ENTRIES + 2), recent.get(0));
-    assertEquals("entry-3", recent.get(recent.size() - 1));
+    assertEquals("entry-" + (RecentActivityLog.MAX_ENTRIES + 2), recent.get(0).description);
+    assertEquals("entry-3", recent.get(recent.size() - 1).description);
   }
 
   @Test
@@ -48,10 +49,29 @@ public class RecentActivityLogTest {
     RecentActivityLog log = new RecentActivityLog();
     log.record("first");
 
-    List<String> snapshot = log.recent();
+    List<PanelModel.ActivityRow> snapshot = log.recent();
     log.record("second");
 
-    assertEquals(List.of("first"), snapshot);
+    assertEquals(List.of("first"), descriptions(snapshot));
+  }
+
+  @Test
+  public void stampsEachEntryWithWhenItWasRecorded() {
+    RecentActivityLog log = new RecentActivityLog();
+    long before = System.currentTimeMillis();
+    log.record("first");
+    long after = System.currentTimeMillis();
+
+    long atMs = log.recent().get(0).atMs;
+    assertTrue(atMs >= before && atMs <= after);
+  }
+
+  private static List<String> descriptions(List<PanelModel.ActivityRow> rows) {
+    List<String> out = new ArrayList<>();
+    for (PanelModel.ActivityRow row : rows) {
+      out.add(row.description);
+    }
+    return out;
   }
 
   @Test

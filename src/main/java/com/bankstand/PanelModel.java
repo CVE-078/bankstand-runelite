@@ -16,7 +16,7 @@ final class PanelModel {
   final String linkedName;
   final PanelPresentation.SyncDot dot;
   final List<CapabilityRow> capabilities;
-  final List<String> recentActivity;
+  final List<ActivityRow> recentActivity;
   final String lastFailureReason;
   final String serverUrl;
 
@@ -25,7 +25,7 @@ final class PanelModel {
       String linkedName,
       PanelPresentation.SyncDot dot,
       List<CapabilityRow> capabilities,
-      List<String> recentActivity,
+      List<ActivityRow> recentActivity,
       String lastFailureReason,
       String serverUrl) {
     this.paired = paired;
@@ -59,6 +59,17 @@ final class PanelModel {
     CapabilityRow(String name, Long lastSyncedAtMs) {
       this.name = name;
       this.lastSyncedAtMs = lastSyncedAtMs;
+    }
+  }
+
+  /** One row of the recent-activity list: what was sent, and when. */
+  static final class ActivityRow {
+    final String description;
+    final long atMs;
+
+    ActivityRow(String description, long atMs) {
+      this.description = description;
+      this.atMs = atMs;
     }
   }
 }

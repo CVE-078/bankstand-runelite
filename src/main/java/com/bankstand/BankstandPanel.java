@@ -2,10 +2,15 @@ package com.bankstand;
 
 import java.awt.BorderLayout;
 import java.awt.Color;
+import java.awt.Dimension;
 import java.awt.FlowLayout;
+import java.awt.Graphics;
+import java.awt.Graphics2D;
+import java.awt.RenderingHints;
 import java.util.List;
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
+import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.SwingConstants;
@@ -72,9 +77,7 @@ class BankstandPanel extends PluginPanel {
     header.setBackground(ColorScheme.DARKER_GRAY_COLOR);
     header.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
 
-    JLabel dot = new JLabel("●");
-    dot.setForeground(dotColor(model.dot));
-    dot.setToolTipText(dotTooltip(model));
+    JComponent dot = statusDot(dotColor(model.dot), dotTooltip(model));
 
     JLabel title = new JLabel(headerText(model));
     title.setFont(FontManager.getRunescapeBoldFont());
@@ -82,10 +85,9 @@ class BankstandPanel extends PluginPanel {
 
     JPanel titleRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
     titleRow.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-    titleRow.setAlignmentX(java.awt.Component.LEFT_ALIGNMENT);
     titleRow.add(dot);
     titleRow.add(title);
-    header.add(titleRow);
+    header.add(leftAligned(titleRow));
 
     // Named here for the same reason StatusReport's own "Paired with X" line exists:
     // a stale or misconfigured server address otherwise fails every sync in silence.
@@ -93,8 +95,7 @@ class BankstandPanel extends PluginPanel {
       JLabel serverLine = new JLabel("Paired with " + model.serverUrl);
       serverLine.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
       serverLine.setBorder(BorderFactory.createEmptyBorder(4, 0, 0, 0));
-      serverLine.setAlignmentX(java.awt.Component.LEFT_ALIGNMENT);
-      header.add(serverLine);
+      header.add(leftAligned(serverLine));
     }
 
     return header;
@@ -135,16 +136,39 @@ class BankstandPanel extends PluginPanel {
     }
   }
 
+  // A painted circle instead of a Unicode glyph ("●" in a bare JLabel, this
+  // panel's original approach): glyph coverage for that character depends on
+  // whatever font Swing falls back to for an unstyled label, and on a real client it
+  // rendered nothing at all rather than merely the wrong colour. Painting it directly
+  // has no font to get wrong.
+  private static JComponent statusDot(Color color, String tooltip) {
+    JComponent dot =
+        new JComponent() {
+          @Override
+          protected void paintComponent(Graphics g) {
+            Graphics2D g2 = (Graphics2D) g.create();
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            g2.setColor(color);
+            g2.fillOval(0, 3, 9, 9);
+            g2.dispose();
+          }
+        };
+    dot.setOpaque(false);
+    dot.setPreferredSize(new Dimension(11, 16));
+    dot.setToolTipText(tooltip);
+    return dot;
+  }
+
   private JPanel buildCapabilityList(PanelModel model) {
     JPanel section = new JPanel();
     section.setLayout(new javax.swing.BoxLayout(section, javax.swing.BoxLayout.Y_AXIS));
     section.setBackground(ColorScheme.DARK_GRAY_COLOR);
     section.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
 
-    section.add(sectionTitle("Capabilities"));
+    section.add(leftAligned(sectionTitle("Capabilities")));
 
     if (model.capabilities.isEmpty()) {
-      section.add(mutedLabel("Nothing switched on"));
+      section.add(leftAligned(mutedLabel("Nothing switched on")));
     } else {
       long now = System.currentTimeMillis();
       for (PanelModel.CapabilityRow row : model.capabilities) {
@@ -184,18 +208,19 @@ class BankstandPanel extends PluginPanel {
     section.setBackground(ColorScheme.DARKER_GRAY_COLOR);
     section.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
 
-    section.add(sectionTitle("Recent activity"));
+    section.add(leftAligned(sectionTitle("Recent activity")));
 
-    List<String> recent = model.recentActivity;
+    List<PanelModel.ActivityRow> recent = model.recentActivity;
     if (recent.isEmpty()) {
-      section.add(mutedLabel("Nothing sent yet this session"));
+      section.add(leftAligned(mutedLabel("Nothing sent yet this session")));
     } else {
-      for (String line : recent) {
-        JLabel label = new JLabel(line);
+      long now = System.currentTimeMillis();
+      for (PanelModel.ActivityRow row : recent) {
+        JLabel label =
+            new JLabel(row.description + " (" + PanelPresentation.formatAge(now - row.atMs) + ")");
         label.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
         label.setBorder(BorderFactory.createEmptyBorder(1, 0, 1, 0));
-        label.setAlignmentX(java.awt.Component.LEFT_ALIGNMENT);
-        section.add(label);
+        section.add(leftAligned(label));
       }
     }
     return section;
@@ -218,18 +243,16 @@ class BankstandPanel extends PluginPanel {
     JPanel buttons = new JPanel();
     buttons.setLayout(new javax.swing.BoxLayout(buttons, javax.swing.BoxLayout.Y_AXIS));
     buttons.setBackground(ColorScheme.DARK_GRAY_COLOR);
-    buttons.setAlignmentX(java.awt.Component.LEFT_ALIGNMENT);
     buttons.add(syncButton);
     buttons.add(javax.swing.Box.createVerticalStrut(4));
     buttons.add(openButton);
-    section.add(buttons);
+    section.add(leftAligned(buttons));
 
     if (model.lastFailureReason != null) {
       JLabel failure = new JLabel("<html>" + escapeHtml(model.lastFailureReason) + "</html>");
       failure.setForeground(ColorScheme.PROGRESS_ERROR_COLOR);
       failure.setBorder(BorderFactory.createEmptyBorder(8, 0, 0, 0));
-      failure.setAlignmentX(java.awt.Component.LEFT_ALIGNMENT);
-      section.add(failure);
+      section.add(leftAligned(failure));
     }
 
     return section;
@@ -240,15 +263,28 @@ class BankstandPanel extends PluginPanel {
     label.setFont(FontManager.getRunescapeBoldFont());
     label.setForeground(Color.WHITE);
     label.setBorder(BorderFactory.createEmptyBorder(0, 0, 6, 0));
-    label.setAlignmentX(java.awt.Component.LEFT_ALIGNMENT);
     return label;
   }
 
   private static JLabel mutedLabel(String text) {
     JLabel label = new JLabel(text);
     label.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
-    label.setAlignmentX(java.awt.Component.LEFT_ALIGNMENT);
     return label;
+  }
+
+  // BoxLayout's own per-child alignmentX is the textbook way to left-pin a component
+  // narrower than its container, and it is what this file relied on before. In
+  // practice, one label on a real client (this panel's own "Capabilities" heading)
+  // still rendered centered after a clean rebuild, with no code-level difference from
+  // a sibling heading built the exact same way that rendered correctly. The capability
+  // rows never misrendered in testing, and they use BorderLayout, not alignmentX, so
+  // this wraps every other label the same way rather than trying to explain the one
+  // that did not listen.
+  private static JPanel leftAligned(JComponent inner) {
+    JPanel wrapper = new JPanel(new BorderLayout());
+    wrapper.setOpaque(false);
+    wrapper.add(inner, BorderLayout.WEST);
+    return wrapper;
   }
 
   // A failure message is the server's or the HTTP client's own text, never

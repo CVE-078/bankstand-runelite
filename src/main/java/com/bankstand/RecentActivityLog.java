@@ -29,19 +29,20 @@ final class RecentActivityLog {
 
   static final int MAX_ENTRIES = 10;
 
-  private final LinkedList<String> entries = new LinkedList<>();
+  private final LinkedList<PanelModel.ActivityRow> entries = new LinkedList<>();
 
-  /** Adds one description as the newest entry, evicting the oldest once full. */
+  /** Adds one description as the newest entry, stamped with the moment it was recorded,
+   *  evicting the oldest once full. */
   synchronized void record(String description) {
-    entries.addFirst(description);
+    entries.addFirst(new PanelModel.ActivityRow(description, System.currentTimeMillis()));
     while (entries.size() > MAX_ENTRIES) {
       entries.removeLast();
     }
   }
 
-  /** Every recorded description, newest first. A snapshot: mutating the result does not
-   *  affect the log. */
-  synchronized List<String> recent() {
+  /** Every recorded row, newest first. A snapshot: mutating the result does not affect
+   *  the log. */
+  synchronized List<PanelModel.ActivityRow> recent() {
     return new ArrayList<>(entries);
   }
 
