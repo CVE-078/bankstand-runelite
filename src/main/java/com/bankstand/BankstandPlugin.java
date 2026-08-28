@@ -264,6 +264,11 @@ public class BankstandPlugin extends Plugin {
   private final SkillBaseline skillBaseline = new SkillBaseline();
   private final QuestBaseline questBaseline = new QuestBaseline();
   private final DiaryBaseline diaryBaseline = new DiaryBaseline();
+  // Backs DiaryTaskCompletionCapture's task identity resolution. diaryTaskManifest ships
+  // with no verified regions, so this stays inert until a region's own PR adds to it.
+  // Not the same thing as the CapabilityManifest `manifest` field below.
+  private final DiaryTaskBits diaryTaskBits = new DiaryTaskBits();
+  private final DiaryTaskManifest diaryTaskManifest = DiaryTaskManifest.shipped();
   private final AccountTypeBaseline accountTypeBaseline = new AccountTypeBaseline();
   private final CombatAchievementBaseline combatAchievementBaseline =
       new CombatAchievementBaseline();
@@ -356,7 +361,15 @@ public class BankstandPlugin extends Plugin {
             this::currentAccountHash);
     diaryTaskCompletionCapture =
         new DiaryTaskCompletionCapture(
-            eventOutbox, this::isDiaryTaskCompletionCaptureEnabled, this::currentAccountHash);
+            eventOutbox,
+            this::isDiaryTaskCompletionCaptureEnabled,
+            this::currentAccountHash,
+            client::getVarpValue,
+            diaryTaskBits,
+            diaryTaskManifest,
+            // Persists diaryTaskBits right when it actually changes, decoupled from
+            // whether the periodic snapshot has any other reason to resubmit.
+            () -> saveAckedState(currentAccountHash()));
     // Registered as separate listeners, not @Subscribe methods on this class:
     // each capture is its own single-purpose class, unit-testable without a live
     // client, and this is the one place that wires them into the running game.
@@ -1307,6 +1320,9 @@ public class BankstandPlugin extends Plugin {
       skillBaseline.reset();
       questBaseline.reset();
       diaryBaseline.reset();
+      // Belongs to one character; carrying it across would diff one account's diary
+      // against another's.
+      diaryTaskBits.reset();
       combatAchievementBaseline.reset();
       accountTypeBaseline.reset();
       // A collection log belongs to one character; carrying it across an account
@@ -1399,6 +1415,7 @@ public class BankstandPlugin extends Plugin {
                 skillBaseline.restore(state.getSkills());
                 questBaseline.restore(state.getQuests());
                 diaryBaseline.restore(state.getDiaries());
+                diaryTaskBits.restore(state.getDiaryTaskBits());
                 combatAchievementBaseline.restore(state.getCombatAchievements());
                 accountTypeBaseline.restore(state.getAccountType());
                 // Together, never one alone. CollectionLogBaseline.restore says why.
@@ -1420,6 +1437,7 @@ public class BankstandPlugin extends Plugin {
     state.setSkills(skillBaseline.ackedDigest());
     state.setQuests(questBaseline.ackedDigest());
     state.setDiaries(diaryBaseline.ackedDigest());
+    state.setDiaryTaskBits(diaryTaskBits.snapshot());
     state.setCombatAchievements(combatAchievementBaseline.ackedDigest());
     state.setAccountType(accountTypeBaseline.ackedValue());
     state.setCollectionLogItems(collectionLog.observed());

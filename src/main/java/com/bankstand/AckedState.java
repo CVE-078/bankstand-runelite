@@ -1,6 +1,8 @@
 package com.bankstand;
 
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -41,11 +43,21 @@ public class AckedState {
   private Set<Integer> collectionLogItems;
   private int collectionLogAcked;
 
+  /**
+   * Last-known value of every diary varplayer read so far, keyed by varplayer id. A raw
+   * value rather than a digest, because {@link DiaryTaskCompletionCapture}'s per-task
+   * identity resolution needs the actual prior bit pattern to XOR against. See
+   * {@link DiaryTaskBits} for why this has to survive a restart, same as
+   * {@code collectionLogItems}.
+   */
+  private Map<Integer, Integer> diaryTaskBits;
+
   /** The state of a character nothing is known about yet: everything resends once. */
   public static AckedState empty() {
     AckedState state = new AckedState();
     state.collectionLogItems = new LinkedHashSet<>();
     state.collectionLogAcked = -1;
+    state.diaryTaskBits = new LinkedHashMap<>();
     return state;
   }
 
@@ -111,5 +123,20 @@ public class AckedState {
 
   public void setCollectionLogAcked(int acked) {
     this.collectionLogAcked = acked;
+  }
+
+  /**
+   * Never null, even when the stored document omitted the field or set it null, so a
+   * hand-edited or older file cannot hand a caller a null map to iterate.
+   */
+  public Map<Integer, Integer> getDiaryTaskBits() {
+    if (diaryTaskBits == null) {
+      diaryTaskBits = new LinkedHashMap<>();
+    }
+    return diaryTaskBits;
+  }
+
+  public void setDiaryTaskBits(Map<Integer, Integer> bits) {
+    this.diaryTaskBits = new LinkedHashMap<>(bits);
   }
 }
