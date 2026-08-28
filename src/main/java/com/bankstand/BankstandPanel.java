@@ -236,12 +236,14 @@ class BankstandPanel extends PluginPanel {
     label.setFont(FontManager.getRunescapeBoldFont());
     label.setForeground(Color.WHITE);
     label.setBorder(BorderFactory.createEmptyBorder(0, 0, 6, 0));
+    label.setAlignmentX(java.awt.Component.LEFT_ALIGNMENT);
     return label;
   }
 
   private static JLabel mutedLabel(String text) {
     JLabel label = new JLabel(text);
     label.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
+    label.setAlignmentX(java.awt.Component.LEFT_ALIGNMENT);
     return label;
   }
 
