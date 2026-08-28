@@ -60,11 +60,12 @@ Stated plainly, because a gap is easy to mistake for a bug.
    **Verified as `<name>`**, and the badge appears on that character.
 
 If the character is not one you have tracked, the plugin says so rather than binding silently.
+Click the Bankstand icon in the sidebar any time after that for a status view, covered below.
 
 ## Configuration
 
 Everything lives under **Settings > Bankstand**: a **Connection** section, then one section per
-capability, in the same order as the table above.
+capability, in the same order as the list above.
 
 The split matters. **Connection** is which Bankstand account this client is tied to. Every other
 section is what this client reads and sends, and each capability gets its own section rather than a
@@ -95,6 +96,26 @@ nothing for the others to attach to and a paired client goes quiet.
 If you paired before version 0.1.0, these toggles were renamed and reverted to off. Re-tick the ones
 you want. Your pairing and server URL are untouched.
 
+## The sidebar panel
+
+Click the Bankstand icon in the RuneLite sidebar for a status view that stays put, instead of
+scrolling away with your chat history.
+
+- **Header.** A dot for the state at a glance: green means the last sync succeeded, amber means the
+  last attempt failed, grey means you are either not paired or nothing has synced yet. Below it, which
+  character is linked and which server you are paired with.
+- **Capabilities.** One row per capability you have switched on, with when it last actually sent
+  something, and this persists across a RuneLite restart. A capability that is on but has had nothing
+  new to send, no drop, no pet, nothing changed, reads `—` rather than a fake "just now": that is the
+  honest answer, not a bug.
+- **Recent activity.** Named things this device has sent this session, newest first: a collection log
+  unlock, a combat achievement, a diary task, a notable drop, a pet. Not the routine skill XP sync,
+  which has nothing worth naming. Resets when RuneLite restarts.
+- **Sync now** sends immediately, the same as `::bstand sync`. **Open Bankstand** opens your paired
+  server in your browser.
+
+A failure shows here too, not just in chat, with the same reason `::bstand` gives.
+
 ## In-game commands
 
 Type these in the chat box. `::stand` works as a shorthand for all of them.
@@ -111,8 +132,9 @@ Type these in the chat box. `::stand` works as a shorthand for all of them.
 
 ## When something goes wrong
 
-Outcomes are reported in the chat box, since the plugin has no panel to hold a status line. A failure
-that repeats is announced once rather than every cycle, and the recovery is announced when it clears.
+Outcomes are reported in the chat box, and the sidebar panel's status dot and failure text mirror the
+same thing. A failure that repeats is announced once rather than every cycle, and the recovery is
+announced when it clears.
 
 A client that keeps failing also slows down, backing off to about 16 minutes and resuming the moment
 one attempt succeeds. **A rejected or revoked token stops it entirely**: retrying cannot fix that, so
