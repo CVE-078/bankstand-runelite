@@ -56,6 +56,7 @@ public class AckedStateStore {
     copy.setCollectionLogItems(stored.getCollectionLogItems());
     copy.setCollectionLogAcked(stored.getCollectionLogAcked());
     copy.setLastSyncedAt(stored.getLastSyncedAt());
+    copy.setDiaryTaskBits(stored.getDiaryTaskBits());
     return copy;
   }
 
