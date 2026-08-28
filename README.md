@@ -108,6 +108,8 @@ Type these in the chat box. `::stand` works as a shorthand for all of them.
   is not true.
 - `::bstand repair` clears the stored pairing so a stale or revoked token has an obvious fix: paste a
   fresh code in the plugin settings afterwards.
+- `::bstand export` prints and copies your current Collect/Events toggle state, so you can hand it to
+  another device or a support thread. Never includes the pairing code, device token, or server URL.
 
 ## When something goes wrong
 

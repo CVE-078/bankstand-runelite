@@ -48,6 +48,7 @@ public class CommandDispatchTest {
     assertEquals(CommandAction.LINK, BankstandPlugin.actionFor(new String[] {"link"}));
     assertEquals(CommandAction.LOG, BankstandPlugin.actionFor(new String[] {"log"}));
     assertEquals(CommandAction.REPAIR, BankstandPlugin.actionFor(new String[] {"repair"}));
+    assertEquals(CommandAction.EXPORT, BankstandPlugin.actionFor(new String[] {"export"}));
   }
 
   @Test
