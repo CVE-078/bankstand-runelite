@@ -108,9 +108,9 @@ scrolling away with your chat history.
   something, and this persists across a RuneLite restart. A capability that is on but has had nothing
   new to send, no drop, no pet, nothing changed, reads `—` rather than a fake "just now": that is the
   honest answer, not a bug.
-- **Recent activity.** Named things this device has sent this session, newest first: a collection log
-  unlock, a combat achievement, a diary task, a notable drop, a pet. Not the routine skill XP sync,
-  which has nothing worth naming. Resets when RuneLite restarts.
+- **Recent activity.** Named things this device has sent this session, newest first, each with when:
+  a collection log unlock, a combat achievement, a diary task, a notable drop, a pet. Not the routine
+  skill XP sync, which has nothing worth naming. Resets when RuneLite restarts.
 - **Sync now** sends immediately, the same as `::bstand sync`. **Open Bankstand** opens your paired
   server in your browser.
 
