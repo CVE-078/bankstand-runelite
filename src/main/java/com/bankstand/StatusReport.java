@@ -141,6 +141,29 @@ public final class StatusReport {
   }
 
   /**
+   * What {@code ::bstand help} (or {@code ::bstand commands}) prints: every real
+   * command, in the order {@code CommandAction} resolves them, with what each one
+   * actually does. A fixed list rather than one built from {@code CommandAction}
+   * reflectively, so a name typed here can never silently drift from the enum: the
+   * matching {@code HelpLinesTest} pins the count, and a command added to one
+   * without the other fails there rather than shipping a list a player cannot
+   * trust.
+   */
+  public static List<String> helpLines() {
+    List<String> out = new ArrayList<>();
+    out.add("Bankstand commands:");
+    out.add("- ::bstand - shows connection status: account, character, last sync.");
+    out.add("- ::bstand sync - sends now instead of waiting for the next cycle.");
+    out.add("- ::bstand link - re-links this character to your account.");
+    out.add(
+        "- ::bstand log - arms a guided collection log read; open the log and click Search.");
+    out.add("- ::bstand export - prints and copies your current Collect/Events toggle state.");
+    out.add("- ::bstand repair - clears a stale pairing so you can paste a fresh code.");
+    out.add("- ::bstand help - shows this list.");
+    return out;
+  }
+
+  /**
    * What {@code ::bstand sync} reports.
    *
    * <p>States plainly that the collection log is not included. A sync that silently leaves it out

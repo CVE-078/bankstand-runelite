@@ -110,6 +110,7 @@ Type these in the chat box. `::stand` works as a shorthand for all of them.
   fresh code in the plugin settings afterwards.
 - `::bstand export` prints and copies your current Collect/Events toggle state, so you can hand it to
   another device or a support thread. Never includes the pairing code, device token, or server URL.
+- `::bstand help` (or `::bstand commands`) lists every command above and what it does.
 
 ## When something goes wrong
 

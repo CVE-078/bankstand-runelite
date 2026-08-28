@@ -49,6 +49,14 @@ public class CommandDispatchTest {
     assertEquals(CommandAction.LOG, BankstandPlugin.actionFor(new String[] {"log"}));
     assertEquals(CommandAction.REPAIR, BankstandPlugin.actionFor(new String[] {"repair"}));
     assertEquals(CommandAction.EXPORT, BankstandPlugin.actionFor(new String[] {"export"}));
+    assertEquals(CommandAction.HELP, BankstandPlugin.actionFor(new String[] {"help"}));
+  }
+
+  @Test
+  public void commandsIsAnAliasForHelp() {
+    // "help" is the conventional word; "commands" is the one a player reaching for
+    // a full list is just as likely to try first. Same listing either way.
+    assertEquals(CommandAction.HELP, BankstandPlugin.actionFor(new String[] {"commands"}));
   }
 
   @Test

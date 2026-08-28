@@ -645,6 +645,7 @@ public class BankstandPlugin extends Plugin {
     LOG,
     REPAIR,
     EXPORT,
+    HELP,
     UNKNOWN
   }
 
@@ -672,6 +673,9 @@ public class BankstandPlugin extends Plugin {
         return CommandAction.REPAIR;
       case "export":
         return CommandAction.EXPORT;
+      case "help":
+      case "commands":
+        return CommandAction.HELP;
       default:
         return CommandAction.UNKNOWN;
     }
@@ -712,11 +716,14 @@ public class BankstandPlugin extends Plugin {
       case EXPORT:
         exportConfig();
         break;
+      case HELP:
+        for (String line : StatusReport.helpLines()) {
+          notice(line);
+        }
+        break;
       case UNKNOWN:
       default:
-        notice(
-            "Unknown command. Try ::bstand, ::bstand sync, ::bstand link, ::bstand log,"
-                + " ::bstand repair or ::bstand export.");
+        notice("Unknown command. Try ::bstand help to see what's available.");
         break;
     }
   }
