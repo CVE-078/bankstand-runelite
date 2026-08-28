@@ -11,7 +11,9 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
+import java.util.Map;
 import java.util.Set;
 import org.junit.Before;
 import org.junit.Rule;
@@ -54,6 +56,9 @@ public class AckedStateStoreTest {
     state.setDiaries("diaries-digest");
     state.setCollectionLogItems(ids(1, 2, 3));
     state.setCollectionLogAcked(3);
+    Map<String, Long> synced = new LinkedHashMap<>();
+    synced.put("skills", 1_700_000_000_000L);
+    state.setLastSyncedAt(synced);
 
     store.save(1234L, state);
     AckedState loaded = new AckedStateStore(file, new Gson()).load(1234L);
@@ -63,6 +68,21 @@ public class AckedStateStoreTest {
     assertEquals("diaries-digest", loaded.getDiaries());
     assertEquals(ids(1, 2, 3), loaded.getCollectionLogItems());
     assertEquals(3, loaded.getCollectionLogAcked());
+    assertEquals(1_700_000_000_000L, (long) loaded.getLastSyncedAt().get("skills"));
+  }
+
+  /** A document written before this field existed has none in its JSON at all, not a
+   *  null value: Gson leaves the field null on that class, and the store must still
+   *  hand out an empty, iterable map rather than propagate the null. */
+  @Test
+  public void aDocumentMissingLastSyncedAtStillLoads() throws IOException {
+    Files.write(
+        file.toPath(),
+        "{\"accounts\":{\"1234\":{\"skills\":\"only-skills\"}}}".getBytes(StandardCharsets.UTF_8));
+
+    AckedState state = new AckedStateStore(file, new Gson()).load(1234L);
+
+    assertTrue(state.getLastSyncedAt().isEmpty());
   }
 
   /** A baseline belongs to one character; two on one machine must not see each other's. */

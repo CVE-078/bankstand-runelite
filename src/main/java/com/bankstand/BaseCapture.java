@@ -2,6 +2,7 @@ package com.bankstand;
 
 import java.util.Map;
 import java.util.function.BooleanSupplier;
+import java.util.function.Consumer;
 import java.util.function.LongSupplier;
 
 /**
@@ -27,11 +28,26 @@ public abstract class BaseCapture {
   private final EventOutbox outbox;
   private final BooleanSupplier enabled;
   private final LongSupplier accountHash;
+  // Nullable: every existing test constructs a capture with the 3-arg constructor,
+  // which has no notion of the panel's recent-activity list and does not need one.
+  // Notified AFTER outbox.add, on the same emit, never re-invoked later from a
+  // stored id: this is the one moment a human-readable description is cheaply
+  // available (see RecentActivityLog's own javadoc for why that matters).
+  private final Consumer<TransientEvent> onEmit;
 
   protected BaseCapture(EventOutbox outbox, BooleanSupplier enabled, LongSupplier accountHash) {
+    this(outbox, enabled, accountHash, null);
+  }
+
+  protected BaseCapture(
+      EventOutbox outbox,
+      BooleanSupplier enabled,
+      LongSupplier accountHash,
+      Consumer<TransientEvent> onEmit) {
     this.outbox = outbox;
     this.enabled = enabled;
     this.accountHash = accountHash;
+    this.onEmit = onEmit;
   }
 
   /** Builds and emits one event, gated on {@link #enabled}. A no-op while off, so a
@@ -39,7 +55,11 @@ public abstract class BaseCapture {
    *  gate at every call site. */
   protected final void emit(String type, Map<String, Object> payload) {
     if (!enabled.getAsBoolean()) return;
-    outbox.add(accountHash.getAsLong(), new TransientEvent(type, payload));
+    TransientEvent event = new TransientEvent(type, payload);
+    outbox.add(accountHash.getAsLong(), event);
+    if (onEmit != null) {
+      onEmit.accept(event);
+    }
   }
 
   /** Whether the toggle + manifest gate is currently open. A subclass checks this

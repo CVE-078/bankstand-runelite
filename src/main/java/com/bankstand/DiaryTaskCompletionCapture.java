@@ -7,6 +7,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.BooleanSupplier;
+import java.util.function.Consumer;
 import java.util.function.IntUnaryOperator;
 import java.util.function.LongSupplier;
 import java.util.regex.Matcher;
@@ -87,7 +88,23 @@ public class DiaryTaskCompletionCapture extends BaseCapture {
       DiaryTaskBits bits,
       DiaryTaskManifest manifest,
       Runnable onBaselineTouched) {
-    super(outbox, enabled, accountHash);
+    this(outbox, enabled, accountHash, varpReader, bits, manifest, onBaselineTouched, null);
+  }
+
+  /**
+   * Same as the constructor above, plus {@code onEmit}: notified after every event this
+   * capture emits, for the status panel's recent-activity list. See {@link BaseCapture}.
+   */
+  public DiaryTaskCompletionCapture(
+      EventOutbox outbox,
+      BooleanSupplier enabled,
+      LongSupplier accountHash,
+      IntUnaryOperator varpReader,
+      DiaryTaskBits bits,
+      DiaryTaskManifest manifest,
+      Runnable onBaselineTouched,
+      Consumer<TransientEvent> onEmit) {
+    super(outbox, enabled, accountHash, onEmit);
     this.varpReader = varpReader;
     this.bits = bits;
     this.manifest = manifest;
