@@ -82,6 +82,7 @@ class BankstandPanel extends PluginPanel {
 
     JPanel titleRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
     titleRow.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+    titleRow.setAlignmentX(java.awt.Component.LEFT_ALIGNMENT);
     titleRow.add(dot);
     titleRow.add(title);
     header.add(titleRow);
@@ -92,6 +93,7 @@ class BankstandPanel extends PluginPanel {
       JLabel serverLine = new JLabel("Paired with " + model.serverUrl);
       serverLine.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
       serverLine.setBorder(BorderFactory.createEmptyBorder(4, 0, 0, 0));
+      serverLine.setAlignmentX(java.awt.Component.LEFT_ALIGNMENT);
       header.add(serverLine);
     }
 
@@ -188,6 +190,7 @@ class BankstandPanel extends PluginPanel {
         JLabel label = new JLabel(line);
         label.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
         label.setBorder(BorderFactory.createEmptyBorder(1, 0, 1, 0));
+        label.setAlignmentX(java.awt.Component.LEFT_ALIGNMENT);
         section.add(label);
       }
     }
@@ -211,6 +214,7 @@ class BankstandPanel extends PluginPanel {
     JPanel buttons = new JPanel();
     buttons.setLayout(new javax.swing.BoxLayout(buttons, javax.swing.BoxLayout.Y_AXIS));
     buttons.setBackground(ColorScheme.DARK_GRAY_COLOR);
+    buttons.setAlignmentX(java.awt.Component.LEFT_ALIGNMENT);
     buttons.add(syncButton);
     buttons.add(javax.swing.Box.createVerticalStrut(4));
     buttons.add(openButton);
@@ -220,6 +224,7 @@ class BankstandPanel extends PluginPanel {
       JLabel failure = new JLabel("<html>" + escapeHtml(model.lastFailureReason) + "</html>");
       failure.setForeground(ColorScheme.PROGRESS_ERROR_COLOR);
       failure.setBorder(BorderFactory.createEmptyBorder(8, 0, 0, 0));
+      failure.setAlignmentX(java.awt.Component.LEFT_ALIGNMENT);
       section.add(failure);
     }
 
