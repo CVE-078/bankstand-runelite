@@ -132,4 +132,54 @@ public class SubmitEnvelopeTest {
             null, null, null, null, null, "");
     assertFalse(empty.containsKey("accountType"));
   }
+
+  @Test
+  public void carriesCombatAchievementBossCountsWhenThereAreAny() {
+    java.util.Map<String, Integer> bossCounts = new java.util.LinkedHashMap<>();
+    bossCounts.put("Vorkath", 4);
+    bossCounts.put("Zulrah", 0);
+    Map<String, Object> body =
+        SubmitEnvelope.body(
+            "id", 1, "1.0.0", "2026-08-09T10:00:00Z", 42L, "Zezima",
+            java.util.Collections.singletonMap("attack", 100),
+            null, null, null, null, null, null, false, bossCounts);
+
+    @SuppressWarnings("unchecked")
+    Map<String, Object> sent = (Map<String, Object>) body.get("combatAchievementBossCounts");
+    assertEquals(Integer.valueOf(4), sent.get("Vorkath"));
+    // A genuine zero is a fact (the boss's tasks were read and none are done), not the
+    // same thing as the boss never having been read at all.
+    assertEquals(Integer.valueOf(0), sent.get("Zulrah"));
+  }
+
+  @Test
+  public void omitsCombatAchievementBossCountsWhenThereAreNone() {
+    // Absent means "not observed"; a present-but-empty block is treated as an erase by
+    // the per-capability merge, the same trap every other block here avoids.
+    Map<String, Object> none =
+        SubmitEnvelope.body(
+            "id", 1, "1.0.0", "2026-08-09T10:00:00Z", 42L, "Zezima",
+            java.util.Collections.singletonMap("attack", 100),
+            null, null, null, null, null, null, false, new java.util.LinkedHashMap<>());
+    assertFalse(none.containsKey("combatAchievementBossCounts"));
+
+    Map<String, Object> nullCounts =
+        SubmitEnvelope.body(
+            "id", 1, "1.0.0", "2026-08-09T10:00:00Z", 42L, "Zezima",
+            java.util.Collections.singletonMap("attack", 100),
+            null, null, null, null, null, null, false, null);
+    assertFalse(nullCounts.containsKey("combatAchievementBossCounts"));
+  }
+
+  @Test
+  public void aPreExistingCallerWithNoBossCountsStillOmitsTheBlock() {
+    // The 14-arg overload every caller before this field existed still compiles
+    // against; it must keep omitting the new field, not send it as empty.
+    Map<String, Object> body =
+        SubmitEnvelope.body(
+            "id", 1, "1.0.0", "2026-08-09T10:00:00Z", 42L, "Zezima",
+            java.util.Collections.singletonMap("attack", 100),
+            null, null, null, null, null, null, false);
+    assertFalse(body.containsKey("combatAchievementBossCounts"));
+  }
 }
