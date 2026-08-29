@@ -46,6 +46,15 @@ public class CombatAchievementCompletionCapture extends BaseCapture {
   private static final Pattern POINTS_SUFFIX_PATTERN =
       Pattern.compile("\\s+\\(\\d+ points?\\)$");
 
+  // The real broadcast can also carry a leading "@word@" icon tag directly against the
+  // task name (observed live: "@ach_comp@Perfect Shellbane"), the game client's own
+  // inline icon-substitution syntax (distinct from the "<...>" tags RuneLite's
+  // Text.removeTags already strips), left raw because a plugin reads the chat line
+  // before the client resolves it to an icon. Not in Dink's fixtures either, the same
+  // gap the CA_ID prefix above was. Stripped for the same reason as the points suffix:
+  // this becomes a permanent primary key with no later sync to fix it.
+  private static final Pattern ICON_TAG_PREFIX_PATTERN = Pattern.compile("^@\\w+@");
+
   // Matches the server's own bound (MAX_NAME_LENGTH in events-envelope.ts). The server
   // validates a whole batch in one schema parse and 400s the WHOLE BATCH on any one
   // event failing, so one oversized name must never reach the outbox: it would
@@ -86,7 +95,8 @@ public class CombatAchievementCompletionCapture extends BaseCapture {
     if (!CombatAchievementVarbits.ALL.containsKey(tier)) {
       return;
     }
-    String taskName = POINTS_SUFFIX_PATTERN.matcher(matcher.group(2)).replaceFirst("").trim();
+    String rawName = ICON_TAG_PREFIX_PATTERN.matcher(matcher.group(2)).replaceFirst("");
+    String taskName = POINTS_SUFFIX_PATTERN.matcher(rawName).replaceFirst("").trim();
     // The strip above can consume the whole captured group (a double space before the
     // suffix leaves nothing), and a whitespace-only capture is min(1)-valid junk the
     // same way an empty one is: either would 400 the whole batch on the server's own
