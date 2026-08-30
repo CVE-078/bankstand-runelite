@@ -56,6 +56,27 @@ public class CombatAchievementCompletionCaptureTest {
   }
 
   @Test
+  public void stripsALeadingIconTagFromTheTaskName() throws IOException {
+    // Observed live (2026-08-29): the real broadcast can carry a leading "@word@" icon
+    // tag directly against the task name, the game's own inline icon-substitution
+    // syntax, left raw because the chat line reaches the plugin before the client
+    // resolves it. Caught the same way the CA_ID prefix was: an actual live capture,
+    // not an assumed wording.
+    EventOutbox outbox = outboxIn(newFile());
+    CombatAchievementCompletionCapture capture =
+        new CombatAchievementCompletionCapture(outbox, () -> true, () -> 1L);
+
+    capture.handleMessage(
+        "Congratulations, you've completed a medium combat task: @ach_comp@Perfect"
+            + " Shellbane.");
+
+    assertTrue(!outbox.pending().isEmpty());
+    assertEquals("medium", outbox.pending().get(0).getEvent().getPayload().get("tier"));
+    assertEquals(
+        "Perfect Shellbane", outbox.pending().get(0).getEvent().getPayload().get("taskName"));
+  }
+
+  @Test
   public void emitsOnAnIndefiniteArticleAnVariant() throws IOException {
     // "an easy"/"an elite" use the "an" article; the pattern must accept both a/an.
     EventOutbox outbox = outboxIn(newFile());
