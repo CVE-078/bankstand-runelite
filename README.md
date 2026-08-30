@@ -19,11 +19,11 @@ Each of these is a separate toggle, and each names exactly what it sends.
 - **Quest progress** and **achievement diary progress.** Opt-in. Diaries are captured at tier level:
   a tier reads complete or not.
 - **Combat achievements.** Opt-in. Sends a completed count per tier, because that is all the client
-  exposes for the tier as a whole, plus which task as the game announces its completion in chat.
-  A tier reading 23 of 41 cannot say which 23 from before you turned this on; only tasks completed
-  while the plugin is running are named. Also sends a completed count per boss or activity, for
-  the ones the game exposes a counter for; not every boss has one, and it is still a count, never
-  which specific tasks.
+  exposes for the tier as a whole, plus which task as the game announces its completion in chat, and
+  when a whole tier finishes, from the game's own tier-complete message. A tier reading 23 of 41
+  cannot say which 23 from before you turned this on; only tasks completed while the plugin is
+  running are named. Also sends a completed count per boss or activity, for the ones the game
+  exposes a counter for; not every boss has one, and it is still a count, never which specific tasks.
 - **Collection log.** Opt-in. Sends which slots you have filled, and each new unlock as the game
   announces it in chat, so you do not have to open the log to have it captured. The log is not held
   in the client otherwise, so browsing adds what you see, and **opening it and clicking Search**
