@@ -21,6 +21,8 @@ public final class TransientEvent {
   public static final String TYPE_PET_DROP = "pet_drop";
   public static final String TYPE_COLLECTION_LOG_UNLOCK = "collection_log_unlock";
   public static final String TYPE_COMBAT_ACHIEVEMENT_COMPLETED = "combat_achievement_completed";
+  public static final String TYPE_COMBAT_ACHIEVEMENT_TIER_COMPLETED =
+      "combat_achievement_tier_completed";
   public static final String TYPE_DIARY_TASK_COMPLETED = "diary_task_completed";
 
   private final String id;
