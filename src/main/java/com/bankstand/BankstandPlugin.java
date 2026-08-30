@@ -289,6 +289,7 @@ public class BankstandPlugin extends Plugin {
   private PetDropCapture petDropCapture;
   private CollectionLogUnlockCapture collectionLogUnlockCapture;
   private CombatAchievementCompletionCapture combatAchievementCompletionCapture;
+  private CombatAchievementTierCompletionCapture combatAchievementTierCompletionCapture;
   private DiaryTaskCompletionCapture diaryTaskCompletionCapture;
   // The sidebar panel and its toolbar entry point (#1174). Both null while the plugin
   // is stopped; neither is rebuilt on an account switch, only re-rendered.
@@ -397,6 +398,12 @@ public class BankstandPlugin extends Plugin {
             this::isCombatAchievementCompletionCaptureEnabled,
             this::currentAccountHash,
             onEmit);
+    combatAchievementTierCompletionCapture =
+        new CombatAchievementTierCompletionCapture(
+            eventOutbox,
+            this::isCombatAchievementTierCompletionCaptureEnabled,
+            this::currentAccountHash,
+            onEmit);
     diaryTaskCompletionCapture =
         new DiaryTaskCompletionCapture(
             eventOutbox,
@@ -416,6 +423,7 @@ public class BankstandPlugin extends Plugin {
     eventBus.register(petDropCapture);
     eventBus.register(collectionLogUnlockCapture);
     eventBus.register(combatAchievementCompletionCapture);
+    eventBus.register(combatAchievementTierCompletionCapture);
     eventBus.register(diaryTaskCompletionCapture);
 
     // A toolbar icon, not a permanent sidebar tab: this plugin's whole design is chat
@@ -455,6 +463,9 @@ public class BankstandPlugin extends Plugin {
     }
     if (combatAchievementCompletionCapture != null) {
       eventBus.unregister(combatAchievementCompletionCapture);
+    }
+    if (combatAchievementTierCompletionCapture != null) {
+      eventBus.unregister(combatAchievementTierCompletionCapture);
     }
     if (diaryTaskCompletionCapture != null) {
       eventBus.unregister(diaryTaskCompletionCapture);
@@ -1361,6 +1372,18 @@ public class BankstandPlugin extends Plugin {
   // captured with no active session tags the event with accountHash -1, which the
   // server rejects as a 400 that poisons the whole batch.
   private boolean isCombatAchievementCompletionCaptureEnabled() {
+    return pairingClient != null
+        && isPaired()
+        && session.isActive()
+        && isCombatAchievementCaptureEnabled();
+  }
+
+  // Sibling-shaped to isCombatAchievementCompletionCaptureEnabled just above, and for the
+  // same reason: a bare chat listener has no outer precondition check of its own, so it needs
+  // its own pairing/session gates. Reuses isCombatAchievementCaptureEnabled() rather than a
+  // capability of its own: a tier completing is the same disclosure ("Bankstand reads my
+  // combat achievement progress") as a single task completing.
+  private boolean isCombatAchievementTierCompletionCaptureEnabled() {
     return pairingClient != null
         && isPaired()
         && session.isActive()
