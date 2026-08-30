@@ -1,6 +1,6 @@
 # Changelog
 
-Every notable change to the Bankstand RuneLite plugin, in plain language. Internal-only changes (refactors, test changes, dependency bumps) are not listed here.
+Every notable change to the Bankstand RuneLite plugin. Internal-only changes (refactors, test changes, dependency bumps) are not listed here.
 
 ## v0.2.0
 
