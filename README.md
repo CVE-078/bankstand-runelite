@@ -16,8 +16,11 @@ Each of these is a separate toggle, and each names exactly what it sends.
 
 - **Skill XP.** On by default. Checked every 60 seconds while you are logged in, and sent only when
   something actually changed, so an idle account sends nothing.
-- **Quest progress** and **achievement diary progress.** Opt-in. Diaries are captured at tier level:
-  a tier reads complete or not.
+- **Quest progress.** Opt-in. Sends each quest's state: finished, started or not begun.
+- **Achievement diary progress.** Opt-in. Sends a completed task count per tier and whether the tier
+  itself reads complete, because that is all the client exposes for the tier as a whole. Also sends
+  the moment any task completes, with its tier and area, from the game's own chat line. Not which
+  specific task: a tier reading 21 of 22 still cannot say which one is left.
 - **Combat achievements.** Opt-in. Sends a completed count per tier, because that is all the client
   exposes for the tier as a whole, plus which task as the game announces its completion in chat, and
   when a whole tier finishes, from the game's own tier-complete message. A tier reading 23 of 41
@@ -45,7 +48,8 @@ It also takes one last capture as you log out, so the final minute of a session 
 
 Stated plainly, because a gap is easy to mistake for a bug.
 
-- **Individual diary tasks.** Not exposed per task, so a diary tier at 21 of 22 reports nothing.
+- **Which individual diary task just completed.** The moment is captured; which specific task is
+  not, so a tier reading 21 of 22 still cannot say which one is left.
 - **Bank value, worn equipment, inventory and your location.** Not captured, not offered, and not
   requestable by the server.
 - **Your own conversations.** Never sent. The game's own broadcast lines are read where a capability
