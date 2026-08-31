@@ -1,0 +1,10 @@
+name: Feedback
+description: General comments, not a specific bug or request
+labels: [feedback]
+body:
+  - type: textarea
+    id: comments
+    attributes:
+      label: Your feedback
+    validations:
+      required: true
