@@ -1,0 +1,26 @@
+name: Website bug
+description: Something on bankstand.gg is not working
+labels: [bug, web]
+body:
+  - type: input
+    id: url
+    attributes:
+      label: Page
+      description: The bankstand.gg page this happened on.
+      placeholder: "https://bankstand.gg/your-rsn/progress"
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+
+  - type: input
+    id: browser
+    attributes:
+      label: Browser and device
+      placeholder: "Chrome on Windows, iPhone Safari, ..."

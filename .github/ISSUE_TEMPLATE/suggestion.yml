@@ -1,0 +1,22 @@
+name: Suggestion
+description: An idea for the plugin or the website
+labels: [enhancement]
+body:
+  - type: dropdown
+    id: part
+    attributes:
+      label: Which part
+      options:
+        - The RuneLite plugin
+        - The website (bankstand.gg)
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: idea
+    attributes:
+      label: Your idea
+      description: What you'd want, and why it'd help.
+    validations:
+      required: true
