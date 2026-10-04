@@ -14,17 +14,24 @@ import java.util.Set;
  * env var: one region ships the moment it's verified, and a bad one gets pulled without
  * touching {@code PLUGIN_DIARIES_INGEST_ENABLED}.
  *
- * <p>{@link #shipped()} has no verified regions and no entries. The mechanics are built
- * and tested now; the actual per-region content is live-account work, tracked separately.
- * A future region's PR adds its entries and adds itself to {@code VERIFIED_REGIONS}.
+ * <p>{@link #shipped()} now carries a bit-to-task entry for every region {@link
+ * DiaryTaskManifestData} covers (every region except Karamja's three varbit-based tiers),
+ * generated rather than hand-typed; see that class's own doc for how its entries were
+ * derived and its placeholder task names. It still has no verified regions: an
+ * entry existing here is not the same as it being trusted. A future region's PR checks its
+ * entries against a live account, corrects any that are wrong, and only then adds the
+ * region to {@code VERIFIED_REGIONS}.
  *
  * <p>Not a static utility like {@link DiaryTaskVarplayers}: tests construct their own
  * instance with fabricated entries.
  */
 public final class DiaryTaskManifest {
 
-  /** One resolved task: its tier, and its text as read off the diary journal by whoever
-   *  verified it. Never copied from a third party's own reverse-engineered data. */
+  /** One resolved task: its tier, and its name. {@link #shipped()}'s names are synthetic
+   *  ordinal placeholders pending live verification, not transcribed game text; see
+   *  {@link DiaryTaskManifestData}. Once a region is live-verified its real entries should
+   *  carry the text as read off the diary journal, never copied from a third party's own
+   *  reverse-engineered data. */
   public static final class Entry {
     private final String tier;
     private final String taskName;
@@ -57,9 +64,10 @@ public final class DiaryTaskManifest {
     this.byRegion = Collections.unmodifiableMap(copy);
   }
 
-  /** The real, in-production manifest. No verified regions yet. */
+  /** The real, in-production manifest. No verified regions yet: see {@link
+   *  DiaryTaskManifestData} for where its entries come from and why that's unchanged. */
   public static DiaryTaskManifest shipped() {
-    return new DiaryTaskManifest(Set.of(), Map.of());
+    return new DiaryTaskManifest(Set.of(), DiaryTaskManifestData.build());
   }
 
   /** Whether a region is safe to resolve identity from. An unverified region still gets

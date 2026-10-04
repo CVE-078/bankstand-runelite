@@ -20,10 +20,24 @@ public class DiaryTaskManifestTest {
   }
 
   @Test
-  public void shippedResolvesNothing() {
+  public void shippedResolvesARealEntryButGatesItOnVerification() {
+    // shipped() is populated (DiaryTaskManifestDataTest covers the data itself), but
+    // isVerified("ARDOUGNE") is still false, which is what actually keeps this from
+    // reaching a player: DiaryTaskCompletionCapture never calls lookup() unless
+    // isVerified() says yes first.
     DiaryTaskManifest manifest = DiaryTaskManifest.shipped();
 
-    assertNull(manifest.lookup("ARDOUGNE", 1196, 0));
+    assertFalse(manifest.isVerified("ARDOUGNE"));
+    assertEquals("easy", manifest.lookup("ARDOUGNE", 1196, 0).tier());
+  }
+
+  @Test
+  public void shippedResolvesNothingForAGenuinelyUnmappedBit() {
+    // Bit 3 of Ardougne's first varplayer isn't any task (offsets 0,1,2,4,5,... skip it),
+    // the same kind of gap real residual bits leave throughout the manifest.
+    DiaryTaskManifest manifest = DiaryTaskManifest.shipped();
+
+    assertNull(manifest.lookup("ARDOUGNE", 1196, 3));
   }
 
   @Test
