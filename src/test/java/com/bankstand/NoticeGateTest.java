@@ -15,8 +15,7 @@ public class NoticeGateTest {
 
   @Test
   public void suppressesTheSameFailureRepeating() {
-    // The capture cycle runs every 60s, so an unreachable server would otherwise
-    // print the same line forever.
+    // The cycle runs every 60s, so an unreachable server would repeat the line forever.
     NoticeGate gate = new NoticeGate();
     gate.onFailure("Could not reach Bankstand.");
     assertFalse(gate.onFailure("Could not reach Bankstand."));
@@ -25,8 +24,7 @@ public class NoticeGateTest {
 
   @Test
   public void announcesAFailureThatChanges() {
-    // A different reason is new information: reachable-but-rejected is a different
-    // problem from unreachable, and needs a different fix.
+    // A different reason is new information.
     NoticeGate gate = new NoticeGate();
     gate.onFailure("Could not reach Bankstand.");
     assertTrue(gate.onFailure("Your device token is no longer valid."));
@@ -35,7 +33,6 @@ public class NoticeGateTest {
   @Test
   public void announcesRecoveryOnlyWhenSomethingWasWrong() {
     NoticeGate gate = new NoticeGate();
-    // Nothing outstanding: a healthy submit is not worth a line every 60s.
     assertFalse(gate.onSuccess());
 
     gate.onFailure("Could not reach Bankstand.");
@@ -45,8 +42,7 @@ public class NoticeGateTest {
 
   @Test
   public void announcesTheSameFailureAgainAfterARecovery() {
-    // An intermittent failure is worth reporting each time it returns: the player
-    // saw it clear, so its coming back is news.
+    // A failure returning after it cleared is news.
     NoticeGate gate = new NoticeGate();
     gate.onFailure("Could not reach Bankstand.");
     gate.onSuccess();
@@ -55,8 +51,7 @@ public class NoticeGateTest {
 
   @Test
   public void treatsAMissingReasonAsItsOwnState() {
-    // SubmitException.getMessage() is nullable, and a null must not blow up the
-    // notice path or read as "same as the last real failure".
+    // getMessage() is nullable; null must not throw or match a real failure.
     NoticeGate gate = new NoticeGate();
     assertTrue(gate.onFailure(null));
     assertFalse(gate.onFailure(null));

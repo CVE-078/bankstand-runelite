@@ -22,11 +22,7 @@ public class IdentityNoticeTest {
         BankstandPlugin.identityNoticeFor(false, null, "no_claim"));
   }
 
-  /**
-   * The exact defect the incident behind #608 reported: a claimed character told
-   * the player to claim it, which sent them in circles across three pairing
-   * attempts. A contested binding gets its own message with a different remedy.
-   */
+  /** A contested binding gets its own message, not "claim this character". */
   @Test
   public void saysAlreadyLinkedRatherThanNotClaimedWhenAnotherAccountHoldsIt() {
     String message = BankstandPlugin.identityNoticeFor(false, null, "held_by_other");
@@ -45,12 +41,7 @@ public class IdentityNoticeTest {
         BankstandPlugin.identityNoticeFor(false, null, "hash_bound_elsewhere"));
   }
 
-  /**
-   * Additive-field compatibility (#753): a server this build predates never sends
-   * `outcome` at all, and a future outcome this build does not recognise falls
-   * back the same way. Both must keep behaving exactly as the pre-#608 client did,
-   * never silently drop the notice or throw on a null/unrecognised value.
-   */
+  /** A missing or unknown {@code outcome} falls back to the generic notice, never throws. */
   @Test
   public void fallsBackToNotClaimedForAMissingOrUnrecognisedOutcome() {
     assertEquals(

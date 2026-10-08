@@ -15,17 +15,12 @@ public class CombatAchievementBossVarbitsTest {
 
   @Test
   public void covers68VerifiedSources() {
-    // 77 CA_TOTAL_TASKS_COMPLETED_* constants exist in the real client. 6 are the
-    // exact same varbit ids as the tier-count block (see the class doc) and 3 more
-    // (COWBOSS, DOM, MAD_ANGEL) were left out for lack of a confident name, leaving
-    // 68. This count moving without a matching change to the class doc's own
-    // reasoning is the signal something drifted.
+    // 77 constants exist; 6 duplicate the tier-count varbits and 3 lack a confident name.
     assertEquals(68, CombatAchievementBossVarbits.ALL.size());
   }
 
   @Test
   public void everySourceMapsToADistinctVarbit() {
-    // A copy-paste would attribute one boss's task count to two corpus sources.
     assertEquals(
         CombatAchievementBossVarbits.ALL.size(),
         new HashSet<>(CombatAchievementBossVarbits.ALL.values()).size());
@@ -33,10 +28,7 @@ public class CombatAchievementBossVarbitsTest {
 
   @Test
   public void neverReadsATierCountVarbitAsABoss() {
-    // The trap the class doc calls out by id: CA_TOTAL_TASKS_COMPLETED_EASY and
-    // COMBAT_TASK_EASY are the same varbit (12885), so a boss entry that
-    // accidentally reused one of the six tier ids would double-count a tier as a
-    // fake "boss".
+    // Tier totals share varbit ids with boss totals (12885 is both), so none may be reused.
     Set<Integer> tierVarbits =
         new HashSet<>(
             Arrays.asList(
@@ -53,8 +45,7 @@ public class CombatAchievementBossVarbitsTest {
 
   @Test
   public void everyKeyIsNonEmpty() {
-    // The wire key is the corpus's own source name, not a code, so a blank one
-    // would silently fail the server's join rather than fail loudly here.
+    // The wire key is the corpus source name; a blank one would fail the server join silently.
     for (String key : CombatAchievementBossVarbits.ALL.keySet()) {
       assertTrue(key, !key.trim().isEmpty());
     }
@@ -62,9 +53,7 @@ public class CombatAchievementBossVarbitsTest {
 
   @Test
   public void gargbossIsGrotesqueGuardiansNotThePlainMonster() {
-    // Caught by review: GARGBOSS reads as "Gargoyle Boss", easy to misread as the
-    // plain slayer monster. The corpus itself settles it: "Gargoyle" has one task
-    // (not boss-shaped), "Grotesque Guardians" has fifteen.
+    // GARGBOSS is Grotesque Guardians, not the slayer Gargoyle.
     assertEquals(
         (Integer) VarbitID.CA_TOTAL_TASKS_COMPLETED_GARGBOSS,
         CombatAchievementBossVarbits.ALL.get("Grotesque Guardians"));
@@ -73,10 +62,7 @@ public class CombatAchievementBossVarbitsTest {
 
   @Test
   public void gauntletModesAreNotSwapped() {
-    // Caught by review: the base/hard-mode pairing was backwards on first pass.
-    // The corpus's own task text is unambiguous: every Crystalline Hunllef task
-    // reads "Complete the Gauntlet" (the unsuffixed, base-mode varbit); every
-    // Corrupted Hunllef task reads "Complete the Corrupted Gauntlet" (_HM).
+    // The unsuffixed varbit is the base Gauntlet; _HM is Corrupted.
     assertEquals(
         (Integer) VarbitID.CA_TOTAL_TASKS_COMPLETED_GAUNTLET,
         CombatAchievementBossVarbits.ALL.get("Crystalline Hunllef"));

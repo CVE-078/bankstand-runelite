@@ -6,22 +6,12 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * What one character has already had accepted by the server, and what its client has
- * observed, in the form that survives a restart.
+ * Per-character state that survives a restart: what the server has accepted, and what the client
+ * has observed. Digests are cheap to lose (one redundant submit); collection log observations are
+ * not, since the game reveals the log only while the player looks at it.
  *
- * <p>Two kinds of thing live here and the difference matters. The three digests are
- * *verdicts*: skills, quests and diaries are re-read live on every capture, so losing a
- * digest costs one redundant submission and nothing else. The collection log entries
- * are *observations*: the game reveals the log only while the player is looking at it,
- * so losing them cannot be recovered by asking the client again.
- *
- * <p><b>{@code collectionLogAcked} and {@code collectionLogItems} must persist together
- * or not at all.</b> The acked figure is a count over the observed set, valid only while
- * that set grows monotonically. Persist the count while the set resets and a later
- * partial browse reads as a change and churns every session; persist the set while
- * deriving the count from it and a log whose submission failed is silently treated as
- * delivered and never sent again. A baseline and the state it is a baseline of need the
- * same lifetime.
+ * <p>{@code collectionLogAcked} and {@code collectionLogItems} must persist together: the acked
+ * count is only valid against the set it counted.
  *
  * <p>Gson populates this by field, so the field names are the on-disk format.
  */
@@ -32,38 +22,20 @@ public class AckedState {
   private String diaries;
   private String combatAchievements;
 
-  /**
-   * The last account type the server acknowledged.
-   *
-   * <p>The value itself, not a digest, unlike every collection-shaped field here: it is
-   * one short word, so hashing it would cost the ability to read this file in a bug
-   * report and buy nothing.
-   */
+  // The value itself, not a digest: one short word, readable in a bug report.
   private String accountType;
   private Set<Integer> collectionLogItems;
   private int collectionLogAcked;
 
   /**
-   * When each capability last had a fresh acknowledgement from the server, epoch millis,
-   * keyed by the same capability name {@code manifest.allows(...)} and {@code
-   * SubmitSnapshotResponse#isBlockStored(...)} already use ("skills", "collectionLog", and
-   * so on).
-   *
-   * <p>A digest says whether a capability's last-known value differs from what the server
-   * has; it says nothing about when that last happened, which is what the panel's
-   * per-capability list needs. Stamped only on a cycle where the server actually
-   * acknowledged fresh data for that capability, never on a resend of something already
-   * acknowledged, so it answers "when did this last genuinely sync" rather than "when did
-   * the plugin last try".
+   * Epoch millis of each capability's last fresh server acknowledgement, keyed by capability
+   * name. Never stamped on a resend of already-acked data.
    */
   private Map<String, Long> lastSyncedAt;
 
   /**
-   * Last-known value of every diary varplayer read so far, keyed by varplayer id. A raw
-   * value rather than a digest, because {@link DiaryTaskCompletionCapture}'s per-task
-   * identity resolution needs the actual prior bit pattern to XOR against. See
-   * {@link DiaryTaskBits} for why this has to survive a restart, same as
-   * {@code collectionLogItems}.
+   * Last raw value of each diary varplayer, keyed by id. Raw, not a digest, because per-task
+   * detection XORs against the prior bits.
    */
   private Map<Integer, Integer> diaryTaskBits;
 
@@ -117,10 +89,7 @@ public class AckedState {
     this.accountType = accountType;
   }
 
-  /**
-   * Never null, even when the stored document omitted the field or set it null, so a
-   * hand-edited or older file cannot hand a caller a null set to iterate.
-   */
+  // Never null, even if the stored file omits the field.
   public Set<Integer> getCollectionLogItems() {
     if (collectionLogItems == null) {
       collectionLogItems = new LinkedHashSet<>();
@@ -141,10 +110,7 @@ public class AckedState {
     this.collectionLogAcked = acked;
   }
 
-  /**
-   * Never null, even when the stored document omitted the field or set it null, so a
-   * hand-edited or older file cannot hand a caller a null map to iterate.
-   */
+  // Never null, even if the stored file omits the field.
   public Map<String, Long> getLastSyncedAt() {
     if (lastSyncedAt == null) {
       lastSyncedAt = new LinkedHashMap<>();
@@ -152,15 +118,11 @@ public class AckedState {
     return lastSyncedAt;
   }
 
-  /** Copied, so a caller mutating the map it passed in cannot reach back into this state. */
   public void setLastSyncedAt(Map<String, Long> lastSyncedAt) {
     this.lastSyncedAt = new LinkedHashMap<>(lastSyncedAt);
   }
 
-  /**
-   * Never null, even when the stored document omitted the field or set it null, so a
-   * hand-edited or older file cannot hand a caller a null map to iterate.
-   */
+  // Never null, even if the stored file omits the field.
   public Map<Integer, Integer> getDiaryTaskBits() {
     if (diaryTaskBits == null) {
       diaryTaskBits = new LinkedHashMap<>();

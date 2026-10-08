@@ -7,8 +7,6 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import org.junit.Test;
 
-/** {@link AckedState}'s own getter/setter behaviour, isolated from the file it persists
- *  through (see {@link AckedStateStoreTest} for the round-trip). */
 public class AckedStateTest {
 
   @Test
@@ -29,8 +27,7 @@ public class AckedStateTest {
     assertEquals(2_000L, (long) state.getLastSyncedAt().get("quests"));
   }
 
-  /** A caller mutating the map it passed in must not reach back into the state, the same
-   *  defensive-copy rule {@code setCollectionLogItems} already follows. */
+  /** The setter copies the map it is given. */
   @Test
   public void copiesTheMapPassedIn() {
     AckedState state = AckedState.empty();
@@ -43,9 +40,7 @@ public class AckedStateTest {
     assertEquals(1_000L, (long) state.getLastSyncedAt().get("skills"));
   }
 
-  /** A document read back from an older on-disk shape has no field at all, which Gson
-   *  leaves null rather than an empty map; the getter must still hand out something
-   *  iterable. */
+  /** An older document leaves the field null; the getter must still return a map. */
   @Test
   public void aNullFieldReadsAsEmptyNotNull() {
     AckedState state = new AckedState();

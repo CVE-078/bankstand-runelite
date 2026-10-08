@@ -24,9 +24,7 @@ public class QuestDiaryTriggerTest {
 
   @Test
   public void ignoresAnUnrelatedCongratulationsMessage() {
-    // The word "Congratulations" alone is not enough: a level-up or a clue-scroll
-    // reward also starts this way and must not trigger an early resubmit for
-    // something captureSkills() was never going to change anyway.
+    // Level-ups and clue rewards also start with "Congratulations" and must not trigger.
     assertFalse(
         BankstandPlugin.isQuestOrDiaryCompletionMessage(
             "Congratulations, you've reached level 99 in Woodcutting!"));

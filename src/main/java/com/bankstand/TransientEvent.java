@@ -5,15 +5,8 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * One discrete, one-shot fact for the outbox: a notable drop, a pet drop,
- * and whatever else joins later. Unlike the skills/quests/diaries snapshot, this
- * is never overwritten by a newer capture of the same thing; each occurrence is
- * its own event with its own {@link UuidV7} id, which is what lets the server ack
- * (and the outbox drop) entries independently rather than as one submission.
- *
- * <p>Immutable and Gson-serializable as-is: the field names here are exactly the
- * wire shape {@code lib/plugin/events-envelope.ts} validates, so no separate DTO
- * mapping step exists to drift from it.
+ * A one-shot event for the outbox (a drop, a pet, a completion). Each has its own {@link UuidV7}
+ * id so the server acks it independently. Field names are the wire format; do not rename them.
  */
 public final class TransientEvent {
 
@@ -34,7 +27,7 @@ public final class TransientEvent {
     this(UuidV7.generate(), type, Instant.now().toString(), payload);
   }
 
-  /** For deserializing a persisted entry, where the id and time must survive a restart. */
+  /** For a persisted entry, so the id and time survive a restart. */
   public TransientEvent(String id, String type, String occurredAt, Map<String, Object> payload) {
     this.id = id;
     this.type = type;

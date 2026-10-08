@@ -28,7 +28,6 @@ public class SubmitEnvelopeContractTest {
     Map<String, Integer> skills = new LinkedHashMap<>();
     skills.put("attack", 5500000);
     skills.put("slayer", 101333);
-    // Build the envelope from the fixture's own field values.
     Map<String, Object> body =
         SubmitEnvelope.body(
             want.get("submissionId").getAsString(),
@@ -39,8 +38,7 @@ public class SubmitEnvelopeContractTest {
             want.get("displayName").getAsString(),
             skills);
     JsonObject got = new Gson().toJsonTree(body).getAsJsonObject();
-    // JsonObject equality is order-insensitive, so this pins the shape, keys, and
-    // value types against the frozen server contract.
+    // JsonObject equality is order-insensitive: this pins keys and value types.
     assertEquals(want, got);
   }
 
@@ -69,7 +67,6 @@ public class SubmitEnvelopeContractTest {
     quests.put("COOKS_ASSISTANT", "FINISHED");
     quests.put("DRAGON_SLAYER_I", "IN_PROGRESS");
     quests.put("THE_RESTLESS_GHOST", "NOT_STARTED");
-    // Build the envelope from the fixture's own field values.
     Map<String, Object> body =
         SubmitEnvelope.body(
             want.get("submissionId").getAsString(),
@@ -93,7 +90,6 @@ public class SubmitEnvelopeContractTest {
     diaries.put("ARDOUGNE_EASY", "COMPLETE");
     diaries.put("KOUREND_KEBOS_MEDIUM", "INCOMPLETE");
     diaries.put("WESTERN_PROVINCES_ELITE", "INCOMPLETE");
-    // Build the envelope from the fixture's own field values.
     Map<String, Object> body =
         SubmitEnvelope.body(
             want.get("submissionId").getAsString(),
@@ -139,8 +135,6 @@ public class SubmitEnvelopeContractTest {
     JsonObject want = fixture("submit-v1.collectionlog-complete.json");
     Map<String, Integer> skills = new LinkedHashMap<>();
     skills.put("attack", 5500000);
-    // Built via the fullest overload (#466): the guided Search read finished, so the
-    // envelope carries collectionLogFullyEnumerated alongside the items it always sent.
     Map<String, Object> body =
         SubmitEnvelope.body(
             want.get("submissionId").getAsString(),

@@ -8,14 +8,8 @@ import java.util.Map;
 import org.junit.Test;
 
 /**
- * Whether a read taken as the player logs out can be trusted.
- *
- * <p>The final minute of a session is otherwise never captured, which is what #643 is
- * about. The catch is that this read happens after the client has left the world, and
- * whether skill XP is still readable there cannot be verified outside a running client.
- * So the read is checked instead of trusted: anything that looks like a cleared client
- * is discarded, and discarding costs nothing because the next login re-reads live state
- * that already includes those minutes.
+ * A read taken at logout cannot be verified outside a live client, so anything that looks
+ * like a cleared client is discarded. The next login re-reads it anyway.
  */
 public class FinalReadTest {
 
@@ -36,7 +30,6 @@ public class FinalReadTest {
     assertTrue(BankstandPlugin.isPlausibleFinalRead(xp(100, 200), xp(140, 200)));
   }
 
-  /** A cleared client reads as zeroes, and submitting those is an XP regression. */
   @Test
   public void rejectsAZeroedRead() {
     assertFalse(BankstandPlugin.isPlausibleFinalRead(xp(100, 200), xp(0, 0)));
@@ -60,18 +53,13 @@ public class FinalReadTest {
     assertFalse(BankstandPlugin.isPlausibleFinalRead(xp(100, 200), partial));
   }
 
-  /**
-   * With no previous read there is nothing to compare against, so a non-empty one is
-   * taken at face value. It still goes through the same submit path, where the server's
-   * own regression guard is the backstop.
-   */
+  /** With no previous read, a non-empty one is taken at face value. */
   @Test
   public void acceptsAnyNonEmptyReadWhenThereIsNoPreviousOne() {
     assertTrue(BankstandPlugin.isPlausibleFinalRead(null, xp(100, 200)));
     assertFalse(BankstandPlugin.isPlausibleFinalRead(null, new LinkedHashMap<>()));
   }
 
-  /** A genuinely zero skill is real for a fresh account, and must not be mistaken. */
   @Test
   public void acceptsAZeroThatWasAlreadyZero() {
     assertTrue(BankstandPlugin.isPlausibleFinalRead(xp(0, 0), xp(0, 0)));

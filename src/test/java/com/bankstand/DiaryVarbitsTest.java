@@ -52,10 +52,7 @@ public class DiaryVarbitsTest {
 
   @Test
   public void karamjaCarriesAllFourTiersLikeEveryOtherRegion() {
-    // Its easy/medium/hard flags live outside the block the other regions use, which
-    // once had them excluded as suspected task counters. VarbitID names those exact
-    // ids ATJUN_EASY_DONE / ATJUN_MED_DONE / ATJUN_HARD_DONE, so they are completion
-    // flags and belong here.
+    // Karamja's flags sit outside the main block; VarbitID names them ATJUN_*_DONE.
     Set<String> karamja = new HashSet<>();
     for (Map.Entry<String, Integer> e : DiaryVarbits.ALL.entrySet()) {
       if (regionPrefix(e.getKey()).equals("KARAMJA")) {
@@ -71,23 +68,20 @@ public class DiaryVarbitsTest {
 
   @Test
   public void coversAllFortyEightTiers() {
-    // Twelve regions, four tiers each. The server treats an omitted key as "not
-    // observed", so a gap here is silently a blind spot rather than an error.
+    // An omitted key reads as "not observed", so a gap is a silent blind spot.
     assertEquals(48, DiaryVarbits.ALL.size());
   }
 
   @Test
   public void keepsKaramjasPreBlockVarbitIds() {
-    // Pinned because they look wrong next to the 4458-4498 block and have already
-    // been removed once on that suspicion.
+    // Pinned: they look wrong next to the 4458-4498 block but are correct.
     assertEquals(Integer.valueOf(3578), DiaryVarbits.ALL.get("KARAMJA_EASY"));
     assertEquals(Integer.valueOf(3599), DiaryVarbits.ALL.get("KARAMJA_MEDIUM"));
     assertEquals(Integer.valueOf(3611), DiaryVarbits.ALL.get("KARAMJA_HARD"));
     assertEquals(Integer.valueOf(4566), DiaryVarbits.ALL.get("KARAMJA_ELITE"));
   }
 
-  // Strips the trailing tier suffix, leaving the region prefix (which may itself
-  // contain underscores, e.g. KOUREND_KEBOS).
+  // Strips the tier suffix; the region prefix may contain underscores (KOUREND_KEBOS).
   private static String regionPrefix(String wireKey) {
     int lastUnderscore = wireKey.lastIndexOf('_');
     return wireKey.substring(0, lastUnderscore);

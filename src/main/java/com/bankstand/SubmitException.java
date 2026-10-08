@@ -1,11 +1,8 @@
 package com.bankstand;
 
 /**
- * An identity submit that failed for any reason (not paired, network, a rejected
- * or revoked token, a bad response). The message is generic and safe to surface;
- * the raw token and account hash are never logged. {@link #isRetryable()} marks
- * transient failures (network, 429, 5xx) that a bounded retry may clear, so the
- * caller retries those and fails fast on terminal ones (a revoked token, a 4xx).
+ * A failed submit. The message is generic and safe to show; never put the token or account hash
+ * in it. {@link #isRetryable()} marks transient failures (network, 429, 5xx).
  */
 public class SubmitException extends Exception {
   private final boolean retryable;
@@ -29,11 +26,7 @@ public class SubmitException extends Exception {
     return retryable;
   }
 
-  /**
-   * A rejected or revoked token (401/403). Distinct from an ordinary terminal failure
-   * because retrying never fixes it, only re-pairing does, so the caller has to stop
-   * submitting rather than try again next capture.
-   */
+  /** A rejected or revoked token (401/403): only re-pairing fixes it, so stop submitting. */
   public boolean isAuthFailure() {
     return authFailure;
   }

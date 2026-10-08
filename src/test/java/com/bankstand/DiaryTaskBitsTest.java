@@ -51,7 +51,7 @@ public class DiaryTaskBitsTest {
 
   @Test
   public void doesNotReportABitGoingFromSetToUnset() {
-    // Shouldn't happen (nothing un-completes a diary task), must not crash either way.
+    // Nothing un-completes a diary task, but it must not crash.
     DiaryTaskBits bits = new DiaryTaskBits();
     bits.diff(1196, 0b0111);
 
@@ -66,7 +66,6 @@ public class DiaryTaskBitsTest {
     bits.diff(1196, 0b0001);
     bits.diff(1196, 0b0011);
 
-    // The baseline is now 0b0011; re-reading the same value reports nothing new.
     assertArrayEquals(new int[0], bits.diff(1196, 0b0011));
   }
 
@@ -76,7 +75,6 @@ public class DiaryTaskBitsTest {
     bits.diff(1196, 0b0001);
     bits.diff(1197, 0b0001);
 
-    // A bit newly set on one varplayer must not be diffed against another's baseline.
     int[] first = bits.diff(1196, 0b0011);
     int[] second = bits.diff(1198, 0b0001);
 
@@ -91,7 +89,6 @@ public class DiaryTaskBitsTest {
 
     bits.reset();
 
-    // A reset makes this a first observation again, not three newly completed tasks.
     assertArrayEquals(new int[0], bits.diff(1196, 0b0111));
   }
 
@@ -105,7 +102,6 @@ public class DiaryTaskBitsTest {
     DiaryTaskBits restored = new DiaryTaskBits();
     restored.restore(saved);
 
-    // Diffs against the restored baseline, not a fresh first observation.
     assertArrayEquals(new int[] {1}, restored.diff(1196, 0b0011));
     assertEquals(2, saved.size());
     assertTrue(saved.containsKey(1196));

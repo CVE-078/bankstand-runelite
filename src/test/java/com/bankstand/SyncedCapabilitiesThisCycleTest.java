@@ -8,11 +8,7 @@ import static org.junit.Assert.assertTrue;
 import java.util.Map;
 import org.junit.Test;
 
-/**
- * The decision behind the panel's per-capability sync times and recent-activity
- * lines, kept separate from the live submit wiring for the same reason {@code
- * shouldAdvanceX} is: it is testable here, on plain flags, without a live client.
- */
+/** Which capabilities count as synced this cycle, for the panel's sync times and activity. */
 public class SyncedCapabilitiesThisCycleTest {
 
   private static Map<String, String> synced(
@@ -38,12 +34,7 @@ public class SyncedCapabilitiesThisCycleTest {
     assertTrue(synced(false, false, false, false, false, false, false).isEmpty());
   }
 
-  /**
-   * The case this method exists for. Skills rides along on every submission whatever
-   * triggered it, so the server storing the block again is not itself proof that xp
-   * moved: a diary tier completing alone can advance skills too, and that must not
-   * read as "Skills synced".
-   */
+  /** Skills ride along on every submission, so a stored skills block alone is not "synced". */
   @Test
   public void skillsAdvancedWithNoActualChangeIsNotReportedAsSynced() {
     Map<String, String> result = synced(true, false, false, false, false, false, false);
@@ -58,9 +49,7 @@ public class SyncedCapabilitiesThisCycleTest {
     assertEquals("Skills synced", result.get("skills"));
   }
 
-  /** Unlike skills, an advanced quests/diaries/accountType flag already means "this
-   *  specific capability changed": submitSnapshot only receives a non-null value for
-   *  one of those when plan() decided it had, so no separate changed flag is needed. */
+  /** A non-null quests, diaries or accountType value already means that capability changed. */
   @Test
   public void questsDiariesAndAccountTypeEachGetTheirOwnLineWhenAdvanced() {
     Map<String, String> result = synced(false, false, true, true, false, false, true);
@@ -70,9 +59,7 @@ public class SyncedCapabilitiesThisCycleTest {
     assertEquals("Account type synced", result.get("accountType"));
   }
 
-  /** The collection log and combat achievements still get a fresh sync time, just no
-   *  generic line: their own chat-triggered captures already contribute a more
-   *  specific one the moment an item or task is observed. */
+  /** The collection log and combat achievements log their own more specific lines. */
   @Test
   public void collectionLogAndCombatAchievementsGetATimeButNoLine() {
     Map<String, String> result = synced(false, false, false, false, true, true, false);

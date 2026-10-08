@@ -7,12 +7,7 @@ import static org.junit.Assert.assertTrue;
 import com.bankstand.BankstandPlugin.CommandAction;
 import org.junit.Test;
 
-/**
- * Covers the pure half of {@code ::bstand} dispatch (#834): which command string is ours,
- * and which action word resolves to which {@link CommandAction}. What each action actually
- * does (armCollectionLogRead, requestManualCapture, ...) still needs a live Client/
- * ConfigManager and stays outside this file's reach, same as before this split.
- */
+/** Which {@code ::bstand} command is ours and which word maps to which action. */
 public class CommandDispatchTest {
 
   @Test
@@ -54,8 +49,6 @@ public class CommandDispatchTest {
 
   @Test
   public void commandsIsAnAliasForHelp() {
-    // "help" is the conventional word; "commands" is the one a player reaching for
-    // a full list is just as likely to try first. Same listing either way.
     assertEquals(CommandAction.HELP, BankstandPlugin.actionFor(new String[] {"commands"}));
   }
 
@@ -72,8 +65,7 @@ public class CommandDispatchTest {
 
   @Test
   public void ignoresArgumentsPastTheFirst() {
-    // A stray extra word (a typo'd second argument, say) must not change which
-    // action runs; only the first word is the action.
+    // Only the first word is the action.
     assertEquals(
         CommandAction.SYNC, BankstandPlugin.actionFor(new String[] {"sync", "now", "please"}));
   }

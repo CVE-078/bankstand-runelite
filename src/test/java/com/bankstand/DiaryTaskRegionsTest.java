@@ -34,8 +34,7 @@ public class DiaryTaskRegionsTest {
 
   @Test
   public void returnsNullForAnUnrecognisedAreaText() {
-    // A safe miss: DiaryTaskCompletionCapture falls through to the plain tier/area event
-    // exactly as it did before this table existed.
+    // A safe miss: the capture falls back to the plain tier/area event.
     assertNull(DiaryTaskRegions.forAreaText("Not A Real Area"));
     assertNull(DiaryTaskRegions.forAreaText(""));
   }
