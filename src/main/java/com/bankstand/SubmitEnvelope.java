@@ -116,6 +116,7 @@ public final class SubmitEnvelope {
         accountType, fullEnumeration, null);
   }
 
+  /** Kept for callers built before {@code slayerTask} existed. */
   public static Map<String, Object> body(
       String submissionId,
       int schemaVersion,
@@ -132,6 +133,29 @@ public final class SubmitEnvelope {
       String accountType,
       boolean fullEnumeration,
       Map<String, Integer> combatAchievementBossCounts) {
+    return body(
+        submissionId, schemaVersion, pluginVersion, capturedAt, accountHash, displayName, skillXp,
+        questStates, diaryStates, collectionLogItems, combatAchievementCounts, diaryTaskCounts,
+        accountType, fullEnumeration, combatAchievementBossCounts, null);
+  }
+
+  public static Map<String, Object> body(
+      String submissionId,
+      int schemaVersion,
+      String pluginVersion,
+      String capturedAt,
+      long accountHash,
+      String displayName,
+      Map<String, Integer> skillXp,
+      Map<String, String> questStates,
+      Map<String, String> diaryStates,
+      Collection<Integer> collectionLogItems,
+      Map<String, Integer> combatAchievementCounts,
+      Map<String, Integer> diaryTaskCounts,
+      String accountType,
+      boolean fullEnumeration,
+      Map<String, Integer> combatAchievementBossCounts,
+      Map<String, Object> slayerTask) {
     Map<String, Object> body = new LinkedHashMap<>();
     body.put("submissionId", submissionId);
     body.put("schemaVersion", schemaVersion);
@@ -200,6 +224,12 @@ public final class SubmitEnvelope {
     // the player's own profile.
     if (accountType != null && !accountType.isEmpty()) {
       body.put("accountType", accountType);
+    }
+    // Always non-empty when present: {"active": false} is itself an observed state, the
+    // one way to say a finished task is no longer in progress. Absent still means "not
+    // read this time" (the game had not sent its slayer values yet, or the opt-in is off).
+    if (slayerTask != null && !slayerTask.isEmpty()) {
+      body.put("slayerTask", new LinkedHashMap<>(slayerTask));
     }
     return body;
   }

@@ -19,6 +19,8 @@ final class PanelModel {
   final List<ActivityRow> recentActivity;
   final String lastFailureReason;
   final String serverUrl;
+  // Loot is on and sessions are off: the one place the panel offers to turn sessions on.
+  final boolean offerSessions;
 
   PanelModel(
       boolean paired,
@@ -27,7 +29,8 @@ final class PanelModel {
       List<CapabilityRow> capabilities,
       List<ActivityRow> recentActivity,
       String lastFailureReason,
-      String serverUrl) {
+      String serverUrl,
+      boolean offerSessions) {
     this.paired = paired;
     this.linkedName = linkedName;
     this.dot = dot;
@@ -35,6 +38,7 @@ final class PanelModel {
     this.recentActivity = recentActivity;
     this.lastFailureReason = lastFailureReason;
     this.serverUrl = serverUrl;
+    this.offerSessions = offerSessions;
   }
 
   /** What the panel shows before the plugin has ever built a real snapshot: the initial
@@ -47,7 +51,17 @@ final class PanelModel {
         Collections.emptyList(),
         Collections.emptyList(),
         null,
-        serverUrl);
+        serverUrl,
+        false);
+  }
+
+  /**
+   * Whether to show the sessions prompt. Sessions and loot are separate disclosures and
+   * neither turns the other on, so this only ever offers; nothing changes unless the
+   * player presses the button.
+   */
+  static boolean shouldOfferSessions(boolean lootOn, boolean sessionsOn) {
+    return lootOn && !sessionsOn;
   }
 
   /** One row of the per-capability list: a display name and when it last genuinely

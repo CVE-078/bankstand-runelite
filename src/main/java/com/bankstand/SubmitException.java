@@ -10,6 +10,7 @@ package com.bankstand;
 public class SubmitException extends Exception {
   private final boolean retryable;
   private final boolean authFailure;
+  private final long retryAfterMillis;
 
   public SubmitException(String message) {
     this(message, false);
@@ -20,9 +21,15 @@ public class SubmitException extends Exception {
   }
 
   public SubmitException(String message, boolean retryable, boolean authFailure) {
+    this(message, retryable, authFailure, 0L);
+  }
+
+  public SubmitException(
+      String message, boolean retryable, boolean authFailure, long retryAfterMillis) {
     super(message);
     this.retryable = retryable;
     this.authFailure = authFailure;
+    this.retryAfterMillis = retryAfterMillis;
   }
 
   public boolean isRetryable() {
@@ -36,5 +43,13 @@ public class SubmitException extends Exception {
    */
   public boolean isAuthFailure() {
     return authFailure;
+  }
+
+  /**
+   * How long the server asked this client to wait before the next request, from a 429's
+   * {@code Retry-After}. Zero when it did not say, or for any other failure.
+   */
+  public long getRetryAfterMillis() {
+    return retryAfterMillis;
   }
 }

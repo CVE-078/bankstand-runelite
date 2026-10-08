@@ -36,10 +36,23 @@ Each of these is a separate toggle, and each names exactly what it sends.
   types. The hiscores cannot show a Group Ironman at all, so without this Bankstand has to take your
   word for it. Your own answer still wins: Bankstand shows you both and asks.
 - **Notable drops.** Opt-in. Sends unique, untradeable or high-value drops as they happen: the item,
-  its value where it has one, and where it came from. A tradeable drop is sent when its total GE
-  value clears a threshold you set (1,000,000 gp by default). Untradeable items are judged by name
-  instead, not that number.
+  its value where it has one, and the monster it came from. A tradeable drop is sent when its total
+  GE value clears a threshold you set (1,000,000 gp by default). Untradeable items are judged by name
+  instead, not that number. Loot from killing another player is never sent.
 - **Pet drops.** Opt-in. Sends which pet you received and when, as it happens.
+- **Play sessions.** Opt-in. Sends when you log in and log out, and an online mark once a minute
+  while you play on a normal world, so Bankstand can show how long you played. A world hop is not a
+  logout. Nothing about which world, where you are or whether you are idle. Held in memory only, so
+  nothing about it is written to disk.
+- **Full loot.** Opt-in. Sends every item you receive from killing a monster, with the monster's
+  name and how many kills dropped loot, grouped about once a minute. A notable drop goes within
+  seconds instead. Items are sent as ids and quantities; Bankstand works out their value itself.
+  Queued in its own file, so a long session of loot can never push out a queued pet or achievement.
+  Separate from notable drops, and turning it on does not turn on play sessions: the sidebar panel
+  asks, and nothing changes unless you press its button.
+- **Slayer task.** Opt-in. Sends your current task (the creature, how many are left and were
+  assigned, your points and streak), or that you have none, and when you finish one, from the game's
+  own completion message. Read only once the game has had a few seconds after login to send it.
 
 It also takes one last capture as you log out, so the final minute of a session is not lost to the
 60 second schedule. A cleared client reads as zeroes, and that read is rejected rather than sent.
@@ -52,6 +65,13 @@ Stated plainly, because a gap is easy to mistake for a bug.
   not, so a tier reading 21 of 22 still cannot say which one is left.
 - **Bank value, worn equipment, inventory and your location.** Not captured, not offered, and not
   requestable by the server.
+- **Anything about other players.** Loot from a player kill is not captured at all, so another
+  player's name never leaves your client.
+- **The game's own kill counts.** Full loot counts kills that dropped something while it was on.
+  The game's kill-count counters are never read.
+- **Your slayer task's location, block list or unlocks.**
+- **Loot from chests and reward screens** (Barrows, raids, clue caskets and the like). These are not
+  NPC kills, so full loot does not see them.
 - **Your own conversations.** Never sent. The game's own broadcast lines are read where a capability
   above says so (a collection log unlock, a combat achievement completion), never anything you or
   anyone else typed.
@@ -117,6 +137,8 @@ scrolling away with your chat history.
 - **Recent activity.** Named things this device has sent this session, newest first, each with when:
   a collection log unlock, a combat achievement, a diary task, a notable drop, a pet. Not the routine
   skill XP sync, which has nothing worth naming. Resets when RuneLite restarts.
+- **Also collect your play sessions?** Shown only while full loot is on and play sessions are off.
+  Its button turns play sessions on; ignoring it changes nothing.
 - **Sync now** sends immediately, the same as `::bstand sync`. **Open Bankstand** opens your paired
   server in your browser.
 

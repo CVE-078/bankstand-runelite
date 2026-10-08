@@ -22,7 +22,7 @@ public class CapabilityNamesTest {
   @Test
   public void namesEveryEnabledCapability() {
     List<String> all =
-        BankstandPlugin.capabilityNames(true, true, true, true, true, true, true, true);
+        BankstandPlugin.capabilityNames(true, true, true, true, true, true, true, true, true, true, true);
 
     assertEquals(
         List.of(
@@ -33,7 +33,10 @@ public class CapabilityNamesTest {
             "combat achievements",
             "account type",
             "notable drops",
-            "pet drops"),
+            "pet drops",
+            "play sessions",
+            "full loot",
+            "slayer task"),
         all);
   }
 
@@ -45,15 +48,15 @@ public class CapabilityNamesTest {
   @Test
   public void hasOneNamePerCapability() {
     assertEquals(
-        8,
-        BankstandPlugin.capabilityNames(true, true, true, true, true, true, true, true).size());
+        11,
+        BankstandPlugin.capabilityNames(true, true, true, true, true, true, true, true, true, true, true).size());
   }
 
   @Test
   public void namesOnlyWhatIsSwitchedOn() {
     List<String> some =
         BankstandPlugin.capabilityNames(
-            true, false, false, false, true, false, false, false);
+            true, false, false, false, true, false, false, false, false, false, false);
 
     assertEquals(List.of("skills", "combat achievements"), some);
   }
@@ -64,16 +67,25 @@ public class CapabilityNamesTest {
     // periodic snapshot, but the status line has one list for everything switched on.
     List<String> dropsOnly =
         BankstandPlugin.capabilityNames(
-            false, false, false, false, false, false, true, true);
+            false, false, false, false, false, false, true, true, false, false, false);
 
     assertEquals(List.of("notable drops", "pet drops"), dropsOnly);
+  }
+
+  @Test
+  public void namesTheLiveSessionCapabilities() {
+    List<String> live =
+        BankstandPlugin.capabilityNames(
+            false, false, false, false, false, false, false, false, true, true, true);
+
+    assertEquals(List.of("play sessions", "full loot", "slayer task"), live);
   }
 
   @Test
   public void namesNothingWhenEverythingIsOff() {
     assertTrue(
         BankstandPlugin.capabilityNames(
-                false, false, false, false, false, false, false, false)
+                false, false, false, false, false, false, false, false, false, false, false)
             .isEmpty());
   }
 }

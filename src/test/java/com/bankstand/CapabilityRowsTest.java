@@ -25,7 +25,7 @@ public class CapabilityRowsTest {
   public void rowsEveryEnabledCapabilityInTheSameOrderAsCapabilityNames() {
     List<PanelModel.CapabilityRow> rows =
         BankstandPlugin.capabilityRows(
-            true, true, true, true, true, true, true, true, new LinkedHashMap<>());
+            true, true, true, true, true, true, true, true, true, true, true, new LinkedHashMap<>());
 
     assertEquals(
         List.of(
@@ -36,7 +36,10 @@ public class CapabilityRowsTest {
             "Combat achievements",
             "Account type",
             "Notable drops",
-            "Pet drops"),
+            "Pet drops",
+            "Play sessions",
+            "Full loot",
+            "Slayer task"),
         rows.stream().map(row -> row.name).collect(java.util.stream.Collectors.toList()));
   }
 
@@ -44,7 +47,7 @@ public class CapabilityRowsTest {
   public void skipsWhatIsSwitchedOff() {
     List<PanelModel.CapabilityRow> rows =
         BankstandPlugin.capabilityRows(
-            true, false, false, false, true, false, false, false, new LinkedHashMap<>());
+            true, false, false, false, true, false, false, false, false, false, false, new LinkedHashMap<>());
 
     assertEquals(
         List.of("Skills", "Combat achievements"),
@@ -55,7 +58,7 @@ public class CapabilityRowsTest {
   public void rowsNothingWhenEverythingIsOff() {
     assertTrue(
         BankstandPlugin.capabilityRows(
-                false, false, false, false, false, false, false, false, new LinkedHashMap<>())
+                false, false, false, false, false, false, false, false, false, false, false, new LinkedHashMap<>())
             .isEmpty());
   }
 
@@ -63,7 +66,7 @@ public class CapabilityRowsTest {
   public void carriesTheLastSyncedTimeForItsOwnKey() {
     List<PanelModel.CapabilityRow> rows =
         BankstandPlugin.capabilityRows(
-            true, false, false, false, false, false, false, false, syncedAt("skills", 1_000L));
+            true, false, false, false, false, false, false, false, false, false, false, syncedAt("skills", 1_000L));
 
     assertEquals(1, rows.size());
     assertEquals(1_000L, (long) rows.get(0).lastSyncedAtMs);
@@ -73,7 +76,7 @@ public class CapabilityRowsTest {
   public void aNeverSyncedCapabilityCarriesNullRatherThanAFakeTime() {
     List<PanelModel.CapabilityRow> rows =
         BankstandPlugin.capabilityRows(
-            true, false, false, false, false, false, false, false, new LinkedHashMap<>());
+            true, false, false, false, false, false, false, false, false, false, false, new LinkedHashMap<>());
 
     assertNull(rows.get(0).lastSyncedAtMs);
   }
@@ -84,7 +87,7 @@ public class CapabilityRowsTest {
     // stored under a different capability's key.
     List<PanelModel.CapabilityRow> rows =
         BankstandPlugin.capabilityRows(
-            true, false, false, false, false, false, false, false, syncedAt("notableDrops", 1_000L));
+            true, false, false, false, false, false, false, false, false, false, false, syncedAt("notableDrops", 1_000L));
 
     assertNull(rows.get(0).lastSyncedAtMs);
   }

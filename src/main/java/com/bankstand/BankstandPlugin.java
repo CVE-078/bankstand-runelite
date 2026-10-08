@@ -2,7 +2,9 @@ package com.bankstand;
 
 import com.bankstand.dto.EventAck;
 import com.bankstand.dto.PairResponse;
+import com.bankstand.dto.PresenceResponse;
 import com.bankstand.dto.SubmitEventsResponse;
+import com.bankstand.dto.SubmitLootResponse;
 import com.bankstand.dto.SubmitResponse;
 import com.bankstand.dto.SubmitSnapshotResponse;
 import com.bankstand.http.HttpTransport;
@@ -25,11 +27,15 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import javax.inject.Inject;
 import javax.swing.SwingUtilities;
 import net.runelite.api.ChatMessageType;
 import net.runelite.api.Client;
 import net.runelite.api.GameState;
+import net.runelite.api.ItemComposition;
 import net.runelite.api.Player;
 import net.runelite.api.Quest;
 import net.runelite.api.Skill;
@@ -67,8 +73,9 @@ import okhttp3.OkHttpClient;
 @PluginDescriptor(
     name = "Bankstand",
     description =
-        "Sync your skills, quests, achievement diaries, combat achievements and collection log to"
-            + " your Bankstand account. Sends data to an external server.",
+        "Sync your skills, quests, achievement diaries, combat achievements, collection log, play"
+            + " sessions, loot and slayer task to your Bankstand account. Sends data to an"
+            + " external server.",
     tags = {"bankstand", "account", "progress", "external"})
 public class BankstandPlugin extends Plugin {
 
@@ -116,6 +123,11 @@ public class BankstandPlugin extends Plugin {
   private static final String DEVICE_FILE = "device.json";
   private static final String MANIFEST_FILE = "manifest.json";
   private static final String EVENTS_FILE = "events.json";
+  private static final String LOOT_FILE = "loot-outbox.json";
+
+  // The game sends the slayer varps a few ticks after login and they read zero until then,
+  // which is indistinguishable from "no task". Ten ticks is the margin before trusting them.
+  static final int SLAYER_READ_DELAY_TICKS = 10;
 
   // Untradeable notable drops have no GE price to threshold on, so they are
   // judged by name against a curated set instead. Every entry here is a boss/skilling
@@ -291,6 +303,28 @@ public class BankstandPlugin extends Plugin {
   private CombatAchievementCompletionCapture combatAchievementCompletionCapture;
   private CombatAchievementTierCompletionCapture combatAchievementTierCompletionCapture;
   private DiaryTaskCompletionCapture diaryTaskCompletionCapture;
+  private SlayerTaskCompletionCapture slayerTaskCompletionCapture;
+  private final SlayerTaskBaseline slayerTaskBaseline = new SlayerTaskBaseline();
+  // Ticks since the last LOGGED_IN, a login, a hop or a region load alike. Client thread.
+  private int ticksSinceLoggedIn;
+
+  // Loot: aggregated in memory per drain window, queued on disk in its own file.
+  private final LootLedger lootLedger = new LootLedger();
+  private final LootSendPacer lootPacer = new LootSendPacer();
+  private final AtomicBoolean lootSending = new AtomicBoolean();
+  private LootOutbox lootOutbox;
+  private LootCapture lootCapture;
+
+  // Presence: decided by the tracker, held in memory by the queue, sent one at a time.
+  private final PresenceTracker presenceTracker = new PresenceTracker();
+  private final PresenceQueue presenceQueue = new PresenceQueue();
+  private final AtomicBoolean presenceSending = new AtomicBoolean();
+  // Transitions decided on LOGGED_IN go out a tick later, once the login has settled.
+  private final List<PresenceSignal> presenceDueNextTick = new ArrayList<>();
+  private volatile ScheduledFuture<?> hopTimer;
+  // The generation whose first capture skips the change gate, so a session's first skill
+  // point is its true starting XP. -1 when none is owed.
+  private volatile int forcedSubmitGeneration = -1;
   // The sidebar panel and its toolbar entry point (#1174). Both null while the plugin
   // is stopped; neither is rebuilt on an account switch, only re-rendered.
   //
@@ -425,6 +459,35 @@ public class BankstandPlugin extends Plugin {
     eventBus.register(combatAchievementCompletionCapture);
     eventBus.register(combatAchievementTierCompletionCapture);
     eventBus.register(diaryTaskCompletionCapture);
+    slayerTaskCompletionCapture =
+        new SlayerTaskCompletionCapture(
+            eventOutbox,
+            this::isSlayerEventCaptureEnabled,
+            this::currentAccountHash,
+            () -> SlayerTaskReader.read(client),
+            onEmit);
+    eventBus.register(slayerTaskCompletionCapture);
+    lootOutbox = new LootOutbox(new File(ACKED_STATE_DIR, LOOT_FILE), gson);
+    lootCapture =
+        new LootCapture(
+            this::isLootCaptureEnabled,
+            this::currentAccountHash,
+            new LootCapture.Items() {
+              @Override
+              public int canonical(int itemId) {
+                return itemManager.canonicalize(itemId);
+              }
+
+              @Override
+              public boolean isNotable(int itemId, int quantity) {
+                return isNotableStack(itemId, quantity);
+              }
+            },
+            lootLedger,
+            lootOutbox,
+            this::requestFastLootSend,
+            Instant::now);
+    eventBus.register(lootCapture);
 
     // A toolbar icon, not a permanent sidebar tab: this plugin's whole design is chat
     // lines and ::bstand commands for something looked at once per device, and the
@@ -434,7 +497,8 @@ public class BankstandPlugin extends Plugin {
         new BankstandPanel(
             () -> clientThread.invoke(this::runManualSync),
             () -> LinkBrowser.browse(savedServerUrl()),
-            this::refreshPanel);
+            this::refreshPanel,
+            this::turnOnSessions);
     navButton =
         NavigationButton.builder()
             .tooltip("Bankstand")
@@ -469,6 +533,23 @@ public class BankstandPlugin extends Plugin {
     }
     if (diaryTaskCompletionCapture != null) {
       eventBus.unregister(diaryTaskCompletionCapture);
+    }
+    if (slayerTaskCompletionCapture != null) {
+      eventBus.unregister(slayerTaskCompletionCapture);
+    }
+    if (lootCapture != null) {
+      eventBus.unregister(lootCapture);
+    }
+    // Presence is in memory by design: a stopped plugin sends nothing more, and the server
+    // closes the session on silence. Open loot windows are kept on disk for the next start.
+    if (lootOutbox != null) {
+      lootOutbox.addAll(lootLedger.closeAll());
+    }
+    cancelHopTimer();
+    presenceTracker.reset();
+    presenceQueue.clear();
+    synchronized (presenceDueNextTick) {
+      presenceDueNextTick.clear();
     }
     if (navButton != null) {
       clientToolbar.removeNavigation(navButton);
@@ -515,6 +596,58 @@ public class BankstandPlugin extends Plugin {
         && isCollectionLogCaptureEnabled();
   }
 
+  /** Loot is read only from a standard world: other worlds' loot is not the account's own. */
+  private boolean isLootCaptureEnabled() {
+    return pairingClient != null
+        && isPaired()
+        && session.isActive()
+        && isStandardWorld(client.getWorldType())
+        && config.collectLoot()
+        && manifest.allows("loot");
+  }
+
+  /** The {@code slayerTask} block's gate, read inside the capture block. */
+  private boolean isSlayerCaptureEnabled() {
+    return config.collectSlayer() && manifest.allows("slayer");
+  }
+
+  // A chat listener has no outer precondition the way the scheduled capture has, so it
+  // carries its own pairing, session and world gates, like every other chat capture.
+  private boolean isSlayerEventCaptureEnabled() {
+    return pairingClient != null
+        && isPaired()
+        && session.isActive()
+        && isStandardWorld(client.getWorldType())
+        && isSlayerCaptureEnabled();
+  }
+
+  /** Whether a presence signal may leave the client. The tracker runs regardless. */
+  private boolean isSessionCaptureEnabled() {
+    return pairingClient != null
+        && isPaired()
+        && config.collectSessions()
+        && manifest.allows("sessions");
+  }
+
+  /**
+   * The notable-drop rule, reused to decide whether a kill's loot record skips the wait for
+   * the next drain. Client thread, like every item lookup.
+   */
+  private boolean isNotableStack(int itemId, int quantity) {
+    ItemComposition comp = itemManager.getItemComposition(itemId);
+    if (comp == null) {
+      return false;
+    }
+    Long unitValue = comp.isGeTradeable() ? (long) itemManager.getItemPrice(itemId) : null;
+    return NotableDropCapture.qualifies(
+        comp.getName(),
+        comp.isGeTradeable(),
+        unitValue,
+        quantity,
+        config.notableDropThreshold(),
+        NOTABLE_UNTRADEABLE_ALLOWLIST);
+  }
+
   /**
    * Drains the event outbox: every pending entry, grouped by the account it
    * was captured under (see {@link OutboxEntry}), then each group split into chunks
@@ -534,6 +667,11 @@ public class BankstandPlugin extends Plugin {
    */
   @Schedule(period = EVENT_DRAIN_INTERVAL_SECONDS, unit = ChronoUnit.SECONDS)
   public void drainEventOutbox() {
+    pulsePresence();
+    if (lootOutbox != null) {
+      lootOutbox.addAll(lootLedger.closeAll());
+    }
+    drainLoot();
     if (pairingClient == null || eventOutbox == null || !isPaired()) {
       return;
     }
@@ -577,6 +715,188 @@ public class BankstandPlugin extends Plugin {
         });
   }
 
+  /** Offers this minute's "online" mark, while in game on a standard world. */
+  private void pulsePresence() {
+    long hash = presenceTracker.accountHash();
+    if (!presenceTracker.isOnStandardWorld() || hash == AccountSession.LOGGED_OUT) {
+      return;
+    }
+    if (!isSessionCaptureEnabled()) {
+      return;
+    }
+    presenceQueue.offerHeartbeat(
+        new PresenceSignal(PresenceSignal.ACTIVE, hash, System.nanoTime()));
+    sendPresence();
+  }
+
+  /** Queues transitions the player's consent allows, then sends them. */
+  private void enqueuePresence(List<PresenceSignal> signals) {
+    if (signals.isEmpty() || !isSessionCaptureEnabled()) {
+      return;
+    }
+    queuePresence(signals);
+  }
+
+  /** Queues without the consent check: only for the {@code off} that consent itself sends. */
+  private void queuePresence(List<PresenceSignal> signals) {
+    for (PresenceSignal signal : signals) {
+      if (signal.getAccountHash() != AccountSession.LOGGED_OUT) {
+        presenceQueue.addTransition(signal);
+      }
+    }
+    sendPresence();
+  }
+
+  /**
+   * Sends what presence has queued, one value at a time and in order, on the executor.
+   * At most one send chain runs: a second caller finds it busy and leaves its values for
+   * the chain already running, which picks them up before it stops.
+   */
+  private void sendPresence() {
+    if (pairingClient == null || !isPaired()) {
+      return;
+    }
+    if (!presenceSending.compareAndSet(false, true)) {
+      return;
+    }
+    String url = savedServerUrl();
+    String token = deviceStore.load().getToken();
+    executor.submit(() -> runPresenceSends(url, token));
+  }
+
+  private void runPresenceSends(String url, String token) {
+    while (true) {
+      PresenceSignal next = presenceQueue.peek();
+      if (next == null) {
+        presenceSending.set(false);
+        // A value queued between the peek and the release found the chain still busy.
+        if (presenceQueue.peek() == null || !presenceSending.compareAndSet(false, true)) {
+          return;
+        }
+        continue;
+      }
+      BankstandClient client = pairingClient;
+      if (client == null) {
+        presenceSending.set(false);
+        return;
+      }
+      try {
+        PresenceResponse res =
+            client.submitPresence(
+                url,
+                token,
+                next.getAccountHash(),
+                next.getState(),
+                next.elapsedMillis(System.nanoTime()));
+        presenceQueue.onAnswered(next);
+        if (res.isApplied()) {
+          lastSyncedAt.put("sessions", System.currentTimeMillis());
+          if (PresenceSignal.LOGIN.equals(next.getState())) {
+            onSessionStarted(next.getAccountHash());
+          }
+        }
+      } catch (SubmitException e) {
+        log.debug("presence send failed: {}", e.getMessage());
+        if (e.isRetryable()) {
+          presenceQueue.onRetryableFailure(next);
+        } else {
+          presenceQueue.onTerminalFailure(next);
+        }
+        presenceSending.set(false);
+        return;
+      }
+    }
+  }
+
+  /**
+   * A session the server accepted has started: the next capture skips the change gate once,
+   * so the session's first skill point is its true starting XP rather than whatever the
+   * next change happens to be.
+   */
+  private void onSessionStarted(long accountHash) {
+    clientThread.invoke(
+        () -> {
+          if (session.getAccountHash() != accountHash) {
+            return;
+          }
+          forcedSubmitGeneration = session.getGeneration();
+          captureSkills();
+        });
+  }
+
+  /** A notable kill closed its loot window early: send it now, if the pacing allows. */
+  private void requestFastLootSend() {
+    if (lootPacer.tryFastSend(System.currentTimeMillis())) {
+      drainLoot();
+    }
+  }
+
+  /**
+   * Sends the loot outbox: grouped by account, in requests of at most {@link
+   * #MAX_EVENTS_PER_SUBMIT}, one attempt each. A failure leaves the records for the next
+   * drain; a 429 also pauses loot until its {@code Retry-After}. At most one drain runs.
+   */
+  private void drainLoot() {
+    if (pairingClient == null || lootOutbox == null || !isPaired() || !manifest.allows("loot")) {
+      return;
+    }
+    if (!lootPacer.mayDrain(System.currentTimeMillis())) {
+      return;
+    }
+    if (!lootSending.compareAndSet(false, true)) {
+      return;
+    }
+    String url = savedServerUrl();
+    String token = deviceStore.load().getToken();
+    executor.submit(
+        () -> {
+          try {
+            sendLoot(url, token);
+          } finally {
+            lootSending.set(false);
+          }
+        });
+  }
+
+  private void sendLoot(String url, String token) {
+    Map<Long, List<LootEvent>> byAccount = new LinkedHashMap<>();
+    for (LootEntry entry : lootOutbox.pending()) {
+      byAccount.computeIfAbsent(entry.getAccountHash(), key -> new ArrayList<>()).add(entry.getEvent());
+    }
+    for (Map.Entry<Long, List<LootEvent>> group : byAccount.entrySet()) {
+      for (List<LootEvent> chunk : chunk(group.getValue(), MAX_EVENTS_PER_SUBMIT)) {
+        BankstandClient client = pairingClient;
+        if (client == null) {
+          return;
+        }
+        try {
+          SubmitLootResponse res = client.submitLoot(url, token, group.getKey(), chunk);
+          lootOutbox.ack(LootOutbox.idsToAck(res.getAcks()));
+          if (res.getAcks().stream().anyMatch(EventAck::isStored)) {
+            lastSyncedAt.put("loot", System.currentTimeMillis());
+            refreshPanel();
+          }
+        } catch (SubmitException e) {
+          log.debug("loot send failed: {}", e.getMessage());
+          if (e.getRetryAfterMillis() > 0) {
+            lootPacer.pauseFor(System.currentTimeMillis(), e.getRetryAfterMillis());
+          }
+          // The rest waits for the next drain rather than meeting the same failure now.
+          return;
+        }
+      }
+    }
+  }
+
+  /** {@link #chunkEvents} for any element type. */
+  static <T> List<List<T>> chunk(List<T> items, int maxSize) {
+    List<List<T>> chunks = new ArrayList<>();
+    for (int start = 0; start < items.size(); start += maxSize) {
+      chunks.add(new ArrayList<>(items.subList(start, Math.min(start + maxSize, items.size()))));
+    }
+    return chunks;
+  }
+
   /**
    * Splits one account's pending events into batches of at most {@code maxSize}, so a
    * group that has grown past the server's own per-request cap ({@link
@@ -588,11 +908,7 @@ public class BankstandPlugin extends Plugin {
    * same reason {@link #plan} and {@link #capabilityNames} are.
    */
   static List<List<TransientEvent>> chunkEvents(List<TransientEvent> events, int maxSize) {
-    List<List<TransientEvent>> chunks = new ArrayList<>();
-    for (int start = 0; start < events.size(); start += maxSize) {
-      chunks.add(new ArrayList<>(events.subList(start, Math.min(start + maxSize, events.size()))));
-    }
-    return chunks;
+    return chunk(events, maxSize);
   }
 
   /**
@@ -869,7 +1185,10 @@ public class BankstandPlugin extends Plugin {
             config.collectAccountType(),
             config.collectNotableDrops(),
             config.notableDropThreshold(),
-            config.collectPetDrops());
+            config.collectPetDrops(),
+            config.collectSessions(),
+            config.collectLoot(),
+            config.collectSlayer());
     for (String line : lines) {
       notice(line);
     }
@@ -909,6 +1228,7 @@ public class BankstandPlugin extends Plugin {
     map.put(TransientEvent.TYPE_COLLECTION_LOG_UNLOCK, "collectionLog");
     map.put(TransientEvent.TYPE_COMBAT_ACHIEVEMENT_COMPLETED, "combatAchievements");
     map.put(TransientEvent.TYPE_DIARY_TASK_COMPLETED, "diaries");
+    map.put(TransientEvent.TYPE_SLAYER_TASK_COMPLETED, "slayer");
     return map;
   }
 
@@ -927,6 +1247,9 @@ public class BankstandPlugin extends Plugin {
       boolean accountType,
       boolean notableDrops,
       boolean petDrops,
+      boolean sessions,
+      boolean loot,
+      boolean slayer,
       Map<String, Long> lastSyncedAt) {
     List<PanelModel.CapabilityRow> rows = new ArrayList<>();
     if (skills) {
@@ -953,6 +1276,15 @@ public class BankstandPlugin extends Plugin {
     if (petDrops) {
       rows.add(capabilityRow("Pet drops", "petDrops", lastSyncedAt));
     }
+    if (sessions) {
+      rows.add(capabilityRow("Play sessions", "sessions", lastSyncedAt));
+    }
+    if (loot) {
+      rows.add(capabilityRow("Full loot", "loot", lastSyncedAt));
+    }
+    if (slayer) {
+      rows.add(capabilityRow("Slayer task", "slayer", lastSyncedAt));
+    }
     return rows;
   }
 
@@ -970,7 +1302,15 @@ public class BankstandPlugin extends Plugin {
         isCombatAchievementCaptureEnabled(),
         isAccountTypeCaptureEnabled(),
         isNotableDropCaptureEnabled(),
-        isPetDropCaptureEnabled());
+        isPetDropCaptureEnabled(),
+        isSessionCaptureEnabled(),
+        isLootConsented(),
+        isSlayerCaptureEnabled());
+  }
+
+  /** Loot's consent and manifest half alone, for status lines read off the client thread. */
+  private boolean isLootConsented() {
+    return config.collectLoot() && manifest.allows("loot");
   }
 
   /**
@@ -990,7 +1330,10 @@ public class BankstandPlugin extends Plugin {
       boolean combat,
       boolean accountType,
       boolean notableDrops,
-      boolean petDrops) {
+      boolean petDrops,
+      boolean sessions,
+      boolean loot,
+      boolean slayer) {
     java.util.List<String> on = new java.util.ArrayList<>();
     if (skills) {
       on.add("skills");
@@ -1016,6 +1359,15 @@ public class BankstandPlugin extends Plugin {
     if (petDrops) {
       on.add("pet drops");
     }
+    if (sessions) {
+      on.add("play sessions");
+    }
+    if (loot) {
+      on.add("full loot");
+    }
+    if (slayer) {
+      on.add("slayer task");
+    }
     return on;
   }
 
@@ -1038,6 +1390,32 @@ public class BankstandPlugin extends Plugin {
     } else if (BankstandKeys.KEY_DISCONNECT.equals(event.getKey())
         && Boolean.parseBoolean(event.getNewValue())) {
       disconnect();
+    } else if (BankstandKeys.KEY_COLLECT_SESSIONS.equals(event.getKey())) {
+      onSessionsToggled(Boolean.parseBoolean(event.getNewValue()));
+    } else if (BankstandKeys.KEY_COLLECT_LOOT.equals(event.getKey())
+        && !Boolean.parseBoolean(event.getNewValue())) {
+      // Turning loot off means stop: what is still being aggregated is not sent.
+      lootLedger.discard();
+    }
+    if (BankstandKeys.KEY_COLLECT_SESSIONS.equals(event.getKey())
+        || BankstandKeys.KEY_COLLECT_LOOT.equals(event.getKey())) {
+      refreshPanel();
+    }
+  }
+
+  /**
+   * Switching sessions off is the player saying stop, so an open session ends with an
+   * {@code off} that goes out despite the toggle now reading off. Switching it on while in
+   * game starts a session straight away rather than at the next login.
+   */
+  private void onSessionsToggled(boolean on) {
+    long now = System.nanoTime();
+    if (on) {
+      enqueuePresence(presenceTracker.onSessionsTurnedOn(now));
+      return;
+    }
+    if (pairingClient != null && isPaired() && manifest.allows("sessions")) {
+      queuePresence(presenceTracker.onSessionsTurnedOff(now));
     }
   }
 
@@ -1341,6 +1719,9 @@ public class BankstandPlugin extends Plugin {
             isAccountTypeCaptureEnabled(),
             isNotableDropCaptureEnabled(),
             isPetDropCaptureEnabled(),
+            isSessionCaptureEnabled(),
+            isLootConsented(),
+            isSlayerCaptureEnabled(),
             lastSyncedAt);
     PanelPresentation.SyncDot dot =
         PanelPresentation.resolveDot(isPaired(), lastSubmitAtMs > 0L, lastFailureReason != null);
@@ -1351,7 +1732,18 @@ public class BankstandPlugin extends Plugin {
         rows,
         recentActivityLog.recent(),
         lastFailureReason,
-        savedServerUrl());
+        savedServerUrl(),
+        PanelModel.shouldOfferSessions(config.collectLoot(), config.collectSessions()));
+  }
+
+  /**
+   * The panel's sessions prompt, pressed. Sets the player's own setting on their explicit
+   * click, exactly as ticking it would; the change then arrives through {@link
+   * #onConfigChanged} like any other toggle.
+   */
+  private void turnOnSessions() {
+    configManager.setConfiguration(
+        BankstandKeys.GROUP, BankstandKeys.KEY_COLLECT_SESSIONS, Boolean.TRUE.toString());
   }
 
   private boolean isCollectionLogCaptureEnabled() {
@@ -1430,12 +1822,34 @@ public class BankstandPlugin extends Plugin {
   @Subscribe
   public void onGameStateChanged(GameStateChanged event) {
     GameState state = event.getGameState();
-    if (state == GameState.LOGGED_IN) {
+    if (state == GameState.HOPPING) {
+      presenceTracker.onHopping();
+    } else if (state == GameState.LOGGED_IN) {
       // Adopts the account only if it changed; the -1 logged-out sentinel is ignored.
       session.onLogin(client.getAccountHash());
+      // Restarts on every LOGGED_IN, hops and region loads included: the slayer values
+      // are only trusted once the game has had time to send them.
+      ticksSinceLoggedIn = 0;
+      cancelHopTimer();
+      List<PresenceSignal> due =
+          presenceTracker.onLoggedIn(
+              isStandardWorld(client.getWorldType()), client.getAccountHash(), System.nanoTime());
+      synchronized (presenceDueNextTick) {
+        presenceDueNextTick.addAll(due);
+      }
     } else if (state == GameState.LOGIN_SCREEN) {
       // Before onLogout, which clears the session this needs to attribute the read to.
       captureFinalSnapshot();
+      // Loot first, so the last kills are queued before the session's end is.
+      if (lootOutbox != null) {
+        lootOutbox.addAll(lootLedger.closeAll());
+        drainLoot();
+      }
+      enqueuePresence(presenceTracker.onLoginScreen(session.getAccountHash(), System.nanoTime()));
+      if (presenceTracker.isHopTimerArmed()) {
+        armHopTimer();
+      }
+      slayerTaskCompletionCapture.reset();
       session.onLogout();
       // A read belongs to the character that started it, and its interface is gone.
       // Abandoned rather than reported: an outcome nobody is there to read is noise.
@@ -1444,8 +1858,51 @@ public class BankstandPlugin extends Plugin {
     }
   }
 
+  /**
+   * A login screen during a hop waits this long for the hop to land before it counts as a
+   * logout. Runs on the executor, so it touches only the thread-safe tracker and queue.
+   */
+  private void armHopTimer() {
+    cancelHopTimer();
+    hopTimer =
+        executor.schedule(
+            () -> enqueuePresence(presenceTracker.onHopTimer(System.nanoTime())),
+            PresenceTracker.FAILED_HOP_TIMEOUT_NANOS,
+            TimeUnit.NANOSECONDS);
+  }
+
+  private void cancelHopTimer() {
+    ScheduledFuture<?> timer = hopTimer;
+    if (timer != null) {
+      timer.cancel(false);
+      hopTimer = null;
+    }
+  }
+
+  /** Sends the transitions a LOGGED_IN decided, one tick after it. */
+  private void flushDuePresence() {
+    List<PresenceSignal> due;
+    synchronized (presenceDueNextTick) {
+      if (presenceDueNextTick.isEmpty()) {
+        return;
+      }
+      due = new ArrayList<>(presenceDueNextTick);
+      presenceDueNextTick.clear();
+    }
+    enqueuePresence(due);
+  }
+
+  /** Whether the slayer values have had time to arrive since the last {@code LOGGED_IN}. */
+  static boolean isSlayerTaskReadable(int ticksSinceLoggedIn) {
+    return ticksSinceLoggedIn >= SLAYER_READ_DELAY_TICKS;
+  }
+
   @Subscribe
   public void onGameTick(GameTick event) {
+    if (ticksSinceLoggedIn < Integer.MAX_VALUE) {
+      ticksSinceLoggedIn++;
+    }
+    flushDuePresence();
     // Drive the guided read first and unconditionally. It has to be able to finish even
     // when the identity submit below has already run or is being skipped, or an armed
     // sync would hang with its infobox up.
@@ -1513,7 +1970,9 @@ public class BankstandPlugin extends Plugin {
         skills,
         isQuestCaptureEnabled() ? readQuestStates() : null,
         isDiaryCaptureEnabled() ? readDiaryStates() : null,
-        isDiaryCaptureEnabled() ? readDiaryTaskCounts() : null);
+        isDiaryCaptureEnabled() ? readDiaryTaskCounts() : null,
+        // Not read here: the client has already left the world and the varps may be gone.
+        null);
   }
 
   @Schedule(period = CAPTURE_INTERVAL_SECONDS, unit = ChronoUnit.SECONDS)
@@ -1573,7 +2032,14 @@ public class BankstandPlugin extends Plugin {
           Map<String, String> diaries = isDiaryCaptureEnabled() ? readDiaryStates() : null;
           Map<String, Integer> diaryTasks =
               isDiaryCaptureEnabled() ? readDiaryTaskCounts() : null;
-          onSkillsCaptured(accountHash, generation, name, skills, quests, diaries, diaryTasks);
+          // Null, never sent, until the game has had time to send its slayer values: read
+          // too early, a real task looks like none and would overwrite it.
+          SlayerTask slayerTask =
+              isSlayerCaptureEnabled() && isSlayerTaskReadable(ticksSinceLoggedIn)
+                  ? SlayerTaskReader.read(client)
+                  : null;
+          onSkillsCaptured(
+              accountHash, generation, name, skills, quests, diaries, diaryTasks, slayerTask);
         });
   }
 
@@ -1673,7 +2139,8 @@ public class BankstandPlugin extends Plugin {
       Map<String, Integer> skills,
       Map<String, String> quests,
       Map<String, String> diaries,
-      Map<String, Integer> diaryTaskCounts) {
+      Map<String, Integer> diaryTaskCounts,
+      SlayerTask slayerTask) {
     // Forget every baseline, then ask disk what this character already had accepted.
     // Forgetting first is what lets the load be slow: a capture arriving before it just
     // re-sends, which is what every client start did before any of this persisted.
@@ -1686,6 +2153,7 @@ public class BankstandPlugin extends Plugin {
       diaryTaskBits.reset();
       combatAchievementBaseline.reset();
       accountTypeBaseline.reset();
+      slayerTaskBaseline.reset();
       // A collection log belongs to one character; carrying it across an account
       // switch would attribute one account's items to another.
       collectionLog.reset();
@@ -1741,10 +2209,15 @@ public class BankstandPlugin extends Plugin {
             combatAchievements,
             accountTypeBaseline,
             accountType,
-            pendingFullEnumeration);
-    if (!plan.shouldSubmit()) {
+            pendingFullEnumeration,
+            slayerTaskBaseline,
+            slayerTask);
+    // Owed once per session start, so the session's first point is its starting XP.
+    boolean forced = forcedSubmitGeneration == generation;
+    if (!plan.shouldSubmit() && !forced) {
       return;
     }
+    forcedSubmitGeneration = -1;
     // An omitted rider is dropped to the same null or empty the opt-in-off case already
     // uses, so submitSnapshot has exactly one notion of "was this block sent" and the
     // per-block acknowledgement keeps keying off what actually went on the wire.
@@ -1768,7 +2241,8 @@ public class BankstandPlugin extends Plugin {
         plan.includesDiaries() ? diaryTaskCounts : null,
         plan.includesCollectionLog() ? clog : Collections.emptySet(),
         plan.includesAccountType() ? accountType : null,
-        plan.includesFullEnumeration());
+        plan.includesFullEnumeration(),
+        plan.includesSlayerTask() ? slayerTask : null);
   }
 
   /**
@@ -1839,6 +2313,7 @@ public class BankstandPlugin extends Plugin {
     private final boolean fullEnumeration;
     private final boolean combatAchievements;
     private final boolean accountType;
+    private final boolean slayerTask;
 
     private SubmitPlan(
         boolean submit,
@@ -1847,7 +2322,8 @@ public class BankstandPlugin extends Plugin {
         boolean collectionLog,
         boolean fullEnumeration,
         boolean combatAchievements,
-        boolean accountType) {
+        boolean accountType,
+        boolean slayerTask) {
       this.submit = submit;
       this.quests = quests;
       this.diaries = diaries;
@@ -1855,6 +2331,7 @@ public class BankstandPlugin extends Plugin {
       this.fullEnumeration = fullEnumeration;
       this.combatAchievements = combatAchievements;
       this.accountType = accountType;
+      this.slayerTask = slayerTask;
     }
 
     boolean shouldSubmit() {
@@ -1887,6 +2364,10 @@ public class BankstandPlugin extends Plugin {
 
     boolean includesAccountType() {
       return accountType;
+    }
+
+    boolean includesSlayerTask() {
+      return slayerTask;
     }
   }
 
@@ -2002,6 +2483,7 @@ public class BankstandPlugin extends Plugin {
         false);
   }
 
+  /** Without the slayer task, which every caller predating it omits. */
   static SubmitPlan plan(
       SkillBaseline skillBaseline,
       Map<String, Integer> skills,
@@ -2016,6 +2498,40 @@ public class BankstandPlugin extends Plugin {
       AccountTypeBaseline accountTypeBaseline,
       String accountType,
       boolean fullEnumerationPending) {
+    return plan(
+        skillBaseline,
+        skills,
+        questBaseline,
+        quests,
+        diaryBaseline,
+        diaries,
+        collectionLogBaseline,
+        collectionLogItems,
+        combatAchievementBaseline,
+        combatAchievements,
+        accountTypeBaseline,
+        accountType,
+        fullEnumerationPending,
+        new SlayerTaskBaseline(),
+        null);
+  }
+
+  static SubmitPlan plan(
+      SkillBaseline skillBaseline,
+      Map<String, Integer> skills,
+      QuestBaseline questBaseline,
+      Map<String, String> quests,
+      DiaryBaseline diaryBaseline,
+      Map<String, String> diaries,
+      CollectionLogBaseline collectionLogBaseline,
+      Set<Integer> collectionLogItems,
+      CombatAchievementBaseline combatAchievementBaseline,
+      Map<String, Integer> combatAchievements,
+      AccountTypeBaseline accountTypeBaseline,
+      String accountType,
+      boolean fullEnumerationPending,
+      SlayerTaskBaseline slayerTaskBaseline,
+      SlayerTask slayerTask) {
     boolean sendQuests =
         quests != null && !quests.isEmpty() && questBaseline.changedSince(quests);
     boolean sendDiaries =
@@ -2045,13 +2561,17 @@ public class BankstandPlugin extends Plugin {
         accountType != null
             && !accountType.isEmpty()
             && accountTypeBaseline.changedSince(accountType);
+    // Counts toward the decision on its own: a task finishing while no xp moves (the
+    // last kill's xp already went) still has to replace the stored task.
+    boolean sendSlayerTask = slayerTaskBaseline.changedSince(slayerTask);
     boolean submit =
         skillBaseline.changedSince(skills)
             || sendQuests
             || sendDiaries
             || sendCollectionLog
             || sendCombatAchievements
-            || sendAccountType;
+            || sendAccountType
+            || sendSlayerTask;
     return new SubmitPlan(
         submit,
         sendQuests,
@@ -2059,7 +2579,8 @@ public class BankstandPlugin extends Plugin {
         sendCollectionLog,
         fullEnumerationPending && sendCollectionLog,
         sendCombatAchievements,
-        sendAccountType);
+        sendAccountType,
+        sendSlayerTask);
   }
 
   // Every baseline, skills included, advances only on the server's own per-block
@@ -2145,6 +2666,12 @@ public class BankstandPlugin extends Plugin {
     return included && res.isBlockStored("accountType");
   }
 
+  // Per capability like the rest: a dropped block must keep going out until it is stored,
+  // or a finished task would read as in progress for good.
+  static boolean shouldAdvanceSlayerTask(SubmitSnapshotResponse res, boolean included) {
+    return included && res.isBlockStored("slayerTask");
+  }
+
   private void submitSnapshot(
       Map<String, Integer> combatAchievementCounts,
       Map<String, Integer> combatAchievementBossCounts,
@@ -2157,7 +2684,8 @@ public class BankstandPlugin extends Plugin {
       Map<String, Integer> diaryTaskCounts,
       Set<Integer> collectionLogItems,
       String accountType,
-      boolean fullEnumeration) {
+      boolean fullEnumeration,
+      SlayerTask slayerTask) {
     String url = savedServerUrl();
     String token = deviceStore.load().getToken();
     String version = getClass().getPackage().getImplementationVersion();
@@ -2178,7 +2706,8 @@ public class BankstandPlugin extends Plugin {
             diaryTaskCounts,
             accountType,
             fullEnumeration,
-            combatAchievementBossCounts);
+            combatAchievementBossCounts,
+            slayerTask == null ? null : slayerTask.toWire());
     executor.submit(
         () -> {
           pairingClient
@@ -2273,6 +2802,12 @@ public class BankstandPlugin extends Plugin {
                                 shouldAdvanceAccountType(res, accountType != null);
                             if (accountTypeAdvanced) {
                               accountTypeBaseline.advance(accountType);
+                            }
+                            boolean slayerTaskAdvanced =
+                                shouldAdvanceSlayerTask(res, slayerTask != null);
+                            if (slayerTaskAdvanced) {
+                              slayerTaskBaseline.advance(slayerTask);
+                              lastSyncedAt.put("slayer", System.currentTimeMillis());
                             }
                             // The panel's per-capability sync times and recent-activity
                             // line, decided by the pure, testable helper above rather

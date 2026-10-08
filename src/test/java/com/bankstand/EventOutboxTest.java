@@ -173,4 +173,23 @@ public class EventOutboxTest {
       Thread.currentThread().interrupt();
     }
   }
+
+  /**
+   * A field declared as "not observed" has to come back off disk as an explicit null:
+   * the server reads a missing nullable field as invalid and refuses the whole batch.
+   */
+  @Test
+  public void aNullPayloadFieldSurvivesTheRoundTripToDisk() throws Exception {
+    java.io.File file = new java.io.File(folder.newFolder("nulls"), "events.json");
+    java.util.Map<String, Object> payload = new java.util.LinkedHashMap<>();
+    payload.put("petName", "Heron");
+    payload.put("source", null);
+    new EventOutbox(file, new com.google.gson.Gson())
+        .add(1L, new TransientEvent(TransientEvent.TYPE_PET_DROP, payload));
+
+    java.util.Map<String, Object> reloaded =
+        new EventOutbox(file, new com.google.gson.Gson()).pending().get(0).getEvent().getPayload();
+    org.junit.Assert.assertTrue(reloaded.containsKey("source"));
+    org.junit.Assert.assertNull(reloaded.get("source"));
+  }
 }

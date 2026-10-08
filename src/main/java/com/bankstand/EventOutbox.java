@@ -62,7 +62,10 @@ public class EventOutbox {
 
   public EventOutbox(File file, Gson gson) {
     this.file = file;
-    this.gson = gson;
+    // Keeps a null payload field through the round trip to disk. Gson drops one by
+    // default, and an event read back without the field it declared as "not observed"
+    // reaches the server missing that field, which fails the whole batch it rides in.
+    this.gson = gson.newBuilder().serializeNulls().create();
   }
 
   /** Appends one event, evicting the oldest pending entry (logged) if this overflows the cap. */

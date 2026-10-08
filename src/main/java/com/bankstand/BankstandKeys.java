@@ -74,6 +74,11 @@ public final class BankstandKeys {
   public static final String KEY_NOTABLE_DROP_THRESHOLD = "notableDropThreshold";
   public static final String KEY_COLLECT_PET_DROPS = "collectPetDrops";
 
+  // Live sessions: three separate disclosures, so none of them turns another on.
+  public static final String KEY_COLLECT_SESSIONS = "collectSessions";
+  public static final String KEY_COLLECT_LOOT = "collectLoot";
+  public static final String KEY_COLLECT_SLAYER = "collectSlayer";
+
   // Credentials, never surfaced as config items.
   public static final String KEY_DEVICE_TOKEN = "deviceToken";
   public static final String KEY_DEVICE_ID = "deviceId";
