@@ -10,7 +10,6 @@ import org.junit.Test;
 
 public class CollectionLogSyncTest {
 
-  /** Ticks with the log open, the search closed and no items arriving. */
   private static void idleTicks(CollectionLogSync sync, int count) {
     for (int i = 0; i < count; i++) {
       assertNull(sync.onTick(false, true));
@@ -22,8 +21,7 @@ public class CollectionLogSyncTest {
     CollectionLogSync sync = new CollectionLogSync();
 
     assertFalse(sync.isActive());
-    // The same script fires when the player just turns a page. It must reach the
-    // accumulator without reporting itself as a whole-log sync.
+    // The same script fires on a page turn; it must not report a whole-log sync.
     sync.onItemObserved(1, false);
     sync.onItemObserved(2, false);
 
@@ -32,11 +30,7 @@ public class CollectionLogSyncTest {
     assertNull(sync.onTick(false, true));
   }
 
-  /**
-   * The reason arming is no longer required. WikiSync is one button because it drives
-   * the Search with a call the Hub bans us from; the fewest actions left to us is the
-   * player clicking the game's own Search, so that alone has to be enough.
-   */
+  /** The Hub bans driving the Search, so the player clicking the game's own Search must suffice. */
   @Test
   public void aSearchStartsAReadWithNothingArmed() {
     CollectionLogSync sync = new CollectionLogSync();
@@ -102,17 +96,11 @@ public class CollectionLogSyncTest {
 
     assertEquals(Outcome.COMPLETE, outcome);
     assertEquals(2, outcome.getObserved());
-    // The outcome is reported exactly once, then the sync is done.
     assertFalse(sync.isActive());
     assertNull(sync.onTick(true, true));
   }
 
-  /**
-   * Observed live: a real enumeration fires the script twice per entry on the first read
-   * of a session, and counting events reported "Synced 422 entries" for a log holding
-   * 211. The accumulator was always right, being a set; the figure shown was not.
-   */
-  /** Both Prospector sets are eight ids filling four slots, and the box says four. */
+  /** Eight Prospector ids fill four slots, and the count says four. */
   @Test
   public void countsAVariantAsTheSlotItFills() {
     CollectionLogSync sync = new CollectionLogSync();
@@ -144,7 +132,6 @@ public class CollectionLogSyncTest {
     sync.arm();
     assertNull(sync.onTick(true, true));
 
-    // An item on every tick keeps the stream alive well past the quiet threshold.
     for (int i = 0; i < CollectionLogSync.QUIET_TICKS * 3; i++) {
       sync.onItemObserved(100 + i, true);
       assertNull(sync.onTick(true, true));
@@ -171,9 +158,8 @@ public class CollectionLogSyncTest {
   }
 
   /**
-   * The conservative direction, and deliberately so. The search-open signal is a widget
-   * read that cannot be verified outside a running client, so when it never arrives the
-   * sync under-claims rather than calling an unverified read complete.
+   * The search-open signal cannot be verified outside a live client, so when it never
+   * arrives the sync under-claims rather than calling the read complete.
    */
   @Test
   public void reportsPartialWhenItemsArrivedWithoutTheSearchEverBeingSeen() {
@@ -195,7 +181,6 @@ public class CollectionLogSyncTest {
     CollectionLogSync sync = new CollectionLogSync();
     sync.arm();
 
-    // Nothing was read, so there is no outcome worth telling the player about.
     assertNull(sync.onTick(false, false));
     assertFalse(sync.isActive());
   }
@@ -209,7 +194,6 @@ public class CollectionLogSyncTest {
     assertTrue(sync.isActive());
     assertNull(sync.onTick(false, true));
 
-    // Times out with no outcome: the player opened the menu and thought better of it.
     assertFalse(sync.isActive());
   }
 
@@ -219,8 +203,7 @@ public class CollectionLogSyncTest {
     sync.arm();
     idleTicks(sync, CollectionLogSync.ARM_TIMEOUT_TICKS - 1);
 
-    // A read that starts on the last possible tick still gets its full quiet window,
-    // rather than being cut off by a timeout meant for a sync that never began.
+    // A read starting on the last tick still gets its full quiet window.
     sync.onItemObserved(13, true);
     assertNull(sync.onTick(true, true));
     assertTrue(sync.isActive());
@@ -247,7 +230,6 @@ public class CollectionLogSyncTest {
     sync.arm();
     sync.onItemObserved(16, true);
 
-    // An account switch or a logout: the read belongs to the character that started it.
     sync.reset();
 
     assertFalse(sync.isActive());

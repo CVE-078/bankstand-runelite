@@ -15,27 +15,12 @@ import net.runelite.client.game.ItemManager;
 import net.runelite.client.game.ItemStack;
 
 /**
- * Captures notable drops: a unique or untradeable item on a curated
- * allowlist, or any tradeable drop whose total GE value clears a configurable
- * threshold.
+ * Captures notable drops: an untradeable item on a curated allowlist, or a tradeable drop whose
+ * total GE value clears the configured threshold. Pets are handled by {@link PetDropCapture}.
  *
- * <p><b>Scope, deliberately narrow</b>, matching the issue: tradeable-value
- * threshold and a curated untradeable allowlist. Collection-log-unlock framing
- * and pet drops are NOT this class; a pet is a separate detector because
- * the first chat line never names it (prime-then-resolve), and a collection-log
- * "first observed" trigger would need to cross-reference the slot tracking
- * that already ships, which is a bigger, separate design question.
- *
- * <p><b>Only these two events, deliberately.</b> The built-in Loot Tracker
- * plugin's own {@code LootReceived} looked like a third source worth also
- * subscribing to, but it is not: Loot Tracker constructs and posts it from the
- * exact same NPC-kill and player-kill moments the client already posts as
- * {@link NpcLootReceived}/{@link PlayerLootReceived}, so subscribing to all
- * three double-fired {@link #handleLoot} for every qualifying drop, one call
- * per event. It covers no loot source the other two miss (chests and some
- * reward interfaces are not covered by any of them), so it added duplication
- * with no coverage in return. GE price is client-side and can differ from the
- * server's view at the moment of the drop.
+ * <p>Only {@link NpcLootReceived} and {@link PlayerLootReceived} are subscribed. Loot Tracker's
+ * {@code LootReceived} fires for the same kills, so adding it would double-emit. GE price is
+ * client-side and may differ from the server's.
  */
 public class NotableDropCapture extends BaseCapture {
 
@@ -80,8 +65,7 @@ public class NotableDropCapture extends BaseCapture {
     handleLoot(event.getPlayer().getName(), event.getItems());
   }
 
-  /** Package-private, not private: {@code NotableDropCaptureTest} calls this directly
-   *  with a poisoned {@code itemManager} to prove the gate below runs before any read. */
+  // The enabled gate must run before any itemManager read.
   void handleLoot(String source, Collection<ItemStack> items) {
     if (!isEnabled()) return;
     for (ItemStack stack : items) {
@@ -106,11 +90,8 @@ public class NotableDropCapture extends BaseCapture {
   }
 
   /**
-   * Pure and tested without a live client. A tradeable item qualifies on total
-   * value (unit price times quantity); an untradeable one has no GE price at
-   * all, so it qualifies only by name on the curated allowlist. {@code value}
-   * is the UNIT price here (multiplied by quantity by the caller for the final
-   * payload), null exactly when the item is untradeable.
+   * A tradeable item qualifies on unit price times quantity; an untradeable one (null
+   * {@code unitValue}) only by name on the allowlist.
    */
   static boolean qualifies(
       String itemName,

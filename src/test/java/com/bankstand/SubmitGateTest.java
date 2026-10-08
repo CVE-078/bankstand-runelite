@@ -23,11 +23,7 @@ public class SubmitGateTest {
     assertTrue(gate.allow());
   }
 
-  /**
-   * The gap this exists for. A revoked token fails fast inside a submit, and without a
-   * latch the next capture tries again 60 seconds later, forever, while NoticeGate keeps
-   * the player from ever hearing about it twice.
-   */
+  /** A revoked token must halt submits rather than retry every cycle forever. */
   @Test
   public void stopsForeverOnARevokedToken() {
     SubmitGate gate = new SubmitGate();
@@ -84,7 +80,7 @@ public class SubmitGateTest {
     }
   }
 
-  /** Bounded, so an all-night outage does not turn into an all-week one. */
+  /** Backoff is bounded. */
   @Test
   public void neverBacksOffPastTheCap() {
     SubmitGate gate = new SubmitGate();
@@ -121,7 +117,7 @@ public class SubmitGateTest {
     gate.onSuccess();
     failAndSkipPast(gate);
 
-    // Back to the first rung, not the fifth: the server proved it was reachable.
+    // Back to the first rung: the server proved reachable.
     SubmitGate fresh = new SubmitGate();
     fresh.onFailure();
     int freshSkips = 0;
@@ -138,7 +134,6 @@ public class SubmitGateTest {
     assertEquals(freshSkips, afterRecoverySkips);
   }
 
-  /** A halt outranks a backoff: re-pairing is the only thing that clears it. */
   @Test
   public void aBackoffElapsingDoesNotUnhaltARevokedToken() {
     SubmitGate gate = new SubmitGate();
@@ -155,8 +150,7 @@ public class SubmitGateTest {
     SubmitGate gate = new SubmitGate();
     gate.onAuthFailure();
 
-    // Nothing can succeed while halted, but if the caller ever ordered these wrongly a
-    // silent unhalt would resume submitting with a token the server already rejected.
+    // A silent unhalt would resume submitting with a rejected token.
     gate.onSuccess();
 
     assertTrue(gate.isHalted());

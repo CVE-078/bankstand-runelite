@@ -6,37 +6,14 @@ import java.util.Map;
 import net.runelite.api.gameval.VarbitID;
 
 /**
- * Maps a combat achievement source's real name (the same string the website's own task
- * corpus keys its {@code source} field on, e.g. "Vorkath", "Theatre of Blood: Hard Mode")
- * to the varbit holding how many of that source's tasks are done.
+ * Maps a combat achievement source's name (as the server's task corpus spells it) to the varbit
+ * holding how many of its tasks are done.
  *
- * <p>The wire key is the boss/activity name itself, not a RuneLite-internal code, so the
- * server's join against its own corpus needs no separate name-translation table: the
- * plugin is the one place that has to know {@code VarbitID.CA_TOTAL_TASKS_COMPLETED_KBD}
- * means King Black Dragon, not the website.
- *
- * <p><b>Not every {@code CA_TOTAL_TASKS_COMPLETED_*} constant is listed here.</b> Six of
- * the 77 ({@code EASY}/{@code MEDIUM}/{@code HARD}/{@code ELITE}/{@code MASTER}/{@code
- * GRANDMASTER}) are the exact same varbit ids {@link CombatAchievementVarbits} already
- * reads for the tier-count block (confirmed by id, not name: {@code
- * CA_TOTAL_TASKS_COMPLETED_EASY} and {@code COMBAT_TASK_EASY} are both 12885), so they add
- * nothing new here. Three more are left out deliberately because a confident name could
- * not be established: {@code COWBOSS} sits among 25th-anniversary varbits with no
- * matching task in the corpus at all; {@code DOM} is a varbit id in the 3000s, a range
- * that predates Combat Achievements as a system by years, so despite superficially
- * spelling out "Doom of Mokhaiotl" it almost certainly is not that boss (see {@code
- * CATA_BOSS} below, whose id sits correctly among the 2023-era combat achievement block
- * and is used for that boss instead); {@code MAD_ANGEL} sits among brand-new
- * Sailing-skill varbits, most likely a boss too recent for the corpus this was
- * generated from. Misattributing a task count to the wrong boss is a real, visible
- * correctness bug, not a cosmetic gap, so an uncertain id is left out rather than
- * guessed.
- *
- * <p>Every id below is a symbolic reference to the real RuneLite constant, not a bare
- * number: if a future RuneLite release renames or drops one, this file fails to
- * <i>compile</i> against the new API, which is a stronger, earlier failure than a
- * runtime check could give (and reflection, which would dodge this trap a different way,
- * is off the table: the Plugin Hub review disallows it).
+ * <p>The tier totals ({@code EASY} to {@code GRANDMASTER}) are omitted because they share ids
+ * with {@link CombatAchievementVarbits}. {@code COWBOSS}, {@code DOM} and {@code MAD_ANGEL} are
+ * omitted because their boss could not be identified with confidence, and a count on the wrong
+ * boss is a visible bug. Ids are symbolic {@code VarbitID} references so a renamed constant fails
+ * the compile (reflection is not allowed on the Plugin Hub).
  */
 public final class CombatAchievementBossVarbits {
   private CombatAchievementBossVarbits() {}
@@ -58,9 +35,7 @@ public final class CombatAchievementBossVarbits {
     m.put("Barrows", VarbitID.CA_TOTAL_TASKS_COMPLETED_BARROWS);
     m.put("Bryophyta", VarbitID.CA_TOTAL_TASKS_COMPLETED_BRYOPHYTA);
     m.put("Callisto", VarbitID.CA_TOTAL_TASKS_COMPLETED_CALLISTO);
-    // See the class doc: id 12918 sits in the 2023-era combat achievement block, unlike
-    // the similarly-spelled but far older CA_TOTAL_TASKS_COMPLETED_DOM (id 3209), which
-    // is left out for that reason.
+    // CATA_BOSS (12918), not the much older DOM (3209).
     m.put("Doom of Mokhaiotl", VarbitID.CA_TOTAL_TASKS_COMPLETED_CATA_BOSS);
     m.put("Cerberus", VarbitID.CA_TOTAL_TASKS_COMPLETED_CERBERUS);
     m.put("Chaos Elemental", VarbitID.CA_TOTAL_TASKS_COMPLETED_CHAOSELE);
@@ -70,22 +45,14 @@ public final class CombatAchievementBossVarbits {
     m.put("Crazy Archaeologist", VarbitID.CA_TOTAL_TASKS_COMPLETED_CRAZYARCHAEOLOGIST);
     m.put("Deranged Archaeologist", VarbitID.CA_TOTAL_TASKS_COMPLETED_DERANGEDARCHAEOLOGIST);
     m.put("Duke Sucellus", VarbitID.CA_TOTAL_TASKS_COMPLETED_DUKESUCELLUS);
-    // GARGBOSS reads as "Gargoyle Boss": the Grotesque Guardians encounter (Dawn and
-    // Dusk), not the plain slayer monster. The corpus itself proves which is right:
-    // "Gargoyle" has exactly one task (not boss-shaped), "Grotesque Guardians" has 15.
+    // GARGBOSS is the Grotesque Guardians encounter, not the slayer monster.
     m.put("Grotesque Guardians", VarbitID.CA_TOTAL_TASKS_COMPLETED_GARGBOSS);
-    // Gauntlet's normal and Corrupted modes have different boss forms and different
-    // corpus sources. The corpus's own task text says which is which: every
-    // Crystalline Hunllef task reads "Complete the Gauntlet" (the base mode, the
-    // unsuffixed varbit); every Corrupted Hunllef task reads "Complete the Corrupted
-    // Gauntlet" (hard mode, the _HM varbit), matching this file's other base/hard
-    // pairs (THEATREOFBLOOD/_HARD, XERICCHAMBERS/_CHALLENGE).
+    // Base varbit is the normal Gauntlet, _HM is Corrupted.
     m.put("Crystalline Hunllef", VarbitID.CA_TOTAL_TASKS_COMPLETED_GAUNTLET);
     m.put("Corrupted Hunllef", VarbitID.CA_TOTAL_TASKS_COMPLETED_GAUNTLET_HM);
     m.put("Shellbane gryphon", VarbitID.CA_TOTAL_TASKS_COMPLETED_GRYPHON_BOSS);
     m.put("Hespori", VarbitID.CA_TOTAL_TASKS_COMPLETED_HESPORI);
-    // The corpus's one "Giants" task covers hill, moss and fire giants together; this
-    // is the closest real match, not a perfect one.
+    // The corpus's one "Giants" task covers several giants; this is the closest match.
     m.put("Giants", VarbitID.CA_TOTAL_TASKS_COMPLETED_HILLGIANT_BOSS);
     m.put("The Hueycoatl", VarbitID.CA_TOTAL_TASKS_COMPLETED_HUEYCOATL);
     m.put("Alchemical Hydra", VarbitID.CA_TOTAL_TASKS_COMPLETED_HYDRABOSS);
@@ -105,11 +72,7 @@ public final class CombatAchievementBossVarbits {
     m.put("Dagannoth Prime", VarbitID.CA_TOTAL_TASKS_COMPLETED_PRIME);
     m.put("Dagannoth Rex", VarbitID.CA_TOTAL_TASKS_COMPLETED_REX);
     m.put("Dagannoth Supreme", VarbitID.CA_TOTAL_TASKS_COMPLETED_SUPREME);
-    // Wiki-confirmed: Zulrah was pitched to players pre-release as "the solo snake
-    // boss", which is almost certainly where this internal name comes from.
     m.put("Zulrah", VarbitID.CA_TOTAL_TASKS_COMPLETED_SNAKEBOSS);
-    // Scurrius, the Rat King: a giant rat boss in the Varrock Sewers, community and
-    // internally both just "the rat boss".
     m.put("Scurrius", VarbitID.CA_TOTAL_TASKS_COMPLETED_RAT_BOSS);
     m.put("Royal Titans", VarbitID.CA_TOTAL_TASKS_COMPLETED_ROYAL_TITANS);
     m.put("Sarachnis", VarbitID.CA_TOTAL_TASKS_COMPLETED_SARACHNIS);

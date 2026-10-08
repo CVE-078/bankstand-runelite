@@ -22,10 +22,7 @@ public class StatusReportTest {
 
   @Test
   public void namesWhatItActuallyCounted() {
-    // The plugin counts distinct item ids; the game counts entries. On a real
-    // account those were 193 and 189, and calling ids "entries" put both numbers
-    // in one chat window disagreeing with each other. The plugin has no manifest
-    // and cannot resolve one into the other, so it names what it counted.
+    // The plugin counts item ids, the game counts entries, so the line says "ids".
     List<String> lines =
         StatusReport.lines(
             true, "https://x", "Zezima", "just now", null, Arrays.asList("skills"), 193, null, null);
@@ -35,8 +32,7 @@ public class StatusReportTest {
 
   @Test
   public void unpairedSaysOnlyThat() {
-    // Every other line describes a pairing that does not exist. Printing them
-    // reads as though something is configured when nothing is.
+    // Without a pairing the other lines would describe something that does not exist.
     List<String> lines =
         StatusReport.lines(false, "https://x", "Zezima", "just now", null, Arrays.asList("skills"), 12, null, null);
     assertEquals(1, lines.size());
@@ -53,8 +49,7 @@ public class StatusReportTest {
 
   @Test
   public void saysWhenNoCharacterIsLinkedAndHowToFixIt() {
-    // The exact state that cost two hours: identity submitted once, failed, and
-    // nothing in the client could be asked to try again.
+    // Identity failed once: the line must say how to retry.
     List<String> lines =
         StatusReport.lines(true, "https://x", null, null, null, Arrays.asList("skills"), -1, null, null);
     assertTrue(mentions(lines, "No character linked"));
@@ -89,8 +84,7 @@ public class StatusReportTest {
 
   @Test
   public void alwaysExplainsTheCollectionLog() {
-    // Read or not, it gets a line. It is the one capability a manual sync cannot
-    // refresh, and silence about it is what makes a working sync look broken.
+    // A manual sync cannot refresh it, so it always gets a line.
     List<String> neverRead =
         StatusReport.lines(true, "https://x", "Zezima", "5m ago", null, Arrays.asList("skills"), -1, null, null);
     assertTrue(mentions(neverRead, "Search"));
@@ -106,8 +100,6 @@ public class StatusReportTest {
   public void syncNamesWhatItIsSendingAndWhatItIsNot() {
     List<String> lines = StatusReport.syncLines(true, Arrays.asList("skills", "quests"));
     assertTrue(mentions(lines, "skills, quests"));
-    // The trap this line exists to avoid: a player runs a sync, sees no new
-    // collection log slots, and concludes it did nothing.
     assertTrue(mentions(lines, "collection log is not included"));
   }
 
@@ -135,9 +127,7 @@ public class StatusReportTest {
 
   @Test
   public void saysNothingAboutTheAccountTypeWhileLoggedOut() {
-    // The varbit reads 0 with no account loaded, which is the same value a regular
-    // account reports. Printing "regular" there would be a wrong answer rather than a
-    // missing one, so the caller passes null and the line is simply absent.
+    // The varbit reads 0 with no account loaded, the same as "regular", so the line is omitted.
     List<String> lines =
         StatusReport.lines(
             true, "https://x", null, "just now", null, Arrays.asList("skills"), 5, null, null);

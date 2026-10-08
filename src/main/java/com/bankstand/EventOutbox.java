@@ -20,35 +20,14 @@ import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * The append-only outbox for {@link TransientEvent}s. Not a coalescing
- * 4-slot structure like the skills/quests/diaries snapshot outbox: each
- * event is a distinct, one-shot fact, so a newer one cannot overwrite an older
- * one the way a fresher skill total can.
+ * Append-only, ordered outbox for {@link TransientEvent}s. Each event is a one-shot fact, so
+ * nothing coalesces. Capped at {@link #MAX_PENDING}: overflow drops the OLDEST entry, logged.
  *
- * <p><b>Ordered</b>: entries are appended and drained oldest-first, so a batch
- * submit reports events in the order they happened.
+ * <p>Stored in a file, not {@code ConfigManager}, because a synced RuneLite profile uploads its
+ * whole config and this is captured game data.
  *
- * <p><b>Bounded, with an explicit and logged drop policy</b>: capped at {@link
- * #MAX_PENDING}. A full outbox drops the OLDEST entry to make room for the
- * newest, logged via {@code log.warn} because a silently dropped drop is worse
- * than a noisy one. This is the honest trade-off named in the design: a client
- * offline long enough to overflow the cap loses the oldest of what it saw,
- * rather than growing without limit or losing the newest instead.
- *
- * <p><b>A file, not {@code ConfigManager}</b>, for the same reason {@link
- * DeviceCredentialStore} and {@link AckedStateStore} are: pending state IS the
- * player's captured game data, and a synced profile PATCHes its whole config to
- * RuneLite's own service with no per-key exclusion.
- *
- * <p><b>Thread-safe.</b> {@link #add} runs synchronously inside a capture's {@code
- * @Subscribe} handler, on the client thread; {@link #pending} and {@link #ack} run
- * from {@code drainEventOutbox}'s {@code @Schedule} callback and its executor
- * continuation, off the client thread (the same split {@code captureSkills}' own
- * {@code clientThread.invokeLater} hop exists to bridge). Each public method is one
- * read-modify-write against the same file, so without a lock a drop captured
- * between a drain's read and its write is silently and permanently overwritten:
- * proven by {@code EventOutboxTest#concurrentAddAndAckDoNotLoseEntries}, which
- * fails on an unsynchronized version of this class.
+ * <p>Synchronized: {@link #add} runs on the client thread while {@link #pending} and
+ * {@link #ack} run on the executor, and each is a read-modify-write of the same file.
  */
 @Slf4j
 public class EventOutbox {
@@ -84,11 +63,10 @@ public class EventOutbox {
     return read();
   }
 
-  /** Removes exactly the entries whose event id is in {@code ids}: ordinarily because
-   *  the server stored them, but a caller may also include an id it has decided is
-   *  permanently undeliverable (a stale rejection, say), since retrying that forever
-   *  would only waste outbox capacity on something that can never be stored. Leaves
-   *  the rest, in order, for the next drain. */
+  /**
+   * Removes the entries whose id is in {@code ids} (stored, or judged permanently undeliverable)
+   * and keeps the rest in order.
+   */
   public synchronized void ack(Set<String> ids) {
     if (ids.isEmpty()) return;
     List<OutboxEntry> entries = read();
@@ -96,9 +74,10 @@ public class EventOutbox {
     write(entries);
   }
 
-  /** Forgets every pending event. Not called on an account switch: unlike the skills
-   *  baseline, an event already happened and stays true for whichever character it
-   *  was tagged under (see {@link OutboxEntry}), so a relog must not lose it. */
+  /**
+   * Forgets every pending event. Not called on an account switch: each entry is tagged with its
+   * own account, so a relog must not lose it.
+   */
   public synchronized void clear() {
     write(Collections.emptyList());
   }
@@ -124,8 +103,7 @@ public class EventOutbox {
       if (directory != null) {
         Files.createDirectories(directory);
       }
-      // Temp then move, so a crash mid-write leaves the previous outbox intact
-      // rather than truncating it.
+      // Temp then move, so a crash mid-write leaves the previous outbox intact.
       Path temp = Files.createTempFile(directory, "events", ".tmp");
       try (Writer writer = Files.newBufferedWriter(temp, StandardCharsets.UTF_8)) {
         gson.toJson(entries, LIST_TYPE, writer);
@@ -137,9 +115,7 @@ public class EventOutbox {
         Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING);
       }
     } catch (IOException | RuntimeException e) {
-      // Swallowed like every other write on this path. A drop that failed to persist
-      // costs one lost event on the next crash; throwing out of a capture handler
-      // costs every detector behind it on the same tick.
+      // Swallowed: throwing out of a capture handler would break every detector on the tick.
       log.debug("event outbox write failed: {}", e.getMessage());
     }
   }

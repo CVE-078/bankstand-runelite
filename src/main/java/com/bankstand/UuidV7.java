@@ -3,13 +3,7 @@ package com.bankstand;
 import java.security.SecureRandom;
 import java.util.UUID;
 
-/**
- * A dependency-free UUIDv7 generator. UUIDv7 leads with a 48-bit Unix
- * millisecond timestamp, so ids are time-ordered, which keeps them useful as an
- * idempotency key without needing a separate sequence number. The random bits do
- * not need to be unpredictable (this is an idempotency and ordering key, not a
- * secret), but a decent RNG keeps collisions away within a millisecond.
- */
+/** A dependency-free UUIDv7 generator: time-ordered ids for use as idempotency keys. */
 public final class UuidV7 {
   private UuidV7() {}
 

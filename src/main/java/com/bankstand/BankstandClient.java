@@ -19,12 +19,8 @@ import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Talks to the Bankstand pairing endpoint. Given a raw pairing code and the
- * configured server base URL, it exchanges the code for a device token. All
- * failures collapse into a single generic {@link PairingException}: the server
- * returns one indistinguishable error for a wrong, expired, consumed or
- * rate-limited code, so the plugin never distinguishes them and never retry-loops.
- * The raw device token is returned to the caller once and must never be logged.
+ * HTTP client for the Bankstand plugin API. Pairing failures collapse into one generic
+ * {@link PairingException} and are never retried. Never log the device token or account hash.
  */
 public class BankstandClient {
 
@@ -39,11 +35,7 @@ public class BankstandClient {
   private final Gson gson;
   private final ScheduledExecutorService executor;
 
-  /**
-   * @param executor Backs the retry backoff (see {@link #withRetry}). Never blocked on: a
-   *     retry is scheduled onto it, never awaited from it, so this may be the same executor
-   *     the caller's own submissions already run on.
-   */
+  /** @param executor schedules retries; never blocked on, so it may be the caller's own. */
   public BankstandClient(HttpTransport transport, Gson gson, ScheduledExecutorService executor) {
     this.transport = transport;
     this.gson = gson;
@@ -53,7 +45,7 @@ public class BankstandClient {
   public PairResponse exchangePairingCode(String baseUrl, String rawCode) throws PairingException {
     String code = PairingCodes.normalize(rawCode);
     if (!PairingCodes.isValid(code)) {
-      // Fail before any request so an obviously malformed code never burns a rate-limit slot.
+      // Fail locally so a malformed code never burns a rate-limit slot.
       throw new PairingException("Enter the 8-character code shown in Bankstand.");
     }
 
@@ -88,13 +80,6 @@ public class BankstandClient {
     return parsed;
   }
 
-  /**
-   * Submits the logged-in character's account hash (and display name) to the
-   * server, authenticated by the device token. The server records the client's
-   * last-seen and, if the display name matches one of the user's tracked accounts,
-   * links it and reports {@code verified}. Any failure is a generic
-   * {@link SubmitException}; the token and account hash are never logged.
-   */
   public SubmitResponse submitIdentity(
       String baseUrl, String deviceToken, long accountHash, String displayName)
       throws SubmitException {
@@ -123,8 +108,7 @@ public class BankstandClient {
     int status = response.getStatus();
     if (status != 200) {
       if (status == 401 || status == 403) {
-        // The device token is invalid or revoked; retrying will not help. Point the
-        // user at the one action that fixes it rather than looping.
+        // Token invalid or revoked: terminal, point the user at re-pairing.
         throw new SubmitException(
             "Bankstand rejected the device token. Re-pair in Account > Connect RuneLite.", false, true);
       }
@@ -144,15 +128,7 @@ public class BankstandClient {
     }
   }
 
-  /**
-   * Submits identity with a bounded retry. Retryable failures (network, 429, 5xx)
-   * are retried up to {@code maxAttempts} with a linear backoff of
-   * {@code baseDelayMillis * attempt}; terminal failures fail fast. Never blocks:
-   * each retry is a task scheduled after the backoff delay, not a sleep, so this
-   * itself never needs to run on any particular thread. The returned future
-   * completes (successfully or exceptionally, with the {@link SubmitException})
-   * on whichever executor thread ran the deciding attempt.
-   */
+  /** Retries network, 429 and 5xx failures with backoff; other failures fail fast. */
   public CompletableFuture<SubmitResponse> submitIdentityWithRetry(
       String baseUrl,
       String deviceToken,
@@ -166,11 +142,6 @@ public class BankstandClient {
         baseDelayMillis);
   }
 
-  /**
-   * Submits a v1 skills envelope (already built by SubmitEnvelope), authenticated by
-   * the device token. Status handling mirrors submitIdentity: 401/403 terminal, 429/5xx
-   * retryable, other non-200 terminal, IOException retryable. The token is never logged.
-   */
   public SubmitSnapshotResponse submitSnapshot(
       String baseUrl, String deviceToken, Map<String, Object> envelopeBody)
       throws SubmitException {
@@ -213,10 +184,6 @@ public class BankstandClient {
     }
   }
 
-  /**
-   * Submits a snapshot with the same bounded retry policy as
-   * {@link #submitIdentityWithRetry}.
-   */
   public CompletableFuture<SubmitSnapshotResponse> submitSnapshotWithRetry(
       String baseUrl,
       String deviceToken,
@@ -227,12 +194,7 @@ public class BankstandClient {
         () -> submitSnapshot(baseUrl, deviceToken, envelopeBody), maxAttempts, baseDelayMillis);
   }
 
-  /**
-   * Submits a batch of {@link TransientEvent}s for one account hash.
-   * Status handling mirrors {@link #submitSnapshot}: 401/403 terminal, 429/5xx
-   * retryable, other non-200 terminal, IOException retryable. The events field
-   * names are exactly what {@code lib/plugin/events-envelope.ts} validates.
-   */
+  /** Wire field names are a server contract; do not rename them. */
   public SubmitEventsResponse submitEvents(
       String baseUrl, String deviceToken, long accountHash, List<TransientEvent> events)
       throws SubmitException {
@@ -286,8 +248,6 @@ public class BankstandClient {
     }
   }
 
-  /** Submits an events batch with the same bounded retry policy as
-   *  {@link #submitIdentityWithRetry}. */
   public CompletableFuture<SubmitEventsResponse> submitEventsWithRetry(
       String baseUrl,
       String deviceToken,
@@ -299,20 +259,15 @@ public class BankstandClient {
         () -> submitEvents(baseUrl, deviceToken, accountHash, events), maxAttempts, baseDelayMillis);
   }
 
-  /** A retryable unit of work that produces a {@code T} or throws {@link SubmitException}. */
   private interface SubmitCall<T> {
     T call() throws SubmitException;
   }
 
-  /** Longest a single backoff waits, whatever the attempt number. */
   static final long MAX_BACKOFF_MILLIS = 8_000L;
 
   /**
-   * Full jitter over a doubling window: a uniform pick from {@code [0, window)} rather
-   * than the window itself, so clients that failed together do not return together.
-   *
-   * <p>Takes the randomness rather than drawing it, because a backoff only ever observed
-   * as a sleep is a backoff nobody can test.
+   * Full jitter over a doubling window, so clients that failed together do not retry
+   * together. The randomness is a parameter so the backoff is testable.
    *
    * @param randomFraction a value in {@code [0, 1)}
    */
@@ -322,17 +277,9 @@ public class BankstandClient {
   }
 
   /**
-   * Generic bounded retry shared by every submit endpoint: retryable failures are
-   * retried up to {@code maxAttempts}, terminal ones fail fast.
-   *
-   * <p>Never blocks a thread to wait out the backoff. Each attempt after the first
-   * is a fresh task scheduled on {@link #executor} after the delay, not a sleep in
-   * a loop: Plugin Hub review rejects {@code Thread.sleep} outright (a blocked
-   * thread parked on a timer is exactly what a scheduled executor exists to avoid),
-   * and this codebase already has one injected for every other piece of scheduled
-   * work. The first attempt still runs synchronously, on whichever thread calls
-   * this, so the caller is responsible for that being an executor thread rather
-   * than the client thread, same as before.
+   * Retries are scheduled on {@link #executor}, never slept (Plugin Hub rejects
+   * {@code Thread.sleep}). The first attempt runs on the calling thread, which must not be
+   * the client thread.
    */
   private <T> CompletableFuture<T> withRetry(
       SubmitCall<T> call, int maxAttempts, long baseDelayMillis) {
@@ -368,15 +315,9 @@ public class BankstandClient {
   }
 
   /**
-   * Fetches the capability manifest, or returns null if anything at all goes wrong.
-   *
-   * <p>Null, never an exception. The manifest is an optimisation: it tells the client
-   * which capabilities are worth uploading. A client that cannot fetch one keeps its last
-   * known good copy, or the compiled-in bundle, and carries on working. A manifest outage
-   * must never take a paired client down with it.
-   *
-   * <p>Unauthenticated, because the document is public and inert and a client may need it
-   * before it has a device token.
+   * Returns null on any failure, never throws: a manifest outage must not break a paired
+   * client, which falls back to its last good copy. Unauthenticated, since it may be needed
+   * before pairing.
    */
   public CapabilityManifest.RawManifest fetchManifest(String baseUrl) {
     Map<String, String> headers = new LinkedHashMap<>();

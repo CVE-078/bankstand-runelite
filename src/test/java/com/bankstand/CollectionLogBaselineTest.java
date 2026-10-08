@@ -24,9 +24,7 @@ public class CollectionLogBaselineTest {
 
   @Test
   public void neverReportsAChangeForAnEmptyLog() {
-    // Nothing observed is not the same as nothing owned. Submitting here would send
-    // an empty block, which the server reads as "not observed" anyway, so it would
-    // be pure noise on every capture for a player who never opens their log.
+    // Nothing observed is not nothing owned; submitting would just send noise.
     CollectionLogBaseline b = new CollectionLogBaseline();
     assertFalse(b.changedSince(0));
   }
@@ -41,8 +39,7 @@ public class CollectionLogBaselineTest {
 
   @Test
   public void doesNotAdvanceOnAnUnacknowledgedSubmit() {
-    // The baseline only moves when the server says it stored the block, so a dropped
-    // submit is retried rather than silently forgotten.
+    // The baseline only moves on a server ack, so a dropped submit is retried.
     CollectionLogBaseline b = new CollectionLogBaseline();
     assertTrue(b.changedSince(5));
     assertTrue(b.changedSince(5));

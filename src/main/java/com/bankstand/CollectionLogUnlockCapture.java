@@ -13,24 +13,16 @@ import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.util.Text;
 
 /**
- * Captures a collection log unlock the moment the game announces it in chat,
- * rather than waiting for the player to open the log and click Search.
- *
- * <p>Carries the raw item NAME, not a resolved item id. The log's own display name is
- * not unique ("Graceful hood" names three separate entries across three sources), so
- * resolving it to the correct one is a disambiguation the server already does
- * correctly for the guided sync; duplicating that logic here would re-solve an
- * already-solved problem, with a real chance of getting it wrong.
+ * Captures a collection log unlock from its chat announcement. Sends the raw item name, not an
+ * id: names are not unique, and the server already disambiguates them.
  */
 public class CollectionLogUnlockCapture extends BaseCapture {
 
   private static final Pattern UNLOCK_PATTERN =
       Pattern.compile("^New item added to your collection log: (.+)$");
 
-  // Matches the server's own bound (MAX_NAME_LENGTH in events-envelope.ts). The server
-  // validates a whole batch in one schema parse and 400s the WHOLE BATCH on any one
-  // event failing, so one oversized or malformed name must never reach the outbox: it
-  // would permanently block every other queued event for the account, not just itself.
+  // Matches the server's bound. The server rejects the whole batch on one invalid event, so a
+  // bad name must never reach the outbox.
   private static final int MAX_ITEM_NAME_LENGTH = 128;
 
   public CollectionLogUnlockCapture(
@@ -54,8 +46,7 @@ public class CollectionLogUnlockCapture extends BaseCapture {
     handleMessage(Text.removeTags(event.getMessage()));
   }
 
-  /** Package-private, not private: CollectionLogUnlockCaptureTest calls this directly
-   *  with plain strings, to avoid constructing a live ChatMessage. */
+  // Package-private for tests.
   void handleMessage(String message) {
     if (!isEnabled()) {
       return;
@@ -65,9 +56,6 @@ public class CollectionLogUnlockCapture extends BaseCapture {
       return;
     }
     String itemName = matcher.group(1).trim();
-    // A whitespace-only capture is min(1)-valid junk on the server's own schema, the
-    // same way an empty one is, and one bad event 400s the whole batch (see
-    // MAX_ITEM_NAME_LENGTH's comment for why that is never acceptable here).
     if (itemName.isEmpty() || itemName.length() > MAX_ITEM_NAME_LENGTH) {
       return;
     }

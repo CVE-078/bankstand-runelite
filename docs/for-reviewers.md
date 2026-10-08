@@ -11,7 +11,7 @@ Exactly one file opens a socket:
 ```
 $ grep -rn "newCall(" src/main/java
 src/main/java/com/bankstand/http/OkHttpTransport.java:33:    try (Response response = client.newCall(builder.build()).execute()) {
-src/main/java/com/bankstand/http/OkHttpTransport.java:44:    try (Response response = client.newCall(builder.build()).execute()) {
+src/main/java/com/bankstand/http/OkHttpTransport.java:45:    try (Response response = client.newCall(builder.build()).execute()) {
 ```
 
 `OkHttpTransport` is a thin wrapper over RuneLite's own injected `OkHttpClient`, called only from

@@ -43,9 +43,7 @@ public class ManifestStoreTest {
 
   @Test
   public void revalidatesOnTheWayOut() throws Exception {
-    // The file is on disk where anything can edit it. A cached manifest naming a
-    // capability this build no longer supports must not be honoured just because it was
-    // once written by us.
+    // The cache is editable on disk, so an unsupported capability in it is not honoured.
     File f = new File(folder.getRoot(), "tampered.json");
     Files.write(
         f.toPath(),
@@ -54,7 +52,6 @@ public class ManifestStoreTest {
             .getBytes(StandardCharsets.UTF_8));
     CapabilityManifest loaded = new ManifestStore(f, new Gson()).load();
     assertEquals(Arrays.asList("skills"), loaded.capabilities());
-    // And the interval is clamped on the way out too, not merely on the way in.
     assertEquals(
         CapabilityManifest.MIN_UPLOAD_INTERVAL_SECONDS, loaded.uploadIntervalSeconds());
   }
@@ -79,13 +76,11 @@ public class ManifestStoreTest {
   @Test
   public void fallsBackToTheCacheThenToTheBundle() {
     ManifestStore s = store("fallback.json");
-    // Nothing fetched, nothing cached: the compiled-in manifest, so a client that has
-    // never reached the server still captures what it was built to capture.
+    // Nothing fetched or cached: the bundled manifest.
     assertTrue(s.current(null).allows("skills"));
     assertEquals(
         CapabilityManifest.SUPPORTED_CAPABILITIES.size(), s.current(null).capabilities().size());
 
-    // Nothing fetched but something cached: the cache wins over the bundle.
     s.save(raw(GOOD));
     assertEquals(Arrays.asList("skills", "quests"), s.current(null).capabilities());
   }

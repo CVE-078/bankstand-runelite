@@ -20,14 +20,11 @@ public class CollectionLogAccumulatorTest {
 
   @Test
   public void accumulatesAcrossReadsRatherThanReplacing() {
-    // The whole point. A partial enumeration (one page browsed, a search cancelled)
-    // must add to what is known, never become the new truth. Replacing here would
-    // discard the rest of the player's log every time they opened a single page.
+    // A partial read adds to what is known; it never replaces it.
     CollectionLogAccumulator log = new CollectionLogAccumulator();
     log.observe(11832);
     log.observe(11834);
 
-    // A later, narrower read that only sees one item.
     log.observe(4151);
 
     assertEquals(
@@ -45,8 +42,7 @@ public class CollectionLogAccumulatorTest {
 
   @Test
   public void resetForgetsEverything() {
-    // Called on an account switch. A collection log belongs to one character, and
-    // carrying it over would attribute one account's items to another.
+    // A collection log belongs to one character.
     CollectionLogAccumulator log = new CollectionLogAccumulator();
     log.observe(11832);
     log.reset();
@@ -56,8 +52,7 @@ public class CollectionLogAccumulatorTest {
 
   @Test
   public void exposesAnUnmodifiableView() {
-    // Callers build a submission from this; letting them mutate it would corrupt the
-    // accumulator without going through observe().
+    // Mutating the view would bypass observe().
     CollectionLogAccumulator log = new CollectionLogAccumulator();
     log.observe(11832);
     try {

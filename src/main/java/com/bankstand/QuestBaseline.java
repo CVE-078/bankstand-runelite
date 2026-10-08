@@ -3,19 +3,12 @@ package com.bankstand;
 import java.util.Map;
 
 /**
- * The last quest-state vector the server acknowledged, used as a change gate so the
- * capture loop only submits when something moved. The plugin resets this on an
- * account switch and advances it only when a submit is acknowledged, so a dropped
- * submit is retried on the next capture (the baseline never moved).
- *
- * <p>Held as a digest rather than a copy of the vector, so the same value can be
- * written to disk and restored on the next client start. See {@link SkillBaseline} for
- * why one representation across memory and disk is worth a hash.
+ * Change gate: the digest of the last quest-state vector the server acknowledged. Advances only on
+ * an ack, so a dropped submit is retried.
  */
 public class QuestBaseline {
   private String acked;
 
-  /** True when {@code current} differs from what the server last acknowledged. */
   public boolean changedSince(Map<String, String> current) {
     return !CapabilityDigest.of(current).equals(acked);
   }
@@ -24,12 +17,11 @@ public class QuestBaseline {
     acked = CapabilityDigest.of(ackedNow);
   }
 
-  /** Restores a digest read back from disk. Null means nothing is known. */
+  /** Null means nothing is known. */
   public void restore(String digest) {
     acked = digest;
   }
 
-  /** The acknowledged digest, or null when nothing has been. */
   public String ackedDigest() {
     return acked;
   }

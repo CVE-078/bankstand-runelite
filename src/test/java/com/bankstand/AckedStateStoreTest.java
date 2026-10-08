@@ -43,8 +43,7 @@ public class AckedStateStoreTest {
 
     assertNull(state.getSkills());
     assertTrue(state.getCollectionLogItems().isEmpty());
-    // Not zero. Zero would mean "the server acknowledged an empty log", which is a
-    // different claim from never having been told.
+    // Not zero: zero would claim the server acknowledged an empty log.
     assertEquals(-1, state.getCollectionLogAcked());
   }
 
@@ -71,9 +70,7 @@ public class AckedStateStoreTest {
     assertEquals(1_700_000_000_000L, (long) loaded.getLastSyncedAt().get("skills"));
   }
 
-  /** A document written before this field existed has none in its JSON at all, not a
-   *  null value: Gson leaves the field null on that class, and the store must still
-   *  hand out an empty, iterable map rather than propagate the null. */
+  /** An older document has no such field at all; the store must still return an empty map. */
   @Test
   public void aDocumentMissingLastSyncedAtStillLoads() throws IOException {
     Files.write(
@@ -85,7 +82,7 @@ public class AckedStateStoreTest {
     assertTrue(state.getLastSyncedAt().isEmpty());
   }
 
-  /** A baseline belongs to one character; two on one machine must not see each other's. */
+  /** Two characters on one machine must not see each other's baselines. */
   @Test
   public void keepsCharactersApart() {
     AckedState first = AckedState.empty();
@@ -119,8 +116,7 @@ public class AckedStateStoreTest {
 
   @Test
   public void aNegativeAccountHashIsARealAccount() {
-    // The account hash is a signed 64-bit value and a negative one is real, which this
-    // codebase has already been bitten by once.
+    // The account hash is a signed 64-bit value and can be negative.
     AckedState state = AckedState.empty();
     state.setSkills("negative");
 
@@ -129,12 +125,7 @@ public class AckedStateStoreTest {
     assertEquals("negative", new AckedStateStore(file, new Gson()).load(-8_234_567_890_123L).getSkills());
   }
 
-  /**
-   * The safe direction. A file we cannot read means we do not know what the server has,
-   * and the only honest answer to that is to send everything again, which costs one
-   * redundant submission. Refusing to start, or trusting a half-parsed document, both
-   * cost more.
-   */
+  /** An unreadable file means "send everything again", the cheapest safe answer. */
   @Test
   public void treatsAnUnreadableFileAsEmptyRatherThanFailing() throws IOException {
     Files.write(file.toPath(), "{ this is not json".getBytes(StandardCharsets.UTF_8));
@@ -190,7 +181,6 @@ public class AckedStateStoreTest {
     assertEquals("nested", new AckedStateStore(nested, new Gson()).load(7L).getSkills());
   }
 
-  /** A caller mutating what it loaded must not reach through into the stored document. */
   @Test
   public void handsOutStateTheCallerCannotAliasIntoTheStore() {
     AckedState state = AckedState.empty();

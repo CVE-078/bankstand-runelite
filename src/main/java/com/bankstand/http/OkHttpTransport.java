@@ -10,11 +10,7 @@ import okhttp3.RequestBody;
 import okhttp3.Response;
 import okhttp3.ResponseBody;
 
-/**
- * The real {@link HttpTransport}, a thin wrapper over RuneLite's shared
- * OkHttpClient. Pure I/O glue with no branching logic, so the pairing behaviour is
- * covered by {@code BankstandClientTest} against a fake transport instead.
- */
+/** {@link HttpTransport} over RuneLite's shared OkHttpClient. */
 public class OkHttpTransport implements HttpTransport {
 
   private static final MediaType JSON = MediaType.parse("application/json; charset=utf-8");

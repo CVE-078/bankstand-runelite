@@ -6,10 +6,7 @@ import org.junit.Test;
 
 public class BankstandKeysTest {
 
-  // Every test below asserts against the default rather than a literal, which would
-  // pass just as happily if the default pointed somewhere nobody deploys. This is the
-  // one that reads it, and it is worth pinning: a wrong host is invisible to the
-  // player, who sees only that Bankstand stopped updating.
+  // A wrong default host is invisible to the player, so pin it.
   @Test
   public void defaultsToTheCanonicalOrigin() {
     assertEquals("https://bankstand.gg", BankstandKeys.DEFAULT_SERVER_URL);
@@ -22,8 +19,7 @@ public class BankstandKeysTest {
 
   @Test
   public void treatsABlankUrlAsUnset() {
-    // ConfigManager hands back a present-but-empty string once a player has cleared
-    // the field. Used as-is it fails every request at the socket.
+    // A cleared field comes back as an empty string, not null.
     assertEquals(BankstandKeys.DEFAULT_SERVER_URL, BankstandKeys.normaliseServerUrl(""));
     assertEquals(BankstandKeys.DEFAULT_SERVER_URL, BankstandKeys.normaliseServerUrl("   "));
   }

@@ -4,45 +4,20 @@ import java.util.LinkedHashSet;
 import java.util.Set;
 
 /**
- * The guided collection log read: what the plugin knows about a sync the player started,
- * and when that read is over.
+ * State of a guided collection log read, which the player starts by clicking the log's Search.
+ * The plugin only observes: driving Search needs {@code client.menuAction}, which the Plugin Hub
+ * rejects.
  *
- * <p>The plugin cannot make the log enumerate itself. Driving the game's own Search
- * needs {@code client.menuAction}, which the Plugin Hub rejects, so the player clicks
- * Search and the plugin watches. Nothing here triggers anything; every method is fed by
- * an event the client raised on its own.
- *
- * <p>Item script {@code 4100} fires for every entry whoever ran the Search, and it also
- * fires while a player simply browses a page. Those two cases have to be told apart or
- * a stroll through one boss tab would report itself as a whole-log sync. So an item only
- * counts toward a read once the player has armed one, and a read only claims to be
- * complete when the search interface was seen open while entries were streaming.
- *
- * <p>That last signal is a widget read, and a widget read cannot be verified outside a
- * running client. The rule is therefore written to fail toward {@code PARTIAL}: an
- * unseen search downgrades an otherwise clean read rather than a missed signal
- * promoting a half-read log to complete. Under-claiming costs the player one more
- * click; over-claiming stores a log that silently is not the whole log.
- *
- * <p>Pure and deterministic: no client, no clock, no scheduling. The plugin passes the
- * two facts it reads per tick and gets back the outcome, if the read just ended.
- * Single-threaded by construction, like the rest of the session state, and touched only
- * from the client thread.
+ * <p>Script 4100 also fires while browsing a page, so a read is only {@code COMPLETE} when the
+ * search was seen open while entries streamed. The rule fails toward {@code PARTIAL}, because
+ * over-claiming stores a log that is not the whole log. Pure; client thread only.
  */
 public class CollectionLogSync {
 
-  /**
-   * Ticks without a new entry before a read counts as over. The game streams the whole
-   * log in a burst, so any real gap means the burst finished; a few ticks of slack
-   * absorbs a stagger without making the player wait for a timeout.
-   */
+  /** Ticks without a new entry before a read counts as over (the log streams in one burst). */
   public static final int QUIET_TICKS = 5;
 
-  /**
-   * Ticks an armed sync waits for a Search that never comes, about two minutes. Without
-   * it, a player who opens the menu and changes their mind leaves the infobox up until
-   * they close the log.
-   */
+  /** Ticks an armed sync waits for a Search (about two minutes). */
   public static final int ARM_TIMEOUT_TICKS = 200;
 
   /** How a read ended, and how much of the log it saw. */
@@ -87,22 +62,9 @@ public class CollectionLogSync {
   }
 
   /**
-   * Records one entry the client reported.
-   *
-   * <p><b>A search starts a read on its own.</b> Arming was never a gate on capture,
-   * only on reporting, so requiring it made the player click twice before the one click
-   * that actually does the work. WikiSync gets away with a single button because it
-   * drives the Search with {@code client.menuAction}; the Hub does not allow us that, so
-   * the fewest possible actions is the player clicking the game's own Search, and that
-   * is now the whole flow. The menu entry stays as a hint for anyone who does not know.
-   *
-   * <p>Entries arriving with the search closed are ordinary page browsing. They still
-   * reach the accumulator, but they must not start or extend a read, or turning one page
-   * would report itself as a whole-log sync.
-   *
-   * <p>Counted by distinct id, not by event. A real enumeration fires the script twice
-   * per entry on the first read of a session, so counting events reported "Synced 422
-   * entries" for a log holding 211.
+   * Records one entry. An open search starts a read without arming; entries with the search
+   * closed are page browsing and never start or extend one. Counted by distinct id, since a
+   * real enumeration can fire the script twice per entry.
    */
   public void onItemObserved(int itemId, boolean searchOpen) {
     if (state == State.IDLE) {
@@ -112,15 +74,12 @@ public class CollectionLogSync {
       sawSearch = true;
     }
     state = State.READING;
-    // Canonical, so the running count is slots filled rather than ids seen. The
-    // accumulator keeps the raw id; this set only ever feeds a number on screen.
+    // Canonical id, so the count is slots filled. Only feeds the on-screen number.
     observed.add(VariantIds.canonical(itemId));
     quietTicks = 0;
   }
 
   /**
-   * Advances the read by one tick.
-   *
    * @param searchOpen whether the log's own search interface is on screen
    * @param logOpen whether the collection log is still on screen at all
    * @return the outcome when this tick ended the read, otherwise null. A read that ends
@@ -133,8 +92,7 @@ public class CollectionLogSync {
     if (searchOpen) {
       sawSearch = true;
     }
-    // Closing the log ends the read either way. Mid-stream that is an interruption worth
-    // reporting; before any entry arrived there is nothing to report at all.
+    // Closing the log ends the read; only a read that saw entries reports PARTIAL.
     if (!logOpen) {
       boolean reading = state == State.READING;
       Outcome outcome = reading ? Outcome.PARTIAL.with(observed.size()) : null;
@@ -172,10 +130,7 @@ public class CollectionLogSync {
     return observed.size();
   }
 
-  /**
-   * Abandons anything in flight. A read belongs to the character that started it, so a
-   * logout or an account switch drops it rather than carrying it across.
-   */
+  /** Abandons anything in flight, on logout or account switch. */
   public void reset() {
     finish();
   }

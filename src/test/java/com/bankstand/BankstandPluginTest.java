@@ -21,17 +21,8 @@ import net.runelite.client.externalplugins.ExternalPluginManager;
 import org.junit.Test;
 
 /**
- * Developer-mode entry point: launches RuneLite with this plugin sideloaded. Lives
- * in the test source set so it is never part of the shipped plugin. Run it with
- * {@code ./gradlew run}.
- *
- * <p>Also covers the plugin's capture-decision logic. {@link BankstandPlugin}'s
- * capture-and-submit wiring reads a live {@code Client} and a Guice-constructed
- * {@code ConfigManager} (whose constructor is private, so it cannot be faked
- * without a mocking library); the decision logic that gates a submit and a
- * baseline advance is exposed as small package-private static methods so it is
- * unit-testable on its own, using the real {@link SkillBaseline} and {@link
- * QuestBaseline}.
+ * Developer-mode entry point ({@code ./gradlew run}) that sideloads the plugin; test sources
+ * only, never shipped. Also tests the plugin's package-private capture-decision logic.
  */
 public class BankstandPluginTest {
   public static void main(String[] args) throws Exception {
@@ -57,7 +48,6 @@ public class BankstandPluginTest {
     return m;
   }
 
-  /** A set of {@code count} distinct observed item ids. */
   private static Set<Integer> logItems(int count) {
     Set<Integer> ids = new LinkedHashSet<>();
     for (int i = 1; i <= count; i++) {
@@ -66,7 +56,6 @@ public class BankstandPluginTest {
     return ids;
   }
 
-  /** {@code count} distinct transient events, ids ordered "id-0".."id-(count-1)". */
   private static List<TransientEvent> events(int count) {
     List<TransientEvent> list = new ArrayList<>();
     for (int i = 0; i < count; i++) {
@@ -79,8 +68,7 @@ public class BankstandPluginTest {
     return list;
   }
 
-  /** An {@link EventAck} as Gson would populate it from the wire, since the type has
-   *  no public constructor of its own. */
+  /** Built through Gson, since EventAck has no public constructor. */
   private static EventAck ack(String id, String outcome, String reason) {
     String json =
         reason == null
@@ -90,15 +78,7 @@ public class BankstandPluginTest {
     return new Gson().fromJson(json, EventAck.class);
   }
 
-  /**
-   * The submit decision alone, which is what every test below this line is about.
-   *
-   * <p>{@code plan} now answers two questions at once: whether to submit, and which
-   * optional blocks ride along. The per-block choice is covered by {@link
-   * SubmitPlanTest}; these cases predate it and are the regression net for the decision
-   * itself, so they are left asserting exactly what they always asserted rather than
-   * being rewritten around the wider return type.
-   */
+  /** The submit decision alone. The per-block choice is covered by {@link SubmitPlanTest}. */
   private static boolean shouldSubmit(
       SkillBaseline skillBaseline,
       Map<String, Integer> skills,
@@ -127,7 +107,6 @@ public class BankstandPluginTest {
     return new Gson().fromJson(json, SubmitSnapshotResponse.class);
   }
 
-  /** A response that stored the submission and acknowledged the named blocks. */
   private static SubmitSnapshotResponse storedBlocks(String... blocks) {
     StringBuilder list = new StringBuilder();
     for (String block : blocks) {
@@ -145,8 +124,6 @@ public class BankstandPluginTest {
 
   @Test
   public void submitsWhenSkillsChangedAndQuestsAreNotIncluded() {
-    // The opt-in is off: the capture path passes a null quests map. A skill change
-    // alone is still enough to submit.
     assertTrue(
         shouldSubmit(
             new SkillBaseline(),
@@ -161,8 +138,6 @@ public class BankstandPluginTest {
   public void ignoresAQuestChangeWhenQuestCaptureIsOff() {
     SkillBaseline skillBaseline = new SkillBaseline();
     skillBaseline.advance(skills("attack", 100));
-    // Skills are unchanged and quests are null (opt-in off): a quest change can never
-    // be observed, so nothing should trigger a submit.
     assertFalse(
         shouldSubmit(
             skillBaseline,
@@ -177,7 +152,6 @@ public class BankstandPluginTest {
   public void submitsOnAQuestChangeAloneWhenQuestCaptureIsOn() {
     SkillBaseline skillBaseline = new SkillBaseline();
     skillBaseline.advance(skills("attack", 100));
-    // Skills are identical to the baseline; only the quest state changed.
     assertTrue(
         shouldSubmit(
             skillBaseline,
@@ -208,8 +182,6 @@ public class BankstandPluginTest {
   public void ignoresADiaryChangeWhenDiaryCaptureIsOff() {
     SkillBaseline skillBaseline = new SkillBaseline();
     skillBaseline.advance(skills("attack", 100));
-    // Skills and quests are unchanged and diaries are null (opt-in off): a diary
-    // change can never be observed, so nothing should trigger a submit.
     assertFalse(
         shouldSubmit(
             skillBaseline,
@@ -224,7 +196,6 @@ public class BankstandPluginTest {
   public void submitsOnADiaryChangeAloneWhenDiaryCaptureIsOn() {
     SkillBaseline skillBaseline = new SkillBaseline();
     skillBaseline.advance(skills("attack", 100));
-    // Skills are identical to the baseline; only the diary state changed.
     assertTrue(
         shouldSubmit(
             skillBaseline,
@@ -239,9 +210,7 @@ public class BankstandPluginTest {
 
   @Test
   public void submitsWhenOnlyTheCollectionLogGrew() {
-    // The case that made this gate necessary. A player syncs their log and gains no
-    // xp; without the collection log in the gate the submission would wait for the
-    // next level, which is exactly when they are not looking at their log.
+    // Without the log in the gate, a synced log would wait for the next xp gain.
     SkillBaseline skillBaseline = new SkillBaseline();
     skillBaseline.advance(skills("attack", 100));
     assertTrue(
@@ -258,8 +227,7 @@ public class BankstandPluginTest {
 
   @Test
   public void doesNotSubmitForAnEmptyCollectionLog() {
-    // Nothing observed is not nothing owned, so an empty log is not a change worth
-    // sending on every capture.
+    // Nothing observed is not nothing owned, so an empty log is not a change.
     SkillBaseline skillBaseline = new SkillBaseline();
     skillBaseline.advance(skills("attack", 100));
     assertFalse(
@@ -306,9 +274,7 @@ public class BankstandPluginTest {
 
   @Test
   public void doesNotAdvanceSkillsWhenTheAccountIsUnclaimed() {
-    // The real server shape: accepted, HTTP 200, but nothing stored. Asserting this
-    // with accepted=false would pass while missing the bug, because the server never
-    // returns accepted=false for a reason it recognises.
+    // The real server shape: accepted, HTTP 200, nothing stored.
     assertFalse(BankstandPlugin.shouldAdvanceSkills(response(true, false, "unclaimed")));
   }
 
@@ -324,16 +290,13 @@ public class BankstandPluginTest {
 
   @Test
   public void doesNotAdvanceQuestsWhenStoredButTheBlockWasNotAcknowledged() {
-    // The submission stored (skills were fresh) but the server dropped the quests block
-    // because its rollout flag is off. Advancing here would acknowledge data that was
-    // never written.
+    // Stored overall, but the quests block was dropped by its rollout flag.
     assertFalse(BankstandPlugin.shouldAdvanceQuests(storedBlocks("skills"), true));
   }
 
   @Test
   public void doesNotAdvanceQuestsWhenTheServerSendsNoAcknowledgement() {
-    // An older server omits the field entirely. Treating that as "not written" re-sends
-    // rather than risking a silent loss.
+    // An older server omits the field: re-send rather than risk a silent loss.
     assertFalse(BankstandPlugin.shouldAdvanceQuests(response(true, true, "persisted"), true));
   }
 
@@ -359,8 +322,7 @@ public class BankstandPluginTest {
 
   @Test
   public void doesNotAdvanceDiariesWhenStoredButTheBlockWasNotAcknowledged() {
-    // The case that loses data if it advances: a completed diary tier is a one-shot
-    // fact, so a false acknowledgement means it is never re-sent.
+    // A false ack on a one-shot diary tier means it is never re-sent.
     assertFalse(BankstandPlugin.shouldAdvanceDiaries(storedBlocks("skills", "quests"), true));
   }
 
@@ -379,8 +341,7 @@ public class BankstandPluginTest {
     assertFalse(BankstandPlugin.shouldAdvanceDiaries(storedBlocks("skills", "diaries"), false));
   }
 
-  // --- Event outbox draining: chunking against the server's per-request cap, and
-  // which acked ids stop being retried (the two halves of the #770 review fix). ---
+  // --- Event outbox draining ---
 
   @Test
   public void chunkEventsKeepsAGroupAtExactlyTheCapInOneChunk() {
@@ -392,8 +353,7 @@ public class BankstandPluginTest {
 
   @Test
   public void chunkEventsSplitsAGroupOverTheCapIntoTwoChunks() {
-    // The bug this guards: a group of 51 submitted whole gets one 400 for the whole
-    // group, forever, because the server's own MAX_EVENTS_PER_BATCH is 50.
+    // Over the server's per-request cap, the whole request is rejected every time.
     List<List<TransientEvent>> chunks = BankstandPlugin.chunkEvents(events(51), 50);
 
     assertEquals(2, chunks.size());
@@ -425,10 +385,7 @@ public class BankstandPluginTest {
 
   @Test
   public void idsToAckIncludesARejectedStaleOutcome() {
-    // Aged past the server's retention window: age only increases, so resubmitting
-    // the exact same event can never become deliverable. Leaving it queued would
-    // waste outbox capacity forever, bounded only by the 200-entry cap eventually
-    // evicting it.
+    // Age only increases, so a stale event can never become deliverable.
     Set<String> ids = BankstandPlugin.idsToAck(Collections.singletonList(ack("a", "rejected", "stale")));
 
     assertTrue(ids.contains("a"));
@@ -436,8 +393,7 @@ public class BankstandPluginTest {
 
   @Test
   public void idsToAckExcludesARejectedNotAppliedOutcome() {
-    // A capability flag can be turned on later, which makes this reason legitimately
-    // worth retrying, unlike a stale rejection.
+    // The capability flag can be turned on later, so this stays worth retrying.
     Set<String> ids =
         BankstandPlugin.idsToAck(Collections.singletonList(ack("a", "rejected", "not_applied")));
 
@@ -453,23 +409,12 @@ public class BankstandPluginTest {
 
   @Test
   public void notableUntradeableAllowlistIsNotEmpty() {
-    // #1096: the allowlist shipped empty for a while, so a tradeable-value-only
-    // notable drop capture silently missed every pet/untradeable unique. This just
-    // guards against that regressing again, not against a specific curation choice.
     assertFalse(BankstandPlugin.NOTABLE_UNTRADEABLE_ALLOWLIST.isEmpty());
   }
 
   @Test
   public void notableUntradeableAllowlistUsesRealInGameCasing() {
-    // Every entry was cross-checked against the game's own cache item definitions
-    // (exact name text, tradeable=false), not typed from a wiki-disambiguated
-    // collection-log display name: a first draft pulled from that source had
-    // inconsistent Title Case on roughly a third of its entries (e.g. "Baby mole"
-    // vs. the real "Baby Mole"), which would have silently never matched a real
-    // drop, since the check this backs is a plain Set#contains against
-    // ItemComposition#getName(). Spot-checking a representative sample here, not
-    // exhaustively: the point is to catch a wholesale reintroduction of that class
-    // of mistake, not to duplicate the verification script's own coverage.
+    // Exact cache names (e.g. "Baby Mole", not "Baby mole"), since the check is Set#contains.
     Set<String> allowlist = BankstandPlugin.NOTABLE_UNTRADEABLE_ALLOWLIST;
     assertTrue(allowlist.contains("Baby Mole"));
     assertTrue(allowlist.contains("Pet Kree'arra"));
@@ -481,11 +426,7 @@ public class BankstandPluginTest {
 
   @Test
   public void capturedSkillsIncludesSailing() {
-    // Sailing was OSRS's 24th skill and this allowlist missed it for a while,
-    // silently never reading or sending its XP even though nothing else in the
-    // pipeline was broken. This guards against that regressing again. The exact
-    // count (24) is asserted too, since a future skill addition should fail this
-    // test rather than pass it silently.
+    // Exact count, so a newly added skill fails here rather than going silently unsent.
     assertEquals(24, BankstandPlugin.CAPTURED_SKILLS.size());
     assertTrue(BankstandPlugin.CAPTURED_SKILLS.contains(Skill.SAILING));
   }

@@ -28,11 +28,8 @@ public class CombatAchievementTierCompletionCaptureTest {
     CombatAchievementTierCompletionCapture capture =
         new CombatAchievementTierCompletionCapture(outbox, () -> true, () -> 1L);
 
-    // Best-effort guess, NOT verified against a live capture: built from the one documented
-    // fragment available (RuneLite's own chat-notification highlight pattern, "has completed the
-    // (\w*) tier of the Combat Achievements"). If this test starts failing against a real capture
-    // later, the wording is wrong, not the test; update both together, the same way the CA_ID
-    // prefix and the @ach_comp@ icon tag were both fixed only after a real live capture.
+    // Unverified wording, based on RuneLite's own chat-notification pattern. If a real
+    // capture disagrees, the wording is wrong; update pattern and test together.
     capture.handleMessage("Congratulations, you have completed the elite tier of the Combat Achievements!");
 
     assertTrue(!outbox.pending().isEmpty());
@@ -41,8 +38,7 @@ public class CombatAchievementTierCompletionCaptureTest {
 
   @Test
   public void emitsWhenTheBroadcastHasNoTrailingExclamationMark() throws IOException {
-    // Same unverified guess as above; the trailing "!" is optional in the pattern because
-    // nothing in the one documented fragment confirms it is always present.
+    // The trailing "!" is optional because it is unconfirmed.
     EventOutbox outbox = outboxIn(newFile());
     CombatAchievementTierCompletionCapture capture =
         new CombatAchievementTierCompletionCapture(outbox, () -> true, () -> 1L);
@@ -55,9 +51,7 @@ public class CombatAchievementTierCompletionCaptureTest {
 
   @Test
   public void ignoresAnUnrecognisedTierWord() throws IOException {
-    // Defends against a mis-parse resolving to something outside the six real
-    // tiers, which the server's own zod enum would reject anyway, but failing
-    // closed here means nothing is even queued for a doomed submission.
+    // Fail closed on anything outside the six real tiers.
     EventOutbox outbox = outboxIn(newFile());
     CombatAchievementTierCompletionCapture capture =
         new CombatAchievementTierCompletionCapture(outbox, () -> true, () -> 1L);
