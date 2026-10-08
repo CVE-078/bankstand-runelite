@@ -1,0 +1,19 @@
+{
+  "accountHash": "123456789012345",
+  "events": [
+    {
+      "id": "018f9c8e-7b7a-7c00-8000-000000000201",
+      "type": "slayer_task_completed",
+      "occurredAt": "2026-10-08T12:00:30Z",
+      "payload": {
+        "creature": "Cave horrors",
+        "killed": 120,
+        "master": null,
+        "pointsAwarded": 15,
+        "pointsTotal": 1234,
+        "streak": 56
+      }
+    }
+  ],
+  "sentAt": "2026-10-08T12:01:00Z"
+}
