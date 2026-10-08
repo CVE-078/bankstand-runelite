@@ -71,19 +71,19 @@ public interface BankstandConfig extends Config {
   String petDropsSection = "petDrops";
 
   @ConfigSection(
-      name = "Play sessions",
+      name = "Session log",
       description = "Whether this device sends when you log in, play and log out.",
       position = 100)
   String sessionsSection = "sessions";
 
   @ConfigSection(
-      name = "Full loot",
+      name = "Loot log",
       description = "Whether this device sends every item you receive from a kill.",
       position = 110)
   String lootSection = "loot";
 
   @ConfigSection(
-      name = "Slayer task",
+      name = "Slayer tracker",
       description = "Whether this device sends your current slayer task.",
       position = 120)
   String slayerSection = "slayer";
@@ -244,10 +244,10 @@ public interface BankstandConfig extends Config {
 
   @ConfigItem(
       keyName = BankstandKeys.KEY_COLLECT_SESSIONS,
-      name = "Collect play sessions",
+      name = "Session log",
       description =
           "Sends when you log in and log out, and an online mark every minute while you"
-              + " play, with whether full loot is on. Never your world, your location or"
+              + " play, with whether the Loot log is on. Never your world, your location or"
               + " whether you are idle.",
       section = sessionsSection,
       position = 1)
@@ -257,7 +257,7 @@ public interface BankstandConfig extends Config {
 
   @ConfigItem(
       keyName = BankstandKeys.KEY_COLLECT_LOOT,
-      name = "Collect full loot",
+      name = "Loot log",
       description =
           "Sends every item you receive from a kill, with the monster's name, grouped about"
               + " once a minute. Never loot from another player, never your bank, inventory"
@@ -270,7 +270,7 @@ public interface BankstandConfig extends Config {
 
   @ConfigItem(
       keyName = BankstandKeys.KEY_COLLECT_SLAYER,
-      name = "Collect slayer task",
+      name = "Slayer tracker",
       description =
           "Sends your current slayer task (the creature, how many are left, your points and"
               + " streak) and when you finish one. Never the task's location.",

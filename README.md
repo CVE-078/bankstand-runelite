@@ -45,13 +45,13 @@ Each capability has its own toggle and its own section under **Settings > Bankst
   monster. A tradeable drop counts once it clears your gp threshold (1,000,000 by default).
   Untradeable items are judged by name.
 - **Pet drops** (opt-in). Which pet you got and when.
-- **Play sessions** (opt-in). When you log in and out, plus an online mark once a minute on a
+- **Session log** (opt-in). When you log in and out, plus an online mark once a minute on a
   normal world, so the site can show how long you played. A world hop is not a logout. Kept in
   memory only, never written to disk.
-- **Full loot** (opt-in). Every item you get from killing a monster, as item ids and quantities,
+- **Loot log** (opt-in). Every item you get from killing a monster, as item ids and quantities,
   with the monster's name and how many kills dropped loot. Sent about once a minute. Separate
-  from notable drops. It does not turn on play sessions; the sidebar panel asks first.
-- **Slayer task** (opt-in). Your current task (creature, amount left and assigned, points and
+  from notable drops. It does not turn on the Session log; the sidebar panel asks first.
+- **Slayer tracker** (opt-in). Your current task (creature, amount left and assigned, points and
   streak) or that you have none, and when you finish one, from the game's completion message.
 
 It also takes one last capture when you log out. A cleared client reads as zeroes, and that read is
@@ -62,7 +62,7 @@ dropped rather than sent.
 - Which specific diary task you completed. Only the moment, tier and area.
 - Bank value, worn equipment, inventory or your location.
 - Anything about other players. Loot from a player kill is never captured.
-- The game's own kill counters. Full loot only counts kills that dropped something.
+- The game's own kill counters. The Loot log only counts kills that dropped something.
 - Which world you are on, or whether you are idle.
 - Your slayer task's location, block list or unlocks.
 - Loot from chests and reward screens (Barrows, raids, clue caskets). These are not monster kills.
@@ -95,7 +95,7 @@ Click the Bankstand icon in the sidebar.
 - **Capabilities.** When each enabled capability last sent something. A dash means nothing new to
   send yet.
 - **Recent activity.** Unlocks, achievements, diary tasks, drops and pets sent this session.
-- **Also collect your play sessions?** Shown while Full loot is on and Play sessions is off.
+- **Also turn on the Session log?** Shown while the Loot log is on and the Session log is off.
   Nothing changes unless you press its button.
 - **Sync now** sends immediately. **Open Bankstand** opens the site.
 

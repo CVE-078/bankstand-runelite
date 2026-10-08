@@ -191,11 +191,11 @@ class BankstandPanel extends PluginPanel {
     section.setBackground(ColorScheme.DARKER_GRAY_COLOR);
     section.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
 
-    JLabel question = new JLabel("Also collect your play sessions?");
+    JLabel question = new JLabel("Also turn on the Session log?");
     question.setForeground(Color.WHITE);
     section.add(leftAligned(question));
 
-    JButton turnOn = new JButton("Collect play sessions");
+    JButton turnOn = new JButton("Turn on");
     turnOn.setFocusable(false);
     turnOn.addActionListener(e -> onTurnOnSessions.run());
     JPanel row = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 4));
