@@ -15,22 +15,8 @@ import java.util.regex.Pattern;
 import org.junit.Test;
 
 /**
- * Keeps README.md's "What it captures" section naming every real capture toggle.
- *
- * <p>The disclosure text bankstand#1143 fixed existed because the opposite happened
- * silently: the plugin grew from 4 capture toggles to 8 and nobody updated the text
- * describing them, so it claimed combat achievements were "deliberately absent" for
- * months after they shipped. This test is the mechanical guard against that recurring:
- * every {@code @ConfigItem} whose key is named {@code KEY_COLLECT_*} must have its human
- * label (the item's own {@code name =} value, minus the leading "Collect") named
- * somewhere in the README, so a ninth toggle added without touching the README fails the
- * build instead of shipping silent drift.
- *
- * <p>Source-scanning rather than behavioural, in the same spirit as {@link
- * NoCredentialsInConfigTest}: the constraint is two files agreeing, not a runtime
- * behaviour. It derives the toggle list from {@code BankstandConfig.java} itself rather
- * than a hardcoded list here, so it does not need updating by hand every time a toggle is
- * added; only the README does.
+ * Fails the build when a {@code KEY_COLLECT_*} toggle's label is missing from the README's
+ * "What it captures" section, so the README can't drift from the real capture list.
  */
 public class ReadmeCaptureListTest {
 
