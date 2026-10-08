@@ -10,7 +10,6 @@ import java.util.function.LongSupplier;
 import net.runelite.api.ItemComposition;
 import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.events.NpcLootReceived;
-import net.runelite.client.events.PlayerLootReceived;
 import net.runelite.client.game.ItemManager;
 import net.runelite.client.game.ItemStack;
 
@@ -26,16 +25,16 @@ import net.runelite.client.game.ItemStack;
  * "first observed" trigger would need to cross-reference the slot tracking
  * that already ships, which is a bigger, separate design question.
  *
- * <p><b>Only these two events, deliberately.</b> The built-in Loot Tracker
- * plugin's own {@code LootReceived} looked like a third source worth also
- * subscribing to, but it is not: Loot Tracker constructs and posts it from the
- * exact same NPC-kill and player-kill moments the client already posts as
- * {@link NpcLootReceived}/{@link PlayerLootReceived}, so subscribing to all
- * three double-fired {@link #handleLoot} for every qualifying drop, one call
- * per event. It covers no loot source the other two miss (chests and some
- * reward interfaces are not covered by any of them), so it added duplication
- * with no coverage in return. GE price is client-side and can differ from the
- * server's view at the moment of the drop.
+ * <p><b>NPC kills only, deliberately.</b> {@code PlayerLootReceived} is not
+ * subscribed: its source is the other player's name, and a third party's name
+ * has no business leaving this client. Loot from a player kill is therefore
+ * never a notable drop. The built-in Loot Tracker plugin's own {@code
+ * LootReceived} is not subscribed either: Loot Tracker posts it from the same
+ * kill moments the client already posts as {@link NpcLootReceived}, so it
+ * double-fired {@link #handleLoot} for every qualifying drop and covers no
+ * source this misses (chests and some reward interfaces are covered by
+ * neither). GE price is client-side and can differ from the server's view at
+ * the moment of the drop.
  */
 public class NotableDropCapture extends BaseCapture {
 
@@ -73,11 +72,6 @@ public class NotableDropCapture extends BaseCapture {
   @Subscribe
   public void onNpcLootReceived(NpcLootReceived event) {
     handleLoot(event.getNpc().getName(), event.getItems());
-  }
-
-  @Subscribe
-  public void onPlayerLootReceived(PlayerLootReceived event) {
-    handleLoot(event.getPlayer().getName(), event.getItems());
   }
 
   /** Package-private, not private: {@code NotableDropCaptureTest} calls this directly
