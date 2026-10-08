@@ -20,10 +20,20 @@ public class DiaryTaskManifestTest {
   }
 
   @Test
-  public void shippedResolvesNothing() {
+  public void shippedResolvesARealEntryButGatesItOnVerification() {
+    // Capture only calls lookup() for a verified region.
     DiaryTaskManifest manifest = DiaryTaskManifest.shipped();
 
-    assertNull(manifest.lookup("ARDOUGNE", 1196, 0));
+    assertFalse(manifest.isVerified("ARDOUGNE"));
+    assertEquals("easy", manifest.lookup("ARDOUGNE", 1196, 0).tier());
+  }
+
+  @Test
+  public void shippedResolvesNothingForAGenuinelyUnmappedBit() {
+    // Bit 3 of Ardougne's first varplayer is not a task.
+    DiaryTaskManifest manifest = DiaryTaskManifest.shipped();
+
+    assertNull(manifest.lookup("ARDOUGNE", 1196, 3));
   }
 
   @Test
