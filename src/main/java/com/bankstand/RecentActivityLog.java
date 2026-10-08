@@ -51,6 +51,9 @@ final class RecentActivityLog {
         return "Notable drop: " + payload.get("itemName");
       case TransientEvent.TYPE_PET_DROP:
         return "Pet drop: " + payload.get("petName");
+      case TransientEvent.TYPE_SLAYER_TASK_COMPLETED:
+        Object creature = payload.get("creature");
+        return creature == null ? "Slayer task completed" : "Slayer task completed: " + creature;
       default:
         return null;
     }

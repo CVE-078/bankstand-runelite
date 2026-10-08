@@ -116,6 +116,7 @@ public final class SubmitEnvelope {
         accountType, fullEnumeration, null);
   }
 
+  /** Without the slayer task. */
   public static Map<String, Object> body(
       String submissionId,
       int schemaVersion,
@@ -132,6 +133,29 @@ public final class SubmitEnvelope {
       String accountType,
       boolean fullEnumeration,
       Map<String, Integer> combatAchievementBossCounts) {
+    return body(
+        submissionId, schemaVersion, pluginVersion, capturedAt, accountHash, displayName, skillXp,
+        questStates, diaryStates, collectionLogItems, combatAchievementCounts, diaryTaskCounts,
+        accountType, fullEnumeration, combatAchievementBossCounts, null);
+  }
+
+  public static Map<String, Object> body(
+      String submissionId,
+      int schemaVersion,
+      String pluginVersion,
+      String capturedAt,
+      long accountHash,
+      String displayName,
+      Map<String, Integer> skillXp,
+      Map<String, String> questStates,
+      Map<String, String> diaryStates,
+      Collection<Integer> collectionLogItems,
+      Map<String, Integer> combatAchievementCounts,
+      Map<String, Integer> diaryTaskCounts,
+      String accountType,
+      boolean fullEnumeration,
+      Map<String, Integer> combatAchievementBossCounts,
+      Map<String, Object> slayerTask) {
     Map<String, Object> body = new LinkedHashMap<>();
     body.put("submissionId", submissionId);
     body.put("schemaVersion", schemaVersion);
@@ -173,6 +197,10 @@ public final class SubmitEnvelope {
     // Null for an unknown varbit value: omit rather than send a wrong type.
     if (accountType != null && !accountType.isEmpty()) {
       body.put("accountType", accountType);
+    }
+    // {"active": false} is an observed state; absent means not read this time.
+    if (slayerTask != null && !slayerTask.isEmpty()) {
+      body.put("slayerTask", new LinkedHashMap<>(slayerTask));
     }
     return body;
   }

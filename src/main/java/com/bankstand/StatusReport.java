@@ -92,7 +92,10 @@ public final class StatusReport {
       boolean accountType,
       boolean notableDrops,
       int notableDropThreshold,
-      boolean petDrops) {
+      boolean petDrops,
+      boolean sessions,
+      boolean loot,
+      boolean slayer) {
     List<String> out = new ArrayList<>();
     out.add("Bankstand collect/events config:");
     out.add(onOff("Skill XP", skills));
@@ -103,6 +106,9 @@ public final class StatusReport {
     out.add(onOff("Account type", accountType));
     out.add(onOff("Notable drops", notableDrops) + " (threshold " + notableDropThreshold + " gp)");
     out.add(onOff("Pet drops", petDrops));
+    out.add(onOff("Play sessions", sessions));
+    out.add(onOff("Full loot", loot));
+    out.add(onOff("Slayer task", slayer));
     return out;
   }
 

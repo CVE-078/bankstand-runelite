@@ -16,6 +16,8 @@ final class PanelModel {
   final List<ActivityRow> recentActivity;
   final String lastFailureReason;
   final String serverUrl;
+  // Full loot on, play sessions off: offer to turn sessions on.
+  final boolean offerSessions;
 
   PanelModel(
       boolean paired,
@@ -24,7 +26,8 @@ final class PanelModel {
       List<CapabilityRow> capabilities,
       List<ActivityRow> recentActivity,
       String lastFailureReason,
-      String serverUrl) {
+      String serverUrl,
+      boolean offerSessions) {
     this.paired = paired;
     this.linkedName = linkedName;
     this.dot = dot;
@@ -32,6 +35,7 @@ final class PanelModel {
     this.recentActivity = recentActivity;
     this.lastFailureReason = lastFailureReason;
     this.serverUrl = serverUrl;
+    this.offerSessions = offerSessions;
   }
 
   static PanelModel empty(String serverUrl) {
@@ -42,7 +46,13 @@ final class PanelModel {
         Collections.emptyList(),
         Collections.emptyList(),
         null,
-        serverUrl);
+        serverUrl,
+        false);
+  }
+
+  /** Whether to show the play sessions prompt. It only offers; it never turns sessions on. */
+  static boolean shouldOfferSessions(boolean lootOn, boolean sessionsOn) {
+    return lootOn && !sessionsOn;
   }
 
   /** {@code lastSyncedAtMs} is null when it never synced. */

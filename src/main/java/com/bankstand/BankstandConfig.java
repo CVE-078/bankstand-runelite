@@ -70,6 +70,24 @@ public interface BankstandConfig extends Config {
       position = 90)
   String petDropsSection = "petDrops";
 
+  @ConfigSection(
+      name = "Session log",
+      description = "Whether this device sends when you log in, play and log out.",
+      position = 100)
+  String sessionsSection = "sessions";
+
+  @ConfigSection(
+      name = "Loot log",
+      description = "Whether this device sends every item you receive from a kill.",
+      position = 110)
+  String lootSection = "loot";
+
+  @ConfigSection(
+      name = "Slayer tracker",
+      description = "Whether this device sends your current slayer task.",
+      position = 120)
+  String slayerSection = "slayer";
+
   @ConfigItem(
       keyName = BankstandKeys.KEY_SERVER_URL,
       name = "Server URL",
@@ -221,6 +239,44 @@ public interface BankstandConfig extends Config {
       section = petDropsSection,
       position = 1)
   default boolean collectPetDrops() {
+    return false;
+  }
+
+  @ConfigItem(
+      keyName = BankstandKeys.KEY_COLLECT_SESSIONS,
+      name = "Session log",
+      description =
+          "Sends when you log in and log out, and an online mark every minute while you"
+              + " play, with whether the Loot log is on. Never your world, your location or"
+              + " whether you are idle.",
+      section = sessionsSection,
+      position = 1)
+  default boolean collectSessions() {
+    return false;
+  }
+
+  @ConfigItem(
+      keyName = BankstandKeys.KEY_COLLECT_LOOT,
+      name = "Loot log",
+      description =
+          "Sends every item you receive from a kill, with the monster's name, grouped about"
+              + " once a minute. Never loot from another player, never your bank, inventory"
+              + " or equipment, and never the game's own kill counts.",
+      section = lootSection,
+      position = 1)
+  default boolean collectLoot() {
+    return false;
+  }
+
+  @ConfigItem(
+      keyName = BankstandKeys.KEY_COLLECT_SLAYER,
+      name = "Slayer tracker",
+      description =
+          "Sends your current slayer task (the creature, how many are left, your points and"
+              + " streak) and when you finish one. Never the task's location.",
+      section = slayerSection,
+      position = 1)
+  default boolean collectSlayer() {
     return false;
   }
 }

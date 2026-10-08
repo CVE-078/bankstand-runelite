@@ -10,7 +10,6 @@ import java.util.function.LongSupplier;
 import net.runelite.api.ItemComposition;
 import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.events.NpcLootReceived;
-import net.runelite.client.events.PlayerLootReceived;
 import net.runelite.client.game.ItemManager;
 import net.runelite.client.game.ItemStack;
 
@@ -18,9 +17,9 @@ import net.runelite.client.game.ItemStack;
  * Captures notable drops: an untradeable item on a curated allowlist, or a tradeable drop whose
  * total GE value clears the configured threshold. Pets are handled by {@link PetDropCapture}.
  *
- * <p>Only {@link NpcLootReceived} and {@link PlayerLootReceived} are subscribed. Loot Tracker's
- * {@code LootReceived} fires for the same kills, so adding it would double-emit. GE price is
- * client-side and may differ from the server's.
+ * <p>NPC kills only: {@code PlayerLootReceived} would send another player's name, and Loot
+ * Tracker's {@code LootReceived} double-fires the same kill. GE price is client-side and may
+ * differ from the server's.
  */
 public class NotableDropCapture extends BaseCapture {
 
@@ -58,11 +57,6 @@ public class NotableDropCapture extends BaseCapture {
   @Subscribe
   public void onNpcLootReceived(NpcLootReceived event) {
     handleLoot(event.getNpc().getName(), event.getItems());
-  }
-
-  @Subscribe
-  public void onPlayerLootReceived(PlayerLootReceived event) {
-    handleLoot(event.getPlayer().getName(), event.getItems());
   }
 
   // The enabled gate must run before any itemManager read.

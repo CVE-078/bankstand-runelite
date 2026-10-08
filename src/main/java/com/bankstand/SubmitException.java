@@ -7,6 +7,7 @@ package com.bankstand;
 public class SubmitException extends Exception {
   private final boolean retryable;
   private final boolean authFailure;
+  private final long retryAfterMillis;
 
   public SubmitException(String message) {
     this(message, false);
@@ -17,9 +18,15 @@ public class SubmitException extends Exception {
   }
 
   public SubmitException(String message, boolean retryable, boolean authFailure) {
+    this(message, retryable, authFailure, 0L);
+  }
+
+  public SubmitException(
+      String message, boolean retryable, boolean authFailure, long retryAfterMillis) {
     super(message);
     this.retryable = retryable;
     this.authFailure = authFailure;
+    this.retryAfterMillis = retryAfterMillis;
   }
 
   public boolean isRetryable() {
@@ -29,5 +36,10 @@ public class SubmitException extends Exception {
   /** A rejected or revoked token (401/403): only re-pairing fixes it, so stop submitting. */
   public boolean isAuthFailure() {
     return authFailure;
+  }
+
+  /** A 429's {@code Retry-After}, or zero. */
+  public long getRetryAfterMillis() {
+    return retryAfterMillis;
   }
 }

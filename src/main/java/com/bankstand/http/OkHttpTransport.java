@@ -32,7 +32,8 @@ public class OkHttpTransport implements HttpTransport {
     }
     try (Response response = client.newCall(builder.build()).execute()) {
       ResponseBody body = response.body();
-      return new HttpResponse(response.code(), body != null ? body.string() : "");
+      return new HttpResponse(
+          response.code(), body != null ? body.string() : "", response.header("Retry-After"));
     }
   }
 
