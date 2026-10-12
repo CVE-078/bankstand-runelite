@@ -11,7 +11,7 @@ import java.util.Set;
  */
 public final class DiaryTaskManifest {
 
-  /** Task text is read off the in-game diary journal, never copied from third-party data. */
+  /** Tier and task name. The name is a placeholder until its region is verified. */
   public static final class Entry {
     private final String tier;
     private final String taskName;
@@ -46,7 +46,7 @@ public final class DiaryTaskManifest {
 
   /** No verified regions yet. */
   public static DiaryTaskManifest shipped() {
-    return new DiaryTaskManifest(Set.of(), Map.of());
+    return new DiaryTaskManifest(Set.of(), DiaryTaskManifestData.build());
   }
 
   public boolean isVerified(String region) {
