@@ -6,41 +6,16 @@ import java.util.Map;
 import net.runelite.api.gameval.VarbitID;
 
 /**
- * Maps the server's diary wire keys to the varbit holding how many of that tier's tasks
- * are done.
+ * Maps each diary tier's wire key to the varbit counting its completed tasks (a count, not which
+ * tasks). Keys must match {@link DiaryVarbits} exactly so a count joins to its completion flag.
  *
- * <p><b>The second of the three varbits per tier</b>, and the one that makes a partly
- * finished tier expressible at all. {@link DiaryVarbits} reads {@code *_COMPLETE}, which
- * is true only when every task is done, so a tier at 21 of 22 has been reporting as
- * nothing. This table is what fixes that, and it is a table extension rather than a
- * research project: the counts exist for all 48 tiers and RuneLite names every one.
- *
- * <p><b>These are counts, not task identities.</b> A tier reading 21 says nothing about
- * which 21, exactly as the combat achievement tier counts do not say which tasks moved.
- * Per-task state remains unresolved, and the reader's per-task marks stay unmarked.
- *
- * <p>Wire keys match {@link DiaryVarbits} exactly, because the two halves describe the
- * same 48 tiers and a key that existed in one and not the other would be a tier whose
- * count could never be joined to its completion flag. {@code DiaryTaskVarbitsTest}
- * asserts they agree rather than leaving it to review.
- *
- * <p>Names differ from the completion table in two ways worth knowing. These come from
- * the newer {@code VarbitID} table rather than {@code Varbits}, which is where the counts
- * are named; and the tier is spelled {@code MED} rather than {@code MEDIUM}. Three
- * regions are renamed to the wire key for the same reason as next door: KOUREND becomes
- * KOUREND_KEBOS, LUMBRIDGE becomes LUMBRIDGE_DRAYNOR, WESTERN becomes WESTERN_PROVINCES.
- *
- * <p>Karamja's easy count sits at 2423, far outside the 6288-6330 block the rest occupy,
- * because its diary predates them. That is the same split the completion table documents
- * and is not a sign of a wrong id.
- *
- * <p>A plain data table with no {@code Client} dependency, so it is unit-testable without
- * a live game client.
+ * <p>Karamja's easy count (2423) sits outside the block the rest use because its diary is older;
+ * the id is correct.
  */
 public final class DiaryTaskVarbits {
   private DiaryTaskVarbits() {}
 
-  /** Ordered, unmodifiable: wire key to the varbit holding that tier's completed count. */
+  /** Ordered: wire key to varbit id. */
   public static final Map<String, Integer> ALL = Collections.unmodifiableMap(build());
 
   private static Map<String, Integer> build() {

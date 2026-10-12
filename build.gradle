@@ -17,9 +17,7 @@ def runeLiteVersion = 'latest.release'
 def pluginMainClass = 'com.bankstand.BankstandPluginTest'
 
 dependencies {
-	// runelite-client is the only compile dependency. Gson and OkHttp arrive as its
-	// transitives, so the plugin ships ZERO third-party runtime dependencies (Plugin
-	// Hub requirement). Everything below is compileOnly or test-scope, never bundled.
+	// Plugin Hub: no bundled third-party runtime dependencies. Gson and OkHttp come from the client.
 	compileOnly group: 'net.runelite', name: 'client', version: runeLiteVersion
 
 	compileOnly 'org.projectlombok:lombok:1.18.30'
@@ -44,14 +42,9 @@ tasks.register('run', JavaExec) {
 	mainClass = pluginMainClass
 
 	jvmArgs "-ea"
-	// JDK 17 dev-mode: RuneLite reflects into java.base to invalidate its annotation
-	// caches at startup; open the package so it does not log an InaccessibleObjectException.
-	// Non-fatal without it, but this matches what the RuneLite launcher passes.
+	// Matches the RuneLite launcher; avoids an InaccessibleObjectException warning on JDK 17.
 	jvmArgs "--add-opens", "java.base/java.lang.reflect=ALL-UNNAMED"
-	// On macOS with JDK 11+, RuneLite's OSXFullScreenAdapter subclasses
-	// com.apple.eawt.FullScreenAdapter, which java.desktop no longer exports to the
-	// unnamed module, so startup fails with an IllegalAccessError. Grant access when
-	// running on a Mac. This affects dev-mode only; it is not part of the plugin.
+	// macOS: dev-mode startup needs com.apple.eawt, which java.desktop no longer exports.
 	if (System.getProperty('os.name').toLowerCase().contains('mac')) {
 		jvmArgs "--add-exports", "java.desktop/com.apple.eawt=ALL-UNNAMED"
 	}

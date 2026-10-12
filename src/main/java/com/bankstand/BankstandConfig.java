@@ -7,28 +7,7 @@ import net.runelite.client.config.ConfigSection;
 import net.runelite.client.config.Range;
 import net.runelite.client.config.Units;
 
-/**
- * The plugin's whole UI. Everything a player sets lives in RuneLite's own settings
- * screen, so Bankstand takes no permanent slot in the sidebar for something it is
- * interacted with roughly once per device.
- *
- * <p>Two items are actions rather than settings, because config has no button:
- * pasting into {@link #pairingCode()} performs the pairing and the field is cleared
- * afterwards, and ticking {@link #disconnect()} forgets the credentials and untick
- * itself. Both are handled in {@code BankstandPlugin.onConfigChanged}.
- *
- * <p>One section per capability, not a shared "Collect" checkbox list: each toggle's
- * own threshold or filter field (where it has one) lives right beside it instead of in
- * a separate catch-all section, and a future capability gets its own section rather
- * than growing an already-long list. Who may then SEE any of it is a separate
- * question, answered on the website and deliberately not here: a setting in the game
- * client cannot be the source of truth for a server-side audience.
- *
- * <p>Every toggle names what it sends. That is the RuneLite Plugin Hub's rule for a
- * plugin that talks to a third-party server (the warning belongs on the plugin or on
- * the option that enables the sending), and it is why {@link #collectSkills()} exists
- * as an option at all rather than being implied by pairing.
- */
+/** Bankstand settings. Each toggle names what it sends, per the Plugin Hub rule. */
 @ConfigGroup(BankstandKeys.GROUP)
 public interface BankstandConfig extends Config {
 
@@ -153,8 +132,7 @@ public interface BankstandConfig extends Config {
 
   @ConfigItem(
       keyName = BankstandKeys.KEY_COLLECT_DIARIES,
-      // "Collect achievement diary progress" is too long for the config panel and
-      // renders truncated. The description carries the full name instead.
+      // The full name renders truncated in the config panel.
       name = "Collect diary progress",
       description =
           "Sends which achievement diary tiers you have completed. Tier level only: a tier"

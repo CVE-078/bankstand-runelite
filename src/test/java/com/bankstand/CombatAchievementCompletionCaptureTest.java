@@ -38,9 +38,7 @@ public class CombatAchievementCompletionCaptureTest {
 
   @Test
   public void emitsWhenTheGameTagsTheBroadcastWithACaId() throws IOException {
-    // Observed live (2026-08-11): the real broadcast carries a "CA_ID:<n>|" prefix the
-    // pattern's ^-anchor didn't account for, so every completion silently failed to
-    // capture. Caught by testing against the actual game text, not an assumed wording.
+    // The real broadcast carries a "CA_ID:<n>|" prefix.
     EventOutbox outbox = outboxIn(newFile());
     CombatAchievementCompletionCapture capture =
         new CombatAchievementCompletionCapture(outbox, () -> true, () -> 1L);
@@ -57,11 +55,7 @@ public class CombatAchievementCompletionCaptureTest {
 
   @Test
   public void stripsALeadingIconTagFromTheTaskName() throws IOException {
-    // Observed live (2026-08-29): the real broadcast can carry a leading "@word@" icon
-    // tag directly against the task name, the game's own inline icon-substitution
-    // syntax, left raw because the chat line reaches the plugin before the client
-    // resolves it. Caught the same way the CA_ID prefix was: an actual live capture,
-    // not an assumed wording.
+    // The real broadcast can carry a raw "@word@" icon tag before the task name.
     EventOutbox outbox = outboxIn(newFile());
     CombatAchievementCompletionCapture capture =
         new CombatAchievementCompletionCapture(outbox, () -> true, () -> 1L);
@@ -78,7 +72,6 @@ public class CombatAchievementCompletionCaptureTest {
 
   @Test
   public void emitsOnAnIndefiniteArticleAnVariant() throws IOException {
-    // "an easy"/"an elite" use the "an" article; the pattern must accept both a/an.
     EventOutbox outbox = outboxIn(newFile());
     CombatAchievementCompletionCapture capture =
         new CombatAchievementCompletionCapture(outbox, () -> true, () -> 1L);
@@ -93,8 +86,7 @@ public class CombatAchievementCompletionCaptureTest {
 
   @Test
   public void stripsAPointsSuffixFromTheTaskName() throws IOException {
-    // The clean name is a permanent server-side primary key with no later sync to fix
-    // it, so the "(N points)" suffix the game appends must never reach the outbox.
+    // The name is a permanent server-side key, so the "(N points)" suffix must never reach it.
     EventOutbox outbox = outboxIn(newFile());
     CombatAchievementCompletionCapture capture =
         new CombatAchievementCompletionCapture(outbox, () -> true, () -> 1L);
@@ -111,8 +103,7 @@ public class CombatAchievementCompletionCaptureTest {
 
   @Test
   public void keepsAPeriodOrParenthesesInsideTheTaskName() throws IOException {
-    // Pins the greedy capture group: everything up to the final ". " terminator stays
-    // part of the task name, including an internal period or parenthetical aside.
+    // Greedy capture: everything up to the final ". " stays part of the task name.
     EventOutbox outbox = outboxIn(newFile());
     CombatAchievementCompletionCapture capture =
         new CombatAchievementCompletionCapture(outbox, () -> true, () -> 1L);
@@ -126,10 +117,7 @@ public class CombatAchievementCompletionCaptureTest {
         outbox.pending().get(0).getEvent().getPayload().get("taskName"));
   }
 
-  /** The server validates a whole batch in one schema parse (128-char task-name bound)
-   *  and 400s the WHOLE BATCH on any one event failing validation, with the drain
-   *  acking nothing on failure: one oversized name would block every other queued
-   *  event for the account, forever. Same fix as CollectionLogUnlockCapture's. */
+  /** An oversized name would 400 the whole batch and block every queued event forever. */
   @Test
   public void skipsAnOversizedTaskName() throws IOException {
     EventOutbox outbox = outboxIn(newFile());
@@ -164,10 +152,7 @@ public class CombatAchievementCompletionCaptureTest {
     return builder.toString();
   }
 
-  /** The strip can consume the entire captured group (a double space before the
-   *  suffix leaves nothing behind), and an empty name is worse than useless: the
-   *  server's min(1) rejects it, and one rejected event in a batch 400s the whole
-   *  batch, permanently blocking every other queued event for the account. */
+  /** An empty name fails the server's min(1) and would block the whole batch. */
   @Test
   public void doesNotEmitWhenTheTaskNameStripsToEmpty() throws IOException {
     EventOutbox outbox = outboxIn(newFile());
@@ -179,8 +164,6 @@ public class CombatAchievementCompletionCaptureTest {
     assertTrue(outbox.pending().isEmpty());
   }
 
-  /** A whitespace-only name is min(1)-valid junk, not a real task name, and must be
-   *  caught the same way an empty one is. */
   @Test
   public void doesNotEmitAWhitespaceOnlyTaskName() throws IOException {
     EventOutbox outbox = outboxIn(newFile());
@@ -194,9 +177,7 @@ public class CombatAchievementCompletionCaptureTest {
 
   @Test
   public void ignoresAnUnrecognisedTierWord() throws IOException {
-    // Defends against a mis-parse resolving to something outside the six real
-    // tiers, which the server's own zod enum would reject anyway, but failing
-    // closed here means nothing is even queued for a doomed submission.
+    // Fail closed on anything outside the six real tiers.
     EventOutbox outbox = outboxIn(newFile());
     CombatAchievementCompletionCapture capture =
         new CombatAchievementCompletionCapture(outbox, () -> true, () -> 1L);

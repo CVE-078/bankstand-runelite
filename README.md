@@ -1,155 +1,108 @@
 # Bankstand RuneLite plugin
 
-The RuneLite companion for [Bankstand](https://bankstand.gg). It links your client to your Bankstand
-account and keeps your progress on the site up to date without you having to look anything up.
+The RuneLite companion for [Bankstand](https://bankstand.gg).
 
-You generate a short pairing code on the website and paste it into the plugin's settings. The plugin
-exchanges it for a device token stored locally, and from then on it submits quietly in the background.
-Your linked character shows a "RuneLite verified" badge on Bankstand.
+## What it does
 
-**Everything captured is private to your own Bankstand account.** None of it is public, none of it is
-ranked, and nothing here decides who can see it. That is a separate setting on the website.
+- Links your RuneLite client to your Bankstand account.
+- Keeps your progress on the site up to date while you play.
+- Gives your linked character a "RuneLite verified" badge.
+- Everything it sends is private to your own account. Nothing is public or ranked. Who can see it is
+  a separate setting on the website.
 
-## What it captures
+## Pairing
 
-Each of these is a separate toggle, and each names exactly what it sends.
-
-- **Skill XP.** On by default. Checked every 60 seconds while you are logged in, and sent only when
-  something actually changed, so an idle account sends nothing.
-- **Quest progress.** Opt-in. Sends each quest's state: finished, started or not begun.
-- **Achievement diary progress.** Opt-in. Sends a completed task count per tier and whether the tier
-  itself reads complete, because that is all the client exposes for the tier as a whole. Also sends
-  the moment any task completes, with its tier and area, from the game's own chat line. Not which
-  specific task: a tier reading 21 of 22 still cannot say which one is left.
-- **Combat achievements.** Opt-in. Sends a completed count per tier, because that is all the client
-  exposes for the tier as a whole, plus which task as the game announces its completion in chat, and
-  when a whole tier finishes, from the game's own tier-complete message. A tier reading 23 of 41
-  cannot say which 23 from before you turned this on; only tasks completed while the plugin is
-  running are named. Also sends a completed count per boss or activity, for the ones the game
-  exposes a counter for; not every boss has one, and it is still a count, never which specific tasks.
-- **Collection log.** Opt-in. Sends which slots you have filled, and each new unlock as the game
-  announces it in chat, so you do not have to open the log to have it captured. The log is not held
-  in the client otherwise, so browsing adds what you see, and **opening it and clicking Search**
-  reads the whole thing in one go, with an infobox counting items as they arrive. A partial read
-  adds to what is known and never replaces it.
-- **Account type.** Opt-in. Sends whether this account is a main, an ironman, or one of the group
-  types. The hiscores cannot show a Group Ironman at all, so without this Bankstand has to take your
-  word for it. Your own answer still wins: Bankstand shows you both and asks.
-- **Notable drops.** Opt-in. Sends unique, untradeable or high-value drops as they happen: the item,
-  its value where it has one, and where it came from. A tradeable drop is sent when its total GE
-  value clears a threshold you set (1,000,000 gp by default). Untradeable items are judged by name
-  instead, not that number.
-- **Pet drops.** Opt-in. Sends which pet you received and when, as it happens.
-
-It also takes one last capture as you log out, so the final minute of a session is not lost to the
-60 second schedule. A cleared client reads as zeroes, and that read is rejected rather than sent.
-
-### What it does not capture
-
-Stated plainly, because a gap is easy to mistake for a bug.
-
-- **Which individual diary task just completed.** The moment is captured; which specific task is
-  not, so a tier reading 21 of 22 still cannot say which one is left.
-- **Bank value, worn equipment, inventory and your location.** Not captured, not offered, and not
-  requestable by the server.
-- **Your own conversations.** Never sent. The game's own broadcast lines are read where a capability
-  above says so (a collection log unlock, a combat achievement completion), never anything you or
-  anyone else typed.
-
-## Setting it up
-
-1. Sign in at [bankstand.gg](https://bankstand.gg) and go to **Account > Connect RuneLite**. Generate
-   a pairing code.
+1. Sign in at [bankstand.gg](https://bankstand.gg) and open **Account > Connect RuneLite**.
+   Generate a pairing code.
 2. In RuneLite, open **Settings > Bankstand** and paste the code into **Pairing code**. The field
    clears itself and the chat box confirms the connection.
-3. Log in as a character you have tracked on Bankstand. Shortly after login the chat box shows
-   **Verified as `<name>`**, and the badge appears on that character.
+3. Log in as a character you track on Bankstand. The chat box shows **Verified as `<name>`**.
 
-If the character is not one you have tracked, the plugin says so rather than binding silently.
-Click the Bankstand icon in the sidebar any time after that for a status view, covered below.
+If the character is not one you track, the plugin tells you instead of linking it.
+
+Each machine pairs separately and shows up as its own device on Bankstand, with its own revoke
+button.
+
+## What each toggle captures
+
+Each capability has its own toggle and its own section under **Settings > Bankstand**.
+
+- **Skill XP** (on by default). Your XP per skill, your account hash and your display name. Checked
+  every 60 seconds and sent only when something changed. This toggle gates all the others: with it
+  off, nothing is sent.
+- **Quest progress** (opt-in). Each quest's state: not started, started or finished.
+- **Diary progress** (opt-in). A completed task count per diary tier, whether the tier reads
+  complete, and the moment a task completes, from the game's chat line.
+- **Combat achievements** (opt-in). A completed count per tier and per boss (where the game has a
+  counter), the task name when the game announces a completion in chat, and tier completions. Tasks
+  done before you turned this on are counted but not named.
+- **Collection log** (opt-in). Which slots you have filled, plus each new unlock as the game
+  announces it. Browsing the log adds what you see. Open it and click **Search** to read the whole
+  log at once. A partial read never removes anything.
+- **Account type** (opt-in). Whether the account is a main, an ironman or a group type. The hiscores
+  cannot show Group Ironman, so this fills the gap. Your own answer on the site still wins.
+- **Notable drops** (opt-in). Unique, untradeable or high-value drops: the item, its value and the
+  source. A tradeable drop counts once it clears your gp threshold (1,000,000 by default).
+  Untradeable items are judged by name.
+- **Pet drops** (opt-in). Which pet you got and when.
+
+It also takes one last capture when you log out. A cleared client reads as zeroes, and that read is
+dropped rather than sent.
+
+## What it never captures
+
+- Which specific diary task you completed. Only the moment, tier and area.
+- Bank value, worn equipment, inventory or your location.
+- Anything you or other players type in chat. It only reads the game's own messages, for the
+  capabilities above.
+
+It never logs your pairing code, device token, account hash or display name. It only observes the
+client: it never clicks, sends input or runs game scripts.
 
 ## Configuration
 
-Everything lives under **Settings > Bankstand**: a **Connection** section, then one section per
-capability, in the same order as the list above.
+Under **Settings > Bankstand**:
 
-The split matters. **Connection** is which Bankstand account this client is tied to. Every other
-section is what this client reads and sends, and each capability gets its own section rather than a
-shared checkbox list, so a threshold or filter field (where a capability has one) lives right beside
-its own toggle. Who may then *see* any of it is a separate question, answered in your Bankstand
-privacy settings and deliberately not here: a setting in a game client cannot be the source of truth
-for a server-side audience, which is why nothing in this plugin is called "share".
+- **Server URL.** Defaults to the live site. Leave it unless you run Bankstand yourself.
+- **Pairing code.** Paste a code to pair. It clears itself once used.
+- **Disconnect.** Tick to forget this device's token. To revoke it on the server, use **Account**
+  on the website.
+- **One section per capability**, each with its own toggle. Notable drops also has its gp
+  threshold.
 
-### Connection
+The pairing is stored in `<RUNELITE_DIR>/bankstand/device.json`, not in RuneLite's config, so
+config sync never uploads it.
 
-- **Server URL.** Defaults to the live site. Leave it alone unless you are running Bankstand
-  yourself. A stale address here makes every update fail.
-- **Pairing code.** Paste a code to pair. Cleared automatically once used, successfully or not.
-- **Disconnect.** Tick to forget this device's token. Unticks itself. To revoke it server-side, use
-  **Bankstand > Account**.
+### Sidebar panel
 
-Your pairing is stored in `<RUNELITE_DIR>/bankstand/device.json`, not in RuneLite's plugin
-configuration, so it is never uploaded by config sync. **Each machine pairs separately**, and each
-appears as its own device on Bankstand with its own name and its own revoke button.
+Click the Bankstand icon in the sidebar.
 
-### Every capability
+- **Status dot.** Green: last sync worked. Amber: last attempt failed. Grey: not paired or nothing
+  sent yet.
+- **Capabilities.** When each enabled capability last sent something. A dash means nothing new to
+  send yet.
+- **Recent activity.** Unlocks, achievements, diary tasks, drops and pets sent this session.
+- **Sync now** sends immediately. **Open Bankstand** opens the site.
 
-One toggle per section, as listed above; Notable drops also carries its own gp-value threshold field
-right beside it. **Collect skill XP** gates the whole capture rather than just its own section: the
-submission format makes skills required and the rest optional riders on it, so with it off there is
-nothing for the others to attach to and a paired client goes quiet.
+### Chat commands
 
-If you paired before version 0.1.0, these toggles were renamed and reverted to off. Re-tick the ones
-you want. Your pairing and server URL are untouched.
+`::stand` works as a shorthand for `::bstand`.
 
-## The sidebar panel
+- `::bstand`: connection status and what was last sent.
+- `::bstand sync`: send now.
+- `::bstand link`: re-link this character.
+- `::bstand log`: start a full collection log read. Needs the log open.
+- `::bstand repair`: clear a stale or revoked pairing, then paste a new code.
+- `::bstand export`: print and copy your toggle settings. Never includes the code, token or URL.
+- `::bstand help`: list the commands.
 
-Click the Bankstand icon in the RuneLite sidebar for a status view that stays put, instead of
-scrolling away with your chat history.
+### When something fails
 
-- **Header.** A dot for the state at a glance: green means the last sync succeeded, amber means the
-  last attempt failed, grey means you are either not paired or nothing has synced yet. Below it, which
-  character is linked and which server you are paired with.
-- **Capabilities.** One row per capability you have switched on, with when it last actually sent
-  something, and this persists across a RuneLite restart. A capability that is on but has had nothing
-  new to send, no drop, no pet, nothing changed, reads `—` rather than a fake "just now": that is the
-  honest answer, not a bug.
-- **Recent activity.** Named things this device has sent this session, newest first, each with when:
-  a collection log unlock, a combat achievement, a diary task, a notable drop, a pet. Not the routine
-  skill XP sync, which has nothing worth naming. Resets when RuneLite restarts.
-- **Sync now** sends immediately, the same as `::bstand sync`. **Open Bankstand** opens your paired
-  server in your browser.
+- The chat box and the panel say what went wrong. A repeated failure is reported once.
+- Repeated failures back off to about 16 minutes and recover on the next success.
+- A rejected or revoked token stops sending until you pair again.
 
-A failure shows here too, not just in chat, with the same reason `::bstand` gives.
-
-## In-game commands
-
-Type these in the chat box. `::stand` works as a shorthand for all of them.
-
-- `::bstand` shows the connection status: which account, which character, when it last sent, and what
-  it last sent.
-- `::bstand sync` sends now rather than waiting for the next cycle.
-- `::bstand link` re-links this character.
-- `::bstand log` arms a guided collection log read without needing to find the right-click entry on an
-  already-open log. Needs collection log capture on and the log interface open, and says so if either
-  is not true.
-- `::bstand repair` clears the stored pairing so a stale or revoked token has an obvious fix: paste a
-  fresh code in the plugin settings afterwards.
-- `::bstand export` prints and copies your current Collect/Events toggle state, so you can hand it to
-  another device or a support thread. Never includes the pairing code, device token, or server URL.
-- `::bstand help` (or `::bstand commands`) lists every command above and what it does.
-
-## When something goes wrong
-
-Outcomes are reported in the chat box, and the sidebar panel's status dot and failure text mirror the
-same thing. A failure that repeats is announced once rather than every cycle, and the recovery is
-announced when it clears.
-
-A client that keeps failing also slows down, backing off to about 16 minutes and resuming the moment
-one attempt succeeds. **A rejected or revoked token stops it entirely**: retrying cannot fix that, so
-it says so once and sends nothing until you pair again.
-
-## Building
+## Building from source
 
 Requires JDK 11 or later.
 
@@ -157,33 +110,17 @@ Requires JDK 11 or later.
 ./gradlew build
 ```
 
-That compiles the plugin and runs the tests, and it is the same command CI runs on every pull
-request.
+This compiles the plugin and runs the tests, the same as CI.
 
 ## Reporting a problem
 
-[Open an issue](https://github.com/CVE-078/bankstand-runelite/issues/new/choose). Include the
-plugin version and whatever the chat box said, which is usually enough to answer it.
-
-**Never paste your pairing code or device token.** The code is single use and the token is a
-credential. The plugin logs neither, so an ordinary log is safe to share.
-
-## Contributing
-
-The development rules, the invariants behind the design and the module layout are maintained in the
-Bankstand project repository rather than here.
-
-Two constraints are worth stating up front, because breaking either fails review rather than a test:
-
-- **The plugin observes the client. It never drives it.** `client.menuAction`, `client.runScript` and
-  `client.invokeMenuAction` are banned, and a test fails the build if one reappears.
-- **Never log the device token, the account hash, the display name, or a raw request body.** The
-  first is a credential; the rest identify a real account.
+[Open an issue](https://github.com/CVE-078/bankstand-runelite/issues/new/choose) with the plugin
+version and what the chat box said. Never paste your pairing code or device token.
 
 ## Licence
 
-BSD 2-Clause. See [`LICENSE`](LICENSE). No runtime dependencies beyond what `runelite-client` already
+BSD 2-Clause. See [`LICENSE`](LICENSE). No runtime dependencies beyond what `runelite-client`
 ships.
 
-Bankstand is an independent project and is not affiliated with, endorsed by or sponsored by Jagex Ltd
-or the RuneLite project. Old School RuneScape is a trademark of Jagex Ltd.
+Bankstand is an independent project and is not affiliated with, endorsed by or sponsored by Jagex
+Ltd or the RuneLite project. Old School RuneScape is a trademark of Jagex Ltd.

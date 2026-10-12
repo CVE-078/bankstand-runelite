@@ -8,35 +8,19 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * What the server says it will ingest, after this client has decided how much of it to
- * believe.
+ * What the server says it will ingest, after this client has validated it.
  *
- * <p><b>The refusal is structural, not a policy.</b> This type has four fields: a schema
- * version, a minimum plugin version, a list of capability <i>names</i> and an interval.
- * There is no field that can carry a varbit id, a varp, a script, a widget, a URL, a class
- * name or an expression, so a fully compromised Bankstand server cannot ask this plugin to
- * read a bank, an inventory, worn equipment, chat or a location. Not because it would be
- * refused, but because there is no way to say it. The plugin owns the mapping from a
- * capability name to game values and always has.
+ * <p>The manifest carries only a schema version, a minimum plugin version, capability
+ * <i>names</i> and an interval. It has no field that could name a varbit, widget, script, URL or
+ * anything else to read, so the server cannot ask the plugin to read new game data. The plugin
+ * owns the mapping from name to game values.
  *
- * <p>That is the property a Plugin Hub reviewer needs to be able to check in one file, so
- * the enforcement is deliberately small, ordered and readable rather than clever. The
- * Hub's stated position is that if it is difficult for them to be sure a plugin is not
- * against the rules, they will not merge it.
- *
- * <p>Every rejection resolves to a usable manifest rather than to a failure: the last one
- * that validated, or the compiled-in {@link #bundled()}. A manifest outage, or a server
- * that starts sending nonsense, must never stop a paired client working.
+ * <p>Every rejection falls back to a usable manifest (the last valid one, or {@link #bundled()}),
+ * so a bad or missing manifest never stops a paired client.
  */
 public final class CapabilityManifest {
 
-  /**
-   * The only capabilities this build can capture at all.
-   *
-   * <p>An allowlist, so a name the server invents is dropped and the rest of the manifest
-   * is still used. Adding a name here is a code change with a Hub review attached, which
-   * is exactly the friction that should exist around what the plugin reads.
-   */
+  /** Allowlist of capabilities this build can capture. Unknown server names are dropped. */
   public static final Set<String> SUPPORTED_CAPABILITIES =
       Collections.unmodifiableSet(
           new LinkedHashSet<>(
@@ -47,22 +31,14 @@ public final class CapabilityManifest {
   /** The contract version this build speaks. A manifest declaring anything else is not ours. */
   public static final int SUPPORTED_SCHEMA_VERSION = 1;
 
-  /**
-   * The fastest this client will ever submit, whatever the server asks for.
-   *
-   * <p>A server that could drive the interval down could turn every paired client into a
-   * load generator against itself and against Wise Old Man, so the client keeps the floor.
-   * The server's value is only ever able to make submissions <i>less</i> frequent.
-   */
+  /** Client-side floor: the server can only make submissions less frequent. */
   public static final int MIN_UPLOAD_INTERVAL_SECONDS = 60;
 
-  /** And the slowest, so a bad value cannot silently park a client forever. */
+  /** Ceiling, so a bad value cannot park a client forever. */
   public static final int MAX_UPLOAD_INTERVAL_SECONDS = 6 * 60 * 60;
 
-  /** More names than exist today would mean the list had stopped being a capability list. */
   private static final int MAX_CAPABILITIES = 32;
 
-  /** Long enough for every real name, short enough that the field cannot smuggle a payload. */
   private static final int MAX_CAPABILITY_LENGTH = 40;
 
   private final int schemaVersion;
@@ -76,11 +52,8 @@ public final class CapabilityManifest {
   }
 
   /**
-   * The manifest compiled into this build.
-   *
-   * <p>Used before the first successful fetch and after a total failure, so a client that
-   * has never reached the server still captures what it was built to capture. Deliberately
-   * everything this build supports: the server's copy can only ever narrow it.
+   * The manifest compiled into this build: everything it supports. The server's copy can only
+   * narrow it.
    */
   public static CapabilityManifest bundled() {
     return new CapabilityManifest(
@@ -90,14 +63,8 @@ public final class CapabilityManifest {
   }
 
   /**
-   * Validates a manifest the server sent, or returns null to keep whatever is in use.
-   *
-   * <p>Null, never an exception and never a partly-applied manifest. The caller's job on a
-   * null is to do nothing, which leaves the last good copy or the bundled one in place.
-   *
-   * <p>The schema version gates the whole document rather than a field: a manifest written
-   * against a contract this build does not speak cannot be partly understood, and guessing
-   * at the parts that look familiar is how a client ends up honouring half of something.
+   * Validates a server manifest, or returns null to keep the one in use. Never throws and never
+   * applies part of a manifest. An unknown schema version rejects the whole document.
    */
   public static CapabilityManifest validate(RawManifest raw) {
     if (raw == null) {
@@ -110,10 +77,7 @@ public final class CapabilityManifest {
       return null;
     }
 
-    // An unknown name is dropped and the rest is kept, which is the opposite of the
-    // version gate above and deliberately so: a new capability is an additive change the
-    // server is entitled to make, and rejecting the whole manifest for one would mean a
-    // server could never introduce anything without stranding every older client.
+    // Unknown names are dropped, not fatal, so the server can add capabilities.
     List<String> accepted = new ArrayList<>();
     for (String name : raw.capabilities) {
       if (name == null || name.length() > MAX_CAPABILITY_LENGTH) {
@@ -153,7 +117,6 @@ public final class CapabilityManifest {
     return schemaVersion;
   }
 
-  /** One line for the debug output, so the active manifest is never a guess. */
   public String describe() {
     return "manifest v"
         + schemaVersion
@@ -165,14 +128,8 @@ public final class CapabilityManifest {
   }
 
   /**
-   * The wire shape, exactly as Gson fills it.
-   *
-   * <p>Primitives and a list of strings, matching the server's own document. Unknown fields
-   * on the wire are ignored rather than rejected, which is what lets the server add one
-   * without stranding older clients; Gson does that by simply having nowhere to put them.
-   *
-   * <p><b>Do not add a field here that is not a primitive.</b> The guarantee at the top of
-   * this file is only true while this class cannot express anything else.
+   * The wire shape as Gson fills it. Unknown wire fields are ignored. Keep every field a primitive
+   * or a list of strings, or the guarantee in the class doc no longer holds.
    */
   public static final class RawManifest {
     int schemaVersion;

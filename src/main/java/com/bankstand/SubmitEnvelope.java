@@ -6,10 +6,11 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * Builds the v1 skills-submit envelope as an ordered map, ready for Gson. The
- * account hash is emitted as a decimal string because a 64-bit value does not fit
- * a JSON number safely, matching the server's contract. The shape is frozen; see
- * the mirrored contract fixtures under src/test/resources/contracts.
+ * Builds the v1 submit envelope. The shape is a frozen server contract, pinned by the
+ * fixtures under src/test/resources/contracts.
+ *
+ * <p>Every block is omitted when empty: absent means "not observed", and the server
+ * treats a present-but-empty block as an erase.
  */
 public final class SubmitEnvelope {
   private SubmitEnvelope() {}
@@ -94,7 +95,6 @@ public final class SubmitEnvelope {
         accountType, false);
   }
 
-  /** Kept for callers built before {@code combatAchievementBossCounts} existed. */
   public static Map<String, Object> body(
       String submissionId,
       int schemaVersion,
@@ -154,50 +154,23 @@ public final class SubmitEnvelope {
     if (diaryStates != null && !diaryStates.isEmpty()) {
       body.put("diaries", new LinkedHashMap<>(diaryStates));
     }
-    // How many of each tier's tasks are done, which is what makes a tier at 21 of 22
-    // expressible at all: the completion flag above is true only when every task is
-    // done, so a partly finished tier has been reporting as nothing. Counts, never
-    // task identities. Omitted when empty like every other block, and for the same
-    // reason: empty means "not observed", not "none done".
     if (diaryTaskCounts != null && !diaryTaskCounts.isEmpty()) {
       body.put("diaryTasks", new LinkedHashMap<>(diaryTaskCounts));
     }
-    // An array, not a map: this capability records presence only. Omitted when empty
-    // for the same reason as every other block, and the reason is load-bearing here
-    // too: an empty block means "not observed", and the server would otherwise have
-    // to distinguish that from "owns nothing".
     if (collectionLogItems != null && !collectionLogItems.isEmpty()) {
       body.put("collectionLog", new ArrayList<>(collectionLogItems));
-      // Present, and true, only on a submission that rode a COMPLETE guided read:
-      // the game's Search interface was seen open while entries streamed, not
-      // incidental page browsing. Never sent false; a partial or ordinary read has
-      // nothing to assert here, the same "absence means not observed" rule the rest
-      // of this envelope follows for every other block.
+      // Only after a complete guided read (Search open). Never sent as false.
       if (fullEnumeration) {
         body.put("collectionLogFullyEnumerated", true);
       }
     }
-    // Per-tier completed COUNTS, which is all the game exposes. Omitted when empty
-    // for the same reason as every other block: an empty block means "not observed",
-    // and the server treats a present-but-empty one as an erase.
     if (combatAchievementCounts != null && !combatAchievementCounts.isEmpty()) {
       body.put("combatAchievements", new LinkedHashMap<>(combatAchievementCounts));
     }
-    // How many of each VERIFIED boss/activity's tasks are done, keyed by the corpus's
-    // own source name (see CombatAchievementBossVarbits). Rides on the same
-    // "omitted when empty means not observed" rule as diaryTasks above, for the same
-    // reason.
     if (combatAchievementBossCounts != null && !combatAchievementBossCounts.isEmpty()) {
       body.put("combatAchievementBossCounts", new LinkedHashMap<>(combatAchievementBossCounts));
     }
-    // One word, and the only block that is not a collection: the game has exactly one
-    // answer. Sent because the hiscores cannot answer it at all for a Group Ironman,
-    // who is absent from the ironman boards and so reads as a main everywhere public.
-    //
-    // Null when the varbit held a value this build has no name for, per
-    // AccountTypes.keyFor, which is the same "omit rather than guess" the blocks
-    // above use for empty. A wrong type is worse than no type: it is the badge on
-    // the player's own profile.
+    // Null for an unknown varbit value: omit rather than send a wrong type.
     if (accountType != null && !accountType.isEmpty()) {
       body.put("accountType", accountType);
     }

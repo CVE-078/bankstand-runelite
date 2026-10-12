@@ -16,7 +16,7 @@ public class PairingCodesTest {
 
   @Test
   public void foldsCrockfordLookAlikesLikeTheServer() {
-    // O -> 0, I -> 1, L -> 1, matching the server's normalizePairingCode.
+    // Matches the server's normalisation: O -> 0, I -> 1, L -> 1.
     assertEquals("001111", PairingCodes.normalize("OoIiLl"));
   }
 

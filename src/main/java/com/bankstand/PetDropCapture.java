@@ -15,28 +15,10 @@ import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.util.Text;
 
 /**
- * Detects pet drops with the prime-then-resolve pattern. Non-obvious
- * enough to be worth copying rather than re-deriving: the game's first message
- * never contains the pet's name.
- *
- * <ol>
- *   <li>Match the "funny feeling like you are being followed" /
- *       "something weird sneaking into your backpack" family and prime.
- *   <li>Resolve the name from the NEXT game message only, via the
- *       untradeable-drop line or the collection-log line. One-shot: whatever
- *       that next message is, primed state is consumed by it, matching or not.
- *   <li>Validate against a known pet-name set, cross-checkable against the
- *       collection log since pets appear there too.
- * </ol>
- *
- * <p>A primed message with no following drop line emits nothing, and a
- * non-pet untradeable is ignored: both fall out of requiring the resolved
- * name to be in {@link #KNOWN_PETS} before emitting anything.
- *
- * <p><b>{@link #KNOWN_PETS} is a starting set, not a claimed-complete one.</b>
- * OSRS has added pets steadily since release; this list is the well-known
- * boss and skilling pets as of the tier this plugin targets, and is meant to
- * be extended, not treated as exhaustive.
+ * Detects pet drops with a prime-then-resolve pattern, because the game's first message never
+ * names the pet. A prime line arms the detector; the NEXT game message alone may resolve the
+ * name (collection-log or untradeable-drop line) and consumes the prime whether it matches or
+ * not. Only names in {@link #KNOWN_PETS} emit. That set is a starting set, not exhaustive.
  */
 public class PetDropCapture extends BaseCapture {
 
@@ -49,12 +31,8 @@ public class PetDropCapture extends BaseCapture {
   private static final Pattern UNTRADEABLE_DROP_PATTERN =
       Pattern.compile("^Untradeable drop: (.+)$");
 
-  // Case-insensitive: several entries below were typed in a casing that does not
-  // match the game's own broadcast lines (TzRek-Jad, Baby Mole, Giant Squirrel and
-  // every "Pet <Boss>" pet all use title case in the actual chat/collection-log
-  // text), so a plain case-sensitive Set silently dropped every one of them. The
-  // resolved name still comes from the message itself (see resolvePetName), so this
-  // only relaxes the membership check, never what gets emitted.
+  // Case-insensitive: game text casing differs from these entries. The emitted name still comes
+  // from the message itself.
   static final Set<String> KNOWN_PETS = knownPets();
 
   private static Set<String> knownPets() {
@@ -137,16 +115,10 @@ public class PetDropCapture extends BaseCapture {
     handleMessage(Text.removeTags(event.getMessage()));
   }
 
-  /** Package-private, not private: {@code PetDropCaptureTest} calls this directly
-   *  with plain strings, to avoid constructing a live {@code ChatMessage}.
-   *
-   * <p>Unlike {@code NotableDropCapture}, the toggle gates only the derive-and-emit
-   * step here, not the prime/consume tracking above it. The one-shot consumption
-   * MUST run regardless of the toggle: if it did not, disabling the capability
-   * between a prime and its resolve message would leave {@link #primed} stuck true
-   * with nothing to ever clear it, and a later, unrelated message after
-   * re-enabling could wrongly resolve that stale prime, which is exactly the bug
-   * the one-shot design exists to prevent. */
+  /**
+   * The toggle gates only emitting, never the prime/consume tracking: otherwise disabling between
+   * prime and resolve would leave {@link #primed} stuck and a later message could resolve it.
+   */
   void handleMessage(String message) {
     if (isPrimeMessage(message)) {
       primed = true;
@@ -155,8 +127,7 @@ public class PetDropCapture extends BaseCapture {
     if (!primed) {
       return;
     }
-    // One-shot: consumed by this message whether or not it resolves anything,
-    // so a stray later message can never wrongly resolve a stale prime.
+    // One-shot: consumed whether or not this message resolves anything.
     primed = false;
     if (!isEnabled()) return;
     String name = resolvePetName(message);
@@ -170,8 +141,7 @@ public class PetDropCapture extends BaseCapture {
     return PRIME_PATTERN.matcher(message).matches();
   }
 
-  /** Null when the message is not a recognised resolve line, or names something not
-   *  in {@link #KNOWN_PETS}: both are "nothing to emit", never an error. */
+  /** Null means nothing to emit: not a resolve line, or not a known pet. */
   static String resolvePetName(String message) {
     String fromLog = matchGroup(COLLECTION_LOG_PATTERN, message);
     if (fromLog != null && KNOWN_PETS.contains(fromLog)) {
@@ -192,8 +162,7 @@ public class PetDropCapture extends BaseCapture {
   static Map<String, Object> payload(String petName) {
     Map<String, Object> payload = new LinkedHashMap<>();
     payload.put("petName", petName);
-    // Neither resolve line names an NPC: the collection-log broadcast and the
-    // untradeable-drop line both carry only the item, never its source.
+    // Neither resolve line names the source NPC.
     payload.put("source", null);
     return payload;
   }

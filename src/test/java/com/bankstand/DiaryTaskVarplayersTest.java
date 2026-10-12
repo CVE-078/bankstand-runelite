@@ -13,8 +13,6 @@ public class DiaryTaskVarplayersTest {
 
   @Test
   public void coversTheSame12RegionsAsTheOtherDiaryTables() {
-    // A region present in the completion/count tables but missing here would be one
-    // DiaryTaskCompletionCapture can never read varplayers for, silently.
     assertEquals(12, DiaryTaskVarplayers.ALL.size());
     Set<String> regionsFromTierKeys = new HashSet<>();
     for (String key : DiaryVarbits.ALL.keySet()) {
@@ -25,7 +23,6 @@ public class DiaryTaskVarplayersTest {
 
   @Test
   public void totalsTwentySevenVarplayers() {
-    // 10 regions x 2, plus Kourend & Kebos's extra MULTISTAGE, plus Karamja's four.
     int total = 0;
     for (int[] ids : DiaryTaskVarplayers.ALL.values()) {
       total += ids.length;
@@ -48,8 +45,7 @@ public class DiaryTaskVarplayersTest {
 
   @Test
   public void namesEachVarplayerOnce() {
-    // A copy-paste across regions would make two regions share a varplayer and diff
-    // the same bits twice, attributing one account's diary to two regions.
+    // A shared varplayer would attribute one diary's bits to two regions.
     List<Integer> all = new ArrayList<>();
     for (int[] ids : DiaryTaskVarplayers.ALL.values()) {
       for (int id : ids) {

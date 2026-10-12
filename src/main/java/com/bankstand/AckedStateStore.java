@@ -14,21 +14,12 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- * Reads and writes what the server has already acknowledged, per character.
- *
- * <p>A file, not {@code ConfigManager}: a synced profile PATCHes its whole config to
- * RuneLite's own service, with no per-key exclusion, and what this holds is the player's
- * captured game data.
- *
- * <p>Every read failure resolves to "nothing is known", which re-sends everything once.
- * That is what the client did before any of this persisted, so the failure mode is the
- * status quo.
- *
- * <p>Not thread-safe; the plugin calls it only from its background executor.
+ * Persists what the server acknowledged, per character, in a local file (not {@code
+ * ConfigManager}, which syncs to RuneLite's servers). A read failure means "nothing known", which
+ * re-sends everything once. Background executor only.
  */
 public class AckedStateStore {
 
-  /** One file, characters keyed by account hash. */
   private static class Document {
     Map<String, AckedState> accounts;
   }
@@ -47,7 +38,7 @@ public class AckedStateStore {
     if (stored == null) {
       return AckedState.empty();
     }
-    // Copied, so a caller mutating what it got cannot reach into the next read.
+    // A copy, so a caller's mutation cannot leak into the next read.
     AckedState copy = AckedState.empty();
     copy.setSkills(stored.getSkills());
     copy.setQuests(stored.getQuests());
@@ -105,8 +96,7 @@ public class AckedStateStore {
         Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING);
       }
     } catch (IOException | RuntimeException e) {
-      // A failed save costs one resend next start, which is not worth throwing out of a
-      // background task on the submit path.
+      // A failed save costs one resend next start.
     }
   }
 }

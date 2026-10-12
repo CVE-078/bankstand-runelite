@@ -19,8 +19,6 @@ public class DiaryTaskCompletionCaptureTest {
       "Well done! You have completed an elite task in the Western Provinces area. Your"
           + " Achievement Diary has been updated.";
 
-  // The wire region key DiaryTaskRegions resolves "Western Provinces" to, and the first
-  // of DiaryTaskVarplayers.ALL's two ids for it (WESTERN_ACHIEVEMENT_DIARY).
   private static final String WESTERN_REGION = "WESTERN_PROVINCES";
   private static final int WESTERN_VARPLAYER = DiaryTaskVarplayers.ALL.get(WESTERN_REGION)[0];
 
@@ -31,9 +29,7 @@ public class DiaryTaskCompletionCaptureTest {
   }
 
   private File newFile() throws IOException {
-    // A unique subfolder per call: TemporaryFolder#newFolder throws if the same
-    // relative path is requested twice within one test (see emitsForEveryRealTier,
-    // which calls this in a loop).
+    // TemporaryFolder#newFolder throws on a repeated path, and this is called in a loop.
     return new File(folder.newFolder(), "events.json");
   }
 
@@ -64,7 +60,6 @@ public class DiaryTaskCompletionCaptureTest {
 
   @Test
   public void emitsOnAnIndefiniteArticleAVariant() throws IOException {
-    // "a hard"/"a medium" use the "a" article, not "an"; the pattern must accept both.
     EventOutbox outbox = outboxIn(newFile());
     DiaryTaskCompletionCapture capture =
         new DiaryTaskCompletionCapture(outbox, () -> true, () -> 1L);
@@ -100,9 +95,7 @@ public class DiaryTaskCompletionCaptureTest {
 
   @Test
   public void keepsADoubleBarrelledAreaNameIntact() throws IOException {
-    // Three regions are double-barrelled (Kourend & Kebos, Lumbridge & Draynor, Western
-    // Provinces); the greedy capture group must keep the whole phrase, not stop at the
-    // first word.
+    // Double-barrelled region names must be captured whole.
     EventOutbox outbox = outboxIn(newFile());
     DiaryTaskCompletionCapture capture =
         new DiaryTaskCompletionCapture(outbox, () -> true, () -> 1L);
@@ -118,8 +111,7 @@ public class DiaryTaskCompletionCaptureTest {
 
   @Test
   public void ignoresAnUnrecognisedTierWord() throws IOException {
-    // "master"/"grandmaster" are real combat-achievement tiers, not diary tiers; a
-    // mis-parse resolving to one of those must never reach the outbox.
+    // Combat achievement tiers must never parse as diary tiers.
     EventOutbox outbox = outboxIn(newFile());
     DiaryTaskCompletionCapture capture =
         new DiaryTaskCompletionCapture(outbox, () -> true, () -> 1L);
@@ -133,8 +125,7 @@ public class DiaryTaskCompletionCaptureTest {
 
   @Test
   public void doesNotConfuseTheTierCompletionBroadcastForThisOne() throws IOException {
-    // The #770 early-trigger's tier-completion broadcast starts with "Congratulations"
-    // and names the tier and area differently; this capture's pattern must not match it.
+    // The tier-completion broadcast must not match this pattern.
     EventOutbox outbox = outboxIn(newFile());
     DiaryTaskCompletionCapture capture =
         new DiaryTaskCompletionCapture(outbox, () -> true, () -> 1L);
@@ -210,7 +201,6 @@ public class DiaryTaskCompletionCaptureTest {
 
   @Test
   public void attachesNoTaskNameForAnUnverifiedRegion() throws IOException {
-    // shipped() has no verified regions, matching production today.
     EventOutbox outbox = outboxIn(newFile());
     DiaryTaskCompletionCapture capture =
         new DiaryTaskCompletionCapture(
@@ -248,8 +238,7 @@ public class DiaryTaskCompletionCaptureTest {
   @Test
   public void firstObservationNeverAttachesATaskNameEvenWhenVerifiedAndAlreadySet()
       throws IOException {
-    // A player who already had this done before the manifest shipped must not have it
-    // reported as freshly completed the instant it's first read.
+    // A task done before the manifest shipped must not report as freshly completed.
     EventOutbox outbox = outboxIn(newFile());
     DiaryTaskCompletionCapture capture =
         new DiaryTaskCompletionCapture(
@@ -288,7 +277,6 @@ public class DiaryTaskCompletionCaptureTest {
 
   @Test
   public void failsClosedWhenMoreThanOneBitResolvesFromOneObservation() throws IOException {
-    // Can't tell which of two simultaneously-flipped bits this chat line is about.
     int otherVarplayer = DiaryTaskVarplayers.ALL.get(WESTERN_REGION)[1];
     DiaryTaskManifest manifest = new DiaryTaskManifest(
         Set.of(WESTERN_REGION),
@@ -310,8 +298,7 @@ public class DiaryTaskCompletionCaptureTest {
 
   @Test
   public void failsClosedWhenOneOfTwoSimultaneouslyFlippedBitsIsUnmapped() throws IOException {
-    // Two bits flip at once, only one has a manifest entry. Same ambiguity as both
-    // resolving: no way to tell which one this chat line is about.
+    // Only one of two flipped bits has a manifest entry: still ambiguous.
     int otherVarplayer = DiaryTaskVarplayers.ALL.get(WESTERN_REGION)[1];
     DiaryTaskManifest manifest = new DiaryTaskManifest(
         Set.of(WESTERN_REGION),
@@ -361,9 +348,7 @@ public class DiaryTaskCompletionCaptureTest {
 
   @Test
   public void theBaselineCallbackObservesThisMessagesOwnDiffAlreadyApplied() throws IOException {
-    // The callback exists to persist bits soon after they change. If it fired before
-    // this message's own diff, a crash right after would lose exactly the update it was
-    // meant to protect, which is what actually happened here on the first pass.
+    // The persist callback must fire after this message's own diff, or a crash loses it.
     EventOutbox outbox = outboxIn(newFile());
     DiaryTaskBits bits = new DiaryTaskBits();
     bits.diff(WESTERN_VARPLAYER, 0); // establish baseline before the message under test

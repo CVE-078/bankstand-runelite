@@ -14,51 +14,26 @@ import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.util.Text;
 
 /**
- * Captures which specific combat achievement task was just completed, from the
- * game's own chat broadcast. The only source that can ever name a
- * specific task: RuneLite exposes a per-tier completed count and nothing per
- * task, and Jagex publishes no per-task identity anywhere.
- *
- * <p>Wording verified against Dink's own {@code CombatTaskNotifier} and its test
- * fixtures, a Hub-approved plugin whose combat achievement notifier is
- * live-tested at scale: "Congratulations, you've completed a/an &lt;tier&gt;
- * combat task: &lt;name&gt;." A grandmaster task additionally appends a
- * "(N points)" suffix to the name, which is stripped before emit. The real broadcast
- * also carries a leading "CA_ID:&lt;n&gt;|" the pattern accepts and discards; that
- * was missing from Dink's fixtures too and only surfaced from an actual live capture.
+ * Captures which combat achievement task was completed, from its chat broadcast: the only source
+ * that names a specific task.
  */
 public class CombatAchievementCompletionCapture extends BaseCapture {
 
-  // The game itself tags this broadcast with a "CA_ID:<n>|" prefix (observed live)
-  // that carries no information this capture needs; the task name alone
-  // is the identity. Matched and discarded rather than stripped beforehand, so a
-  // message with no prefix at all still matches too.
+  // The live broadcast has an optional "CA_ID:<n>|" prefix, matched and discarded.
   private static final Pattern COMPLETION_PATTERN =
       Pattern.compile(
           "^(?:CA_ID:\\d+\\|)?Congratulations, you've completed an? (\\w+) combat task: (.+)\\.$");
 
-  // Strips a trailing "(N points)" from a task name, matching Dink's own approach of a
-  // dedicated strip pattern applied with replaceFirst(""). taskName becomes a permanent
-  // primary key server-side (player_combat_achievement_task is append-only, with no
-  // later sync to correct it), so the suffix must never reach the outbox: a future fix
-  // would then record the same task a second time under the clean name with no way to
-  // tell which row is the copy.
+  // The task name is a permanent server-side key, so a trailing "(N points)" must be stripped.
   private static final Pattern POINTS_SUFFIX_PATTERN =
       Pattern.compile("\\s+\\(\\d+ points?\\)$");
 
-  // The real broadcast can also carry a leading "@word@" icon tag directly against the
-  // task name (observed live: "@ach_comp@Perfect Shellbane"), the game client's own
-  // inline icon-substitution syntax (distinct from the "<...>" tags RuneLite's
-  // Text.removeTags already strips), left raw because a plugin reads the chat line
-  // before the client resolves it to an icon. Not in Dink's fixtures either, the same
-  // gap the CA_ID prefix above was. Stripped for the same reason as the points suffix:
-  // this becomes a permanent primary key with no later sync to fix it.
+  // A leading "@word@" icon tag (seen live, not removed by Text.removeTags), stripped for the
+  // same reason.
   private static final Pattern ICON_TAG_PREFIX_PATTERN = Pattern.compile("^@\\w+@");
 
-  // Matches the server's own bound (MAX_NAME_LENGTH in events-envelope.ts). The server
-  // validates a whole batch in one schema parse and 400s the WHOLE BATCH on any one
-  // event failing, so one oversized name must never reach the outbox: it would
-  // permanently block every other queued event for the account, not just itself.
+  // Matches the server's bound. The server rejects the whole batch on one invalid event, so a
+  // bad name must never reach the outbox.
   private static final int MAX_TASK_NAME_LENGTH = 128;
 
   public CombatAchievementCompletionCapture(
@@ -82,7 +57,7 @@ public class CombatAchievementCompletionCapture extends BaseCapture {
     handleMessage(Text.removeTags(event.getMessage()));
   }
 
-  /** Package-private, not private: the test calls this directly with plain strings. */
+  // Package-private for tests.
   void handleMessage(String message) {
     if (!isEnabled()) {
       return;
@@ -97,10 +72,7 @@ public class CombatAchievementCompletionCapture extends BaseCapture {
     }
     String rawName = ICON_TAG_PREFIX_PATTERN.matcher(matcher.group(2)).replaceFirst("");
     String taskName = POINTS_SUFFIX_PATTERN.matcher(rawName).replaceFirst("").trim();
-    // The strip above can consume the whole captured group (a double space before the
-    // suffix leaves nothing), and a whitespace-only capture is min(1)-valid junk the
-    // same way an empty one is: either would 400 the whole batch on the server's own
-    // schema (see MAX_TASK_NAME_LENGTH's comment for why that is never acceptable here).
+    // Stripping can leave nothing.
     if (taskName.isEmpty() || taskName.length() > MAX_TASK_NAME_LENGTH) {
       return;
     }

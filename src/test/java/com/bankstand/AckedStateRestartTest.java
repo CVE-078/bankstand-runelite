@@ -16,15 +16,7 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
-/**
- * What persistence is actually for, exercised end to end over the real baselines, the
- * real accumulator and a real file: a client restart must not re-send what the server
- * already took, and the collection log must not be forgotten.
- *
- * <p>The plugin itself needs a live {@code Client}, so the composition is assembled here
- * the way the plugin assembles it. That is the point: every piece below is the shipped
- * one, and only the wiring is local.
- */
+/** A client restart must not re-send what the server already took, nor forget the log. */
 public class AckedStateRestartTest {
 
   private static final long ACCOUNT = 4_242L;
@@ -38,7 +30,6 @@ public class AckedStateRestartTest {
     file = new File(folder.getRoot(), "acked-state.json");
   }
 
-  /** One client's worth of the state a capture reads and a restart has to rebuild. */
   private static class Client {
     final SkillBaseline skills = new SkillBaseline();
     final QuestBaseline quests = new QuestBaseline();
@@ -51,7 +42,6 @@ public class AckedStateRestartTest {
       return BankstandPlugin.plan(skills, s, quests, q, diaries, d, logBaseline, log.observed());
     }
 
-    /** The server accepted everything in this capture. */
     void ackAll(Map<String, Integer> s, Map<String, String> q, Map<String, String> d) {
       skills.advance(s);
       quests.advance(q);
@@ -110,7 +100,7 @@ public class AckedStateRestartTest {
     return new AckedStateStore(file, new Gson());
   }
 
-  /** The headline. Today every client start re-sends every block once; it must not. */
+  /** A restart must not re-send every block once. */
   @Test
   public void aRestartWithNothingChangedSendsNothing() {
     Client first = new Client();
@@ -141,7 +131,6 @@ public class AckedStateRestartTest {
     assertFalse(plan.includesDiaries());
   }
 
-  /** The observations that cannot be re-read from the client if they are lost. */
   @Test
   public void aRestartRemembersTheCollectionLogItself() {
     Client first = new Client();
@@ -156,10 +145,8 @@ public class AckedStateRestartTest {
   }
 
   /**
-   * The trap, pinned. A count is a valid change gate only over a monotonically growing
-   * observed set. Restore the count while the accumulator starts empty, and the next
-   * partial browse reads as a change, sends a short block, acks, and does it again every
-   * session. Restoring both is what keeps the invariant the count rests on.
+   * The count gate only holds over a growing observed set, so the count and the accumulator
+   * must be restored together.
    */
   @Test
   public void restoringTheCountWithoutTheAccumulatorWouldChurn() {
@@ -168,8 +155,7 @@ public class AckedStateRestartTest {
     first.ackAll(skills(100), quests("FINISHED"), diaries());
     first.save(store());
 
-    // The broken half: baseline restored, accumulator left empty, as it would be after
-    // a restart if only the count persisted.
+    // Baseline restored, accumulator left empty.
     Client broken = new Client();
     broken.logBaseline.restore(store().load(ACCOUNT).getCollectionLogAcked());
     for (int id = 1; id <= 30; id++) {
@@ -177,7 +163,6 @@ public class AckedStateRestartTest {
     }
     assertTrue(broken.plan(skills(100), quests("FINISHED"), diaries()).includesCollectionLog());
 
-    // Both restored, which is what ships: the same browse reveals nothing new.
     Client correct = new Client();
     correct.restore(store());
     for (int id = 1; id <= 30; id++) {
@@ -186,7 +171,6 @@ public class AckedStateRestartTest {
     assertFalse(correct.plan(skills(100), quests("FINISHED"), diaries()).includesCollectionLog());
   }
 
-  /** Growth after a restart still goes out, as a whole block, never as a delta. */
   @Test
   public void aLogThatGrowsAfterARestartIsSentWhole() {
     Client first = new Client();
@@ -203,17 +187,11 @@ public class AckedStateRestartTest {
     assertEquals(1701, afterRestart.log.size());
   }
 
-  /**
-   * An unsent log is not treated as delivered. This is why the acked count is stored
-   * rather than derived from the restored accumulator, which would read 1700 observed as
-   * 1700 acknowledged and never send them.
-   */
+  /** The acked count is stored, not derived from the accumulator, so an unsent log still sends. */
   @Test
   public void aLogWhoseSubmitFailedIsStillSentAfterARestart() {
     Client first = new Client();
     first.log.restore(wholeLog());
-    // Skills acked, the log block was not: exactly what a per-block ack reports when
-    // that capability's storage dropped it.
     first.skills.advance(skills(100));
     first.quests.advance(quests("FINISHED"));
     first.diaries.advance(diaries());
@@ -237,8 +215,7 @@ public class AckedStateRestartTest {
     Client afterRestart = new Client();
     afterRestart.restore(store());
 
-    // Everything reads as changed, which is exactly what the client did before any of
-    // this persisted. The safe direction.
+    // Everything reads as changed: the safe direction.
     assertTrue(afterRestart.plan(skills(100), quests("FINISHED"), diaries()).shouldSubmit());
   }
 

@@ -10,9 +10,6 @@ import java.util.List;
 import java.util.Map;
 import org.junit.Test;
 
-/** No RuneLite or game dependency: a plain bounded list and a plain string builder,
- *  matching the "testable without a client" philosophy {@link StatusReport} already
- *  uses for its own wording. */
 public class RecentActivityLogTest {
 
   @Test
@@ -39,7 +36,6 @@ public class RecentActivityLogTest {
     List<PanelModel.ActivityRow> recent = log.recent();
 
     assertEquals(RecentActivityLog.MAX_ENTRIES, recent.size());
-    // Newest first, and the three oldest ("entry-0".."entry-2") are gone.
     assertEquals("entry-" + (RecentActivityLog.MAX_ENTRIES + 2), recent.get(0).description);
     assertEquals("entry-3", recent.get(recent.size() - 1).description);
   }

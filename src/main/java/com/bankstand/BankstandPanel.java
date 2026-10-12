@@ -19,19 +19,8 @@ import net.runelite.client.ui.FontManager;
 import net.runelite.client.ui.PluginPanel;
 
 /**
- * The plugin's sidebar panel (#1174): a single scrollable view answering "did my sync
- * actually work", reachable from a toolbar icon rather than a permanent tab. The
- * plugin's whole design otherwise is chat lines and {@code ::bstand} commands for
- * something looked at once per device, which is deliberate; this panel does not change
- * that, it just gives the same information a place to be read back without scrolling
- * chat history.
- *
- * <p>Renders entirely from a {@link PanelModel} snapshot handed in by {@link
- * #render}; holds no reference to the plugin, the client, or the config itself, so
- * what it draws can be reasoned about from a value alone. Rebuilds its content from
- * scratch on every render rather than patching it in place: a repaint happens at most
- * once a minute (the capture cadence) or on a user action, never per game tick, so
- * there is no performance reason to diff and patch instead.
+ * Sidebar panel showing sync status. Renders only from a {@link PanelModel} snapshot and
+ * holds no reference to the plugin or client.
  */
 class BankstandPanel extends PluginPanel {
 
@@ -47,18 +36,12 @@ class BankstandPanel extends PluginPanel {
     render(PanelModel.empty(""));
   }
 
-  /** RuneLite calls this when the sidebar opens on this tab (a fresh open, or
-   *  switching back to it from another plugin's tab), which is the one moment a
-   *  player is looking at the panel without having just clicked a button in it. The
-   *  plugin hops to the client thread to rebuild real state and back to the event
-   *  dispatch thread to repaint; this call itself stays cheap and synchronous. */
   @Override
   public void onActivate() {
     onRequestRefresh.run();
   }
 
-  /** Rebuilds the four blocks from the given snapshot and repaints. Must be called on
-   *  the Swing event dispatch thread. */
+  /** Must be called on the Swing event dispatch thread. */
   void render(PanelModel model) {
     removeAll();
 
@@ -89,8 +72,7 @@ class BankstandPanel extends PluginPanel {
     titleRow.add(title);
     header.add(leftAligned(titleRow));
 
-    // Named here for the same reason StatusReport's own "Paired with X" line exists:
-    // a stale or misconfigured server address otherwise fails every sync in silence.
+    // A stale server address otherwise fails every sync silently.
     if (model.paired) {
       JLabel serverLine = new JLabel("Paired with " + model.serverUrl);
       serverLine.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
@@ -128,19 +110,12 @@ class BankstandPanel extends PluginPanel {
         return Color.ORANGE;
       case GREY:
       default:
-        // MEDIUM_GRAY_COLOR (77,77,77) on this panel's DARKER_GRAY_COLOR (30,30,30)
-        // background is a ~2:1 contrast ratio, under WCAG's 3:1 floor for anything
-        // meant to be seen. LIGHT_GRAY_COLOR is already this panel's own muted-text
-        // colour (the paired-with line, timestamps, placeholders) and reads clearly.
+        // MEDIUM_GRAY_COLOR is under WCAG's 3:1 contrast on this background.
         return ColorScheme.LIGHT_GRAY_COLOR;
     }
   }
 
-  // A painted circle instead of a Unicode glyph ("●" in a bare JLabel, this
-  // panel's original approach): glyph coverage for that character depends on
-  // whatever font Swing falls back to for an unstyled label, and on a real client it
-  // rendered nothing at all rather than merely the wrong colour. Painting it directly
-  // has no font to get wrong.
+  // Painted rather than a Unicode glyph, which some client fonts render as nothing.
   private static JComponent statusDot(Color color, String tooltip) {
     JComponent dot =
         new JComponent() {
@@ -186,9 +161,7 @@ class BankstandPanel extends PluginPanel {
     JLabel name = new JLabel(row.name);
     name.setForeground(Color.WHITE);
 
-    // Never a number, and never "0m ago" for something that has not happened: absence
-    // is a different fact from a fresh sync, the same "'—' rather than a false zero"
-    // rule this plugin's own StatusReport already renders by for the collection log.
+    // Never synced shows a placeholder, never "0m ago".
     JLabel synced =
         new JLabel(
             row.lastSyncedAtMs == null
@@ -272,14 +245,7 @@ class BankstandPanel extends PluginPanel {
     return label;
   }
 
-  // BoxLayout's own per-child alignmentX is the textbook way to left-pin a component
-  // narrower than its container, and it is what this file relied on before. In
-  // practice, one label on a real client (this panel's own "Capabilities" heading)
-  // still rendered centered after a clean rebuild, with no code-level difference from
-  // a sibling heading built the exact same way that rendered correctly. The capability
-  // rows never misrendered in testing, and they use BorderLayout, not alignmentX, so
-  // this wraps every other label the same way rather than trying to explain the one
-  // that did not listen.
+  // BorderLayout.WEST: BoxLayout alignmentX did not reliably left-align on a real client.
   private static JPanel leftAligned(JComponent inner) {
     JPanel wrapper = new JPanel(new BorderLayout());
     wrapper.setOpaque(false);
@@ -287,10 +253,7 @@ class BankstandPanel extends PluginPanel {
     return wrapper;
   }
 
-  // A failure message is the server's or the HTTP client's own text, never
-  // player-authored, but it still reaches an html-rendering JLabel: escape the handful
-  // of characters that would otherwise be read as markup rather than pulling in a full
-  // HTML escaper for a plugin with zero third-party runtime dependencies.
+  // The failure text reaches an html-rendering JLabel, so escape markup characters.
   private static String escapeHtml(String text) {
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
   }

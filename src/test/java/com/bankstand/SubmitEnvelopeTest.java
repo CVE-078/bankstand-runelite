@@ -35,7 +35,7 @@ public class SubmitEnvelopeTest {
     assertEquals(1, json.get("schemaVersion").getAsInt());
     assertEquals("1.0.0", json.get("pluginVersion").getAsString());
     assertEquals("2026-07-23T10:00:00.000Z", json.get("capturedAt").getAsString());
-    // account hash is a decimal STRING, not a number.
+    // The account hash is a decimal string, not a number.
     assertTrue(json.get("accountHash").getAsJsonPrimitive().isString());
     assertEquals("123456789012345", json.get("accountHash").getAsString());
     assertEquals("Zezima", json.get("displayName").getAsString());
@@ -78,15 +78,13 @@ public class SubmitEnvelopeTest {
     @SuppressWarnings("unchecked")
     Map<String, Object> sent = (Map<String, Object>) body.get("diaryTasks");
     assertEquals(Integer.valueOf(9), sent.get("ARDOUGNE_EASY"));
-    // Zero is a real reading and must survive. A tier with none done is a different
-    // fact from a tier that was not read, and only the block's absence says the latter.
+    // Zero is a real reading; only the block's absence means "not read".
     assertEquals(Integer.valueOf(0), sent.get("ARDOUGNE_MEDIUM"));
   }
 
   @Test
   public void omitsDiaryTaskCountsWhenThereAreNone() {
-    // Absent means "not observed". A present-but-empty block is treated as an erase by
-    // the per-capability merge, which is the trap every other block here avoids too.
+    // Absent means "not observed"; a present-but-empty block erases on the server merge.
     Map<String, Object> none =
         SubmitEnvelope.body(
             "id", 1, "1.0.0", "2026-08-09T10:00:00Z", 42L, "Zezima",
@@ -115,9 +113,7 @@ public class SubmitEnvelopeTest {
 
   @Test
   public void omitsTheAccountTypeWhenTheGameNamedNone() {
-    // Null is the varbit holding a value this build has no name for, or the opt-in being
-    // off. Both mean "not observed", and a wrong type is worse than none: it is the badge
-    // on the player's own profile.
+    // Null means "not observed"; a wrong type is worse than none.
     Map<String, Object> nothing =
         SubmitEnvelope.body(
             "id", 1, "1.0.0", "2026-08-09T10:00:00Z", 42L, "Zezima",
@@ -147,15 +143,13 @@ public class SubmitEnvelopeTest {
     @SuppressWarnings("unchecked")
     Map<String, Object> sent = (Map<String, Object>) body.get("combatAchievementBossCounts");
     assertEquals(Integer.valueOf(4), sent.get("Vorkath"));
-    // A genuine zero is a fact (the boss's tasks were read and none are done), not the
-    // same thing as the boss never having been read at all.
+    // Zero is a real reading, not "never read".
     assertEquals(Integer.valueOf(0), sent.get("Zulrah"));
   }
 
   @Test
   public void omitsCombatAchievementBossCountsWhenThereAreNone() {
-    // Absent means "not observed"; a present-but-empty block is treated as an erase by
-    // the per-capability merge, the same trap every other block here avoids.
+    // Absent means "not observed"; a present-but-empty block erases on the server merge.
     Map<String, Object> none =
         SubmitEnvelope.body(
             "id", 1, "1.0.0", "2026-08-09T10:00:00Z", 42L, "Zezima",
@@ -173,8 +167,7 @@ public class SubmitEnvelopeTest {
 
   @Test
   public void aPreExistingCallerWithNoBossCountsStillOmitsTheBlock() {
-    // The 14-arg overload every caller before this field existed still compiles
-    // against; it must keep omitting the new field, not send it as empty.
+    // The older overload must omit the field, not send it empty.
     Map<String, Object> body =
         SubmitEnvelope.body(
             "id", 1, "1.0.0", "2026-08-09T10:00:00Z", 42L, "Zezima",

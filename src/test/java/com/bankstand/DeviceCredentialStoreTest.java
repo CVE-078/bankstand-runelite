@@ -15,11 +15,7 @@ import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
 /**
- * The pairing credentials, kept in a file rather than in {@code ConfigManager}.
- *
- * <p>Every failure here resolves to "not paired", which asks the player to pair again.
- * The alternative, carrying on with a credential we could not read, submits against a
- * token that may not be ours.
+ * Every failure resolves to "not paired", never to carrying on with an unreadable credential.
  */
 public class DeviceCredentialStoreTest {
 
@@ -60,8 +56,7 @@ public class DeviceCredentialStoreTest {
 
   @Test
   public void readsAsUnpairedWhenTheFileIsCorrupt() throws IOException {
-    // A truncated write, a half-synced file, a hand-edit. Never a parse failure the
-    // player has to diagnose, and never a partially-populated credential.
+    // Never a parse failure the player has to diagnose, nor a partial credential.
     File file = newFile();
     Files.write(file.toPath(), "{ not json".getBytes(StandardCharsets.UTF_8));
 
@@ -97,8 +92,7 @@ public class DeviceCredentialStoreTest {
 
   @Test
   public void createsItsDirectoryOnFirstSave() throws IOException {
-    // The plugin points this at <RUNELITE_DIR>/bankstand, which does not exist on a
-    // fresh install until something writes to it.
+    // The directory does not exist on a fresh install.
     File file = new File(new File(folder.getRoot(), "not-created-yet"), "device.json");
     DeviceCredentials saved = new DeviceCredentials();
     saved.setToken("tok_abc");
@@ -110,8 +104,7 @@ public class DeviceCredentialStoreTest {
 
   @Test
   public void aFailedSaveDoesNotDestroyThePreviousPairing() throws IOException {
-    // Temp-then-move, so a crash between opening the file and finishing the write
-    // cannot leave a truncated token where a working one used to be.
+    // Temp-then-move, so a crash cannot leave a truncated token.
     File file = newFile();
     DeviceCredentials first = new DeviceCredentials();
     first.setToken("tok_first");
@@ -126,9 +119,7 @@ public class DeviceCredentialStoreTest {
 
   @Test
   public void cachesAfterTheFirstLoadRatherThanReReadingTheFile() throws IOException {
-    // Every gate the plugin registers calls load() on nearly every in-game event, so a
-    // second load() on the same instance must not touch disk again: deleting the file out
-    // from under an already-loaded instance must not flip it back to unpaired.
+    // load() runs on nearly every event, so a second call must not touch disk again.
     File file = newFile();
     DeviceCredentials saved = new DeviceCredentials();
     saved.setToken("tok_abc");

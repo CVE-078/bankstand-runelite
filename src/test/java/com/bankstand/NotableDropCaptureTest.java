@@ -16,7 +16,6 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
-/** The pure detection logic behind notable drops (#659), tested without a live client. */
 public class NotableDropCaptureTest {
 
   @Rule public TemporaryFolder folder = new TemporaryFolder();
@@ -40,7 +39,7 @@ public class NotableDropCaptureTest {
 
   @Test
   public void anUntradeableItemNeverQualifiesOnValueRegardlessOfPrice() {
-    // unitValue null models "no GE price", which is what an untradeable item reports.
+    // Null unitValue means no GE price, as an untradeable item reports.
     assertFalse(NotableDropCapture.qualifies("Random junk", false, null, 1, 1L, NO_ALLOWLIST));
   }
 
@@ -73,11 +72,8 @@ public class NotableDropCaptureTest {
   }
 
   /**
-   * The toggle must gate the read itself, not only {@code emit}. {@code itemManager}
-   * is deliberately {@code null}: the current code's first touch on a qualifying
-   * loot event is {@code itemManager.getItemComposition(...)}, so if the gate ran
-   * after that (as it did before this fix) this throws a NullPointerException
-   * instead of returning quietly.
+   * The toggle gates the read itself. {@code itemManager} is null, so reading before the
+   * gate would throw.
    */
   @Test
   public void handleLootTouchesNothingWhenDisabled() throws IOException {

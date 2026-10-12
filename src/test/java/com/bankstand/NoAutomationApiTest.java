@@ -13,25 +13,13 @@ import java.util.stream.Stream;
 import org.junit.Test;
 
 /**
- * Holds the Plugin Hub's line: the plugin may read the client, never drive it.
- *
- * <p>Hub PR #11371 was closed with "use of client.menuAction is not allowed". The
- * guided collection log read exists because of that ruling, and the automated version
- * it replaced was two lines long and looked entirely reasonable. Nothing else in this
- * repo would notice those two lines coming back, and the cost of finding out from a
- * reviewer is a rejected submission and another round of review latency.
- *
- * <p>Source-scanning rather than behavioural, because that is what the constraint
- * actually is: a call that must not appear. Comments are exempt, so the reasoning can
- * name the banned call without tripping over itself. {@code MenuAction.RUNELITE} is
- * untouched by this and is meant to be: it types a menu entry the player clicks, which
- * is not the same thing as invoking one on their behalf.
+ * Plugin Hub rule: the plugin may read the client, never drive it. Comments are exempt.
+ * {@code MenuAction.RUNELITE} is allowed: the player still clicks the entry.
  */
 public class NoAutomationApiTest {
 
   private static final Path SOURCE_ROOT = Paths.get("src", "main", "java");
 
-  /** Calls that drive the client rather than observe it. */
   private static final String[] BANNED = {
     "client.menuAction(", "client.runScript(", "client.invokeMenuAction(",
   };

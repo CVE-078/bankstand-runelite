@@ -94,11 +94,9 @@ public class AccountSessionTest {
     AccountSession s = new AccountSession();
     s.onLogin(123L);
     int staleGen = s.getGeneration();
-    // Log out and back into the SAME account: a fresh instance with a new generation.
     s.onLogout();
     s.onLogin(123L);
-    // The prior instance's in-flight submit must not be treated as current even
-    // though the account hash matches again.
+    // The prior instance's in-flight submit is stale even though the hash matches.
     assertFalse(s.isCurrent(123L, staleGen));
     assertTrue(s.isCurrent(123L, s.getGeneration()));
   }
@@ -108,8 +106,7 @@ public class AccountSessionTest {
     AccountSession s = new AccountSession();
     s.onLogin(123L);
     int gen = s.getGeneration();
-    // A world hop stays on the same account: onLogin is a no-op and must not advance
-    // the generation, so an in-flight submit for this instance stays current.
+    // A world hop must not advance the generation.
     assertFalse(s.onLogin(123L));
     assertEquals(gen, s.getGeneration());
     assertTrue(s.isCurrent(123L, gen));
@@ -123,7 +120,6 @@ public class AccountSessionTest {
     s.markSubmitInFlight();
     assertTrue(s.isSubmitted());
 
-    // Same account stays submitted; a switch resets it; so does logout.
     assertFalse(s.onLogin(123L));
     assertTrue(s.isSubmitted());
     assertTrue(s.onLogin(456L));
@@ -136,9 +132,7 @@ public class AccountSessionTest {
 
   @Test
   public void releasesTheMarkWhenASubmitFails() {
-    // The bug this exists to stop: a failed identity submit used to leave the session
-    // marked forever, so nothing retried and every later capture was refused until the
-    // player logged out and back in. A failure must leave the session able to try again.
+    // A failed identity submit must leave the session able to retry.
     AccountSession s = new AccountSession();
     s.onLogin(42L);
     s.markSubmitInFlight();
@@ -150,9 +144,7 @@ public class AccountSessionTest {
 
   @Test
   public void ignoresAFailureFromASupersededLogin() {
-    // A failure can arrive after the player has switched character, because the submit
-    // retries with backoff for several seconds. Re-arming a submit for an account that is
-    // no longer logged in would fire one against the wrong session.
+    // A failure arriving after a character switch must not re-arm a submit for the old account.
     AccountSession s = new AccountSession();
     s.onLogin(42L);
     s.markSubmitInFlight();
@@ -167,8 +159,7 @@ public class AccountSessionTest {
 
   @Test
   public void ignoresAFailureFromAnEarlierGenerationOfTheSameAccount() {
-    // A logout and relog to the SAME account advances the generation, so the hash alone
-    // is not enough to tell the two apart.
+    // A relog to the same account advances the generation, so the hash alone is not enough.
     AccountSession s = new AccountSession();
     s.onLogin(42L);
     s.markSubmitInFlight();

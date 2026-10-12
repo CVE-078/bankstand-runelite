@@ -10,14 +10,7 @@ import java.util.Map;
 import java.util.Set;
 import org.junit.Test;
 
-/**
- * What a capture decides to put on the wire.
- *
- * <p>The old rule was "if anything changed, send everything". That resent the whole
- * collection log, around seventeen hundred ids, on every cycle where a single xp drop
- * moved, which is every cycle a player is training. These tests pin the replacement:
- * a capability rides along only when that capability itself changed.
- */
+/** A capability goes on the wire only when that capability itself changed. */
 public class SubmitPlanTest {
 
   private static Map<String, Integer> skills(String name, int xp) {
@@ -34,7 +27,6 @@ public class SubmitPlanTest {
 
   private static final Set<Integer> NO_LOG = Collections.emptySet();
 
-  /** Baselines with everything already acknowledged, so only real changes show up. */
   private static class Acked {
     final SkillBaseline skills = new SkillBaseline();
     final QuestBaseline quests = new QuestBaseline();
@@ -68,10 +60,6 @@ public class SubmitPlanTest {
     assertFalse(plan.shouldSubmit());
   }
 
-  /**
-   * The headline. An xp change submits, and carries only skills: the other three are
-   * exactly as the server last acknowledged them, so re-sending them is pure payload.
-   */
   @Test
   public void anXpChangeCarriesSkillsAlone() {
     Acked acked = new Acked();
@@ -151,11 +139,7 @@ public class SubmitPlanTest {
     assertFalse(plan.includesCollectionLog());
   }
 
-  /**
-   * A block the server has never acknowledged counts as changed, so it keeps riding
-   * along until it is stored. That is what makes an unstored block self-heal the moment
-   * its rollout flag comes on, and omitting unchanged blocks must not weaken it.
-   */
+  /** A never-acknowledged block counts as changed, so it resends until stored. */
   @Test
   public void aBlockThatWasNeverAcknowledgedKeepsBeingSent() {
     SkillBaseline skills = new SkillBaseline();
@@ -178,11 +162,7 @@ public class SubmitPlanTest {
     assertTrue(plan.includesCollectionLog());
   }
 
-  /**
-   * An empty block is omitted whatever the baseline says. Absent means "not observed"
-   * on this wire, so sending an empty map would assert the player has no quests rather
-   * than that nothing was read.
-   */
+  /** Absent means "not observed", so an empty block is never sent. */
   @Test
   public void anEmptyBlockIsNeverSent() {
     BankstandPlugin.SubmitPlan plan =
@@ -219,13 +199,8 @@ public class SubmitPlanTest {
   }
 
   /**
-   * The combat achievement opt-in is enforced by never reading the counts, so a capture
-   * with it off passes an empty map here. Two things must hold for that to be safe.
-   *
-   * <p>It must not read as "every tier went to zero", and it must not put an empty block
-   * on the wire: the server drops an empty block without acknowledging it, so a client
-   * that sent one would never advance its baseline and would resubmit forever. The rest
-   * of the capture carries on regardless, which is the point of a per-capability opt-in.
+   * Combat achievements opted out pass an empty map. The server never acks an empty block,
+   * so sending one would make the client resubmit forever.
    */
   @Test
   public void leavesCombatAchievementsOutWhileTheOptInIsOff() {
@@ -251,11 +226,8 @@ public class SubmitPlanTest {
   }
 
   /**
-   * The case #466 exists for: a COMPLETE guided read that revealed zero new ids, because
-   * the account's partial reads had already, coincidentally, covered everything a full
-   * search would show. Without the pending signal counting toward the decision, this
-   * capture would carry no collection log block at all and the completeness fact would
-   * never reach the server.
+   * A complete guided read that found no new ids still needs a block, or the completeness
+   * fact never reaches the server.
    */
   @Test
   public void aCompleteEnumerationCarriesTheLogEvenWithNoNewItems() {
@@ -282,11 +254,7 @@ public class SubmitPlanTest {
     assertTrue(plan.includesFullEnumeration());
   }
 
-  /**
-   * The pending signal cannot manufacture a block out of nothing: a genuinely empty
-   * account has no collection log to attach the fact to, the same "empty means not
-   * observed" limitation every other capability already accepts.
-   */
+  /** The pending signal cannot create a block for an account with no collection log. */
   @Test
   public void aPendingEnumerationNeverCarriesAnEmptyLog() {
     Acked acked = new Acked();
@@ -311,10 +279,6 @@ public class SubmitPlanTest {
     assertFalse(plan.includesFullEnumeration());
   }
 
-  /**
-   * An ordinary grown log, with no enumeration pending, must not claim one it was never
-   * told about.
-   */
   @Test
   public void anOrdinaryLogChangeNeverClaimsFullEnumeration() {
     Acked acked = new Acked();
@@ -339,7 +303,6 @@ public class SubmitPlanTest {
     assertFalse(plan.includesFullEnumeration());
   }
 
-  /** The pre-#466 overload still omits the signal entirely, as every existing caller does. */
   @Test
   public void theShorterOverloadNeverClaimsFullEnumeration() {
     Acked acked = new Acked();

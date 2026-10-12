@@ -6,25 +6,12 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Bit-to-task lookup {@link DiaryTaskCompletionCapture} resolves a newly-set bit against,
- * plus the per-region gate on whether that's even attempted.
- *
- * <p>A wrong entry here doesn't leak data, it misattributes one task's completion to
- * another, so the gate is a per-region allowlist ({@link #isVerified}) rather than a second
- * env var: one region ships the moment it's verified, and a bad one gets pulled without
- * touching {@code PLUGIN_DIARIES_INGEST_ENABLED}.
- *
- * <p>{@link #shipped()} has no verified regions and no entries. The mechanics are built
- * and tested now; the actual per-region content is live-account work, tracked separately.
- * A future region's PR adds its entries and adds itself to {@code VERIFIED_REGIONS}.
- *
- * <p>Not a static utility like {@link DiaryTaskVarplayers}: tests construct their own
- * instance with fabricated entries.
+ * Bit-to-task lookup for diary task completions, gated per region. A wrong entry misattributes a
+ * completion, so a region is resolved only once verified against a live account.
  */
 public final class DiaryTaskManifest {
 
-  /** One resolved task: its tier, and its text as read off the diary journal by whoever
-   *  verified it. Never copied from a third party's own reverse-engineered data. */
+  /** Task text is read off the in-game diary journal, never copied from third-party data. */
   public static final class Entry {
     private final String tier;
     private final String taskName;
@@ -57,20 +44,16 @@ public final class DiaryTaskManifest {
     this.byRegion = Collections.unmodifiableMap(copy);
   }
 
-  /** The real, in-production manifest. No verified regions yet. */
+  /** No verified regions yet. */
   public static DiaryTaskManifest shipped() {
     return new DiaryTaskManifest(Set.of(), Map.of());
   }
 
-  /** Whether a region is safe to resolve identity from. An unverified region still gets
-   *  read and diffed (see {@link DiaryTaskCompletionCapture}), just never looked up. */
   public boolean isVerified(String region) {
     return verifiedRegions.contains(region);
   }
 
-  /** The task at this bit, or null when the region, varplayer or bit isn't in the manifest.
-   *  A miss is the expected state, not an error, until a region ships or a residual bit
-   *  gets resolved. */
+  /** Null on a miss, which is expected. */
   public Entry lookup(String region, int varplayerId, int bitIndex) {
     Map<Integer, Map<Integer, Entry>> byVarplayer = byRegion.get(region);
     if (byVarplayer == null) {

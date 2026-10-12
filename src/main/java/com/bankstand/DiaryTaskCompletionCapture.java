@@ -19,23 +19,11 @@ import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.util.Text;
 
 /**
- * Captures that SOME diary task completed, from its own chat broadcast:
- * tier and area only, never which specific task. The tier-completion broadcast already matched
- * elsewhere ("Congratulations, you have completed all of the &lt;tier&gt; tasks in the
- * &lt;area&gt; area...") fires once per finished tier; this one fires once per task, well
- * before the tier is complete, and starts with a different word entirely so the two can never
- * collide.
+ * Captures a diary task completion (tier and area) from its per-task chat broadcast.
  *
- * <p>Verified live wording: "Well done! You have completed an elite task in the Western
- * Provinces area. Your Achievement Diary has been updated."
- *
- * <p>Per-task identity, when possible, comes from the region's {@link DiaryTaskManifest}:
- * no varbit or widget names an individual task, so a bit packed into the region's own
- * varplayer(s) ({@link DiaryTaskVarplayers}) is diffed against the last-known value
- * ({@link DiaryTaskBits}) to find what flipped. Only attempted for a region
- * {@link DiaryTaskManifest#isVerified} has confirmed; other regions still read and advance
- * their baseline, just never attach a name. A miss, a tier mismatch, or more than one bit
- * resolving at once all fail closed rather than guess.
+ * <p>The task name is resolved only for a verified region, by diffing the region's
+ * varplayer bits against the last-known value. A miss, a tier mismatch or more than one
+ * flipped bit fails closed to no name.
  */
 @Slf4j
 public class DiaryTaskCompletionCapture extends BaseCapture {
@@ -45,15 +33,10 @@ public class DiaryTaskCompletionCapture extends BaseCapture {
           "^Well done! You have completed an? (\\w+) task in the (.+) area\\. Your Achievement"
               + " Diary has been updated\\.$");
 
-  // Diary tiers, not CombatAchievementVarbits.ALL's keys: despite sharing four of the same
-  // words, they are a different vocabulary (that map also has "master" and "grandmaster",
-  // which do not exist as diary tiers), so validating against it here would silently accept
-  // two tier names the diary system has no notion of.
+  // Not CombatAchievementVarbits' tiers, which add "master" and "grandmaster".
   private static final Set<String> DIARY_TIERS = Set.of("easy", "medium", "hard", "elite");
 
-  // Matches the server's own bound (MAX_NAME_LENGTH in events-envelope.ts). The server
-  // validates a whole batch in one schema parse and 400s the WHOLE BATCH on any one event
-  // failing, so one oversized area name must never reach the outbox.
+  // Matches the server's bound; one oversized event makes the server reject the whole batch.
   private static final int MAX_AREA_NAME_LENGTH = 128;
 
   private final IntUnaryOperator varpReader;
@@ -61,7 +44,7 @@ public class DiaryTaskCompletionCapture extends BaseCapture {
   private final DiaryTaskManifest manifest;
   private final Runnable onBaselineTouched;
 
-  /** No task-identity resolution, tier/area only. Used by every existing caller. */
+  /** No task-name resolution, tier and area only. */
   public DiaryTaskCompletionCapture(
       EventOutbox outbox, BooleanSupplier enabled, LongSupplier accountHash) {
     this(
@@ -74,12 +57,7 @@ public class DiaryTaskCompletionCapture extends BaseCapture {
         () -> {});
   }
 
-  /**
-   * @param onBaselineTouched fires once per recognised region, right after its varplayer(s)
-   *     are read and diffed. Asks the caller to persist {@code bits} soon, decoupled from
-   *     the periodic snapshot's own, unrelated reasons to resubmit; otherwise the persisted
-   *     copy could lag real progress indefinitely, and a crash in that gap loses it.
-   */
+  /** @param onBaselineTouched asks the caller to persist {@code bits} after each diff. */
   public DiaryTaskCompletionCapture(
       EventOutbox outbox,
       BooleanSupplier enabled,
@@ -91,10 +69,6 @@ public class DiaryTaskCompletionCapture extends BaseCapture {
     this(outbox, enabled, accountHash, varpReader, bits, manifest, onBaselineTouched, null);
   }
 
-  /**
-   * Same as the constructor above, plus {@code onEmit}: notified after every event this
-   * capture emits, for the status panel's recent-activity list. See {@link BaseCapture}.
-   */
   public DiaryTaskCompletionCapture(
       EventOutbox outbox,
       BooleanSupplier enabled,
@@ -119,7 +93,6 @@ public class DiaryTaskCompletionCapture extends BaseCapture {
     handleMessage(Text.removeTags(event.getMessage()));
   }
 
-  /** Package-private, not private: the test calls this directly with plain strings. */
   void handleMessage(String message) {
     if (!isEnabled()) {
       return;
@@ -141,11 +114,7 @@ public class DiaryTaskCompletionCapture extends BaseCapture {
         payload(tier, area, resolveTaskName(tier, area)));
   }
 
-  /**
-   * Reads and diffs the region's varplayer(s) regardless of verification, so the baseline
-   * never goes stale. Only looks up the manifest, and only ever returns a name, for a
-   * verified region, and only when exactly one bit flipped and resolved cleanly.
-   */
+  // Diffs every region, verified or not, so the baseline never goes stale.
   private String resolveTaskName(String tier, String area) {
     String region = DiaryTaskRegions.forAreaText(area);
     if (region == null) {
@@ -156,9 +125,7 @@ public class DiaryTaskCompletionCapture extends BaseCapture {
       return null;
     }
     boolean verified = manifest.isVerified(region);
-    // Every bit that newly flipped, not just how many resolved: two bits flipping where
-    // only one has a manifest entry is just as ambiguous as two that both resolve, since
-    // there's no way to know which one this chat line is about.
+    // Count every flipped bit, mapped or not: two flips are ambiguous either way.
     int totalNewlySet = 0;
     List<String> resolved = new ArrayList<>();
     boolean mismatch = false;
@@ -175,9 +142,7 @@ public class DiaryTaskCompletionCapture extends BaseCapture {
           continue; // unmapped bit in an otherwise-mapped region, expected and safe
         }
         if (!entry.tier().equals(tier)) {
-          // Manifest and chat line disagree on tier. A stronger signal than an
-          // ordinary miss (a shifted bit, a wrong region), never one to prefer over
-          // the other.
+          // Manifest and chat disagree on tier: trust neither.
           log.debug(
               "diary task manifest tier mismatch: region={} varplayer={} bit={} manifest={}"
                   + " chat={}",
@@ -188,9 +153,7 @@ public class DiaryTaskCompletionCapture extends BaseCapture {
         resolved.add(entry.taskName());
       }
     }
-    // After every varplayer in this region has been diffed, never before: the callback
-    // persists bits, and persisting ahead of this call's own diff would always be one
-    // message behind, losing the very update a crash right after this call would need.
+    // Only after every varplayer is diffed, or the persisted copy lags one message behind.
     onBaselineTouched.run();
     if (mismatch || totalNewlySet != 1 || resolved.size() != 1) {
       return null;

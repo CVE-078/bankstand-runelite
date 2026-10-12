@@ -7,32 +7,15 @@ import java.util.Map;
 import java.util.TreeMap;
 
 /**
- * A stable fingerprint of one complete capability block.
- *
- * <p>Exists so an acknowledged baseline can be written to disk. In memory the baselines
- * keep the block itself and compare it exactly, which is stronger than a digest because
- * it cannot collide; across a restart that is the wrong trade, since skills, quests and
- * diaries are all re-read live on the next capture and only the verdict "the server has
- * already seen this" needs to survive. Sixty-four characters carries that verdict for a
- * block of any size.
- *
- * <p>Canonical before hashed, and that ordering is load-bearing. The capture rebuilds
- * these maps every cycle from a {@code HashMap}, whose iteration order is not a
- * contract, so a digest taken over the block as it happens to be laid out would differ
- * on a cycle where nothing moved, and the block would be resent forever.
- *
- * <p>Pure and deterministic.
+ * A stable SHA-256 fingerprint of a capability block, so an acked baseline can be persisted.
+ * Keys are sorted first: the source maps have no stable iteration order, and an unsorted digest
+ * would change on every cycle and resend forever.
  */
 public final class CapabilityDigest {
 
   private CapabilityDigest() {}
 
-  /**
-   * Digests a keyed block over its sorted keys.
-   *
-   * <p>Key and value are separated and each entry terminated, so {@code {"ab": "c"}} and
-   * {@code {"a": "bc"}} cannot serialize to the same bytes.
-   */
+  /** Separator and terminator keep {@code {"ab": "c"}} and {@code {"a": "bc"}} distinct. */
   public static String of(Map<String, ?> block) {
     StringBuilder canonical = new StringBuilder();
     for (Map.Entry<String, ?> entry : new TreeMap<String, Object>(block).entrySet()) {
@@ -51,8 +34,7 @@ public final class CapabilityDigest {
       }
       return hex.toString();
     } catch (NoSuchAlgorithmException e) {
-      // Every JVM ships SHA-256. Unreachable, and not worth a fallback that would be
-      // silently weaker than the thing it stands in for.
+      // Unreachable: every JVM ships SHA-256.
       throw new IllegalStateException("SHA-256 unavailable", e);
     }
   }

@@ -9,10 +9,7 @@ import java.util.List;
 import java.util.Map;
 import org.junit.Test;
 
-/**
- * The panel's per-capability rows: same stable order and same skip-when-off rule as
- * {@link CapabilityNamesTest}, plus the row's own last-synced value.
- */
+/** The panel's per-capability rows: stable order, skipped when off, own last-synced value. */
 public class CapabilityRowsTest {
 
   private static Map<String, Long> syncedAt(String key, long ms) {
@@ -80,8 +77,6 @@ public class CapabilityRowsTest {
 
   @Test
   public void aCapabilityOnlyReadsItsOwnKeyNeverAnotherOnes() {
-    // notableDrops and skills share nothing; a row must not pick up a stray value
-    // stored under a different capability's key.
     List<PanelModel.CapabilityRow> rows =
         BankstandPlugin.capabilityRows(
             true, false, false, false, false, false, false, false, syncedAt("notableDrops", 1_000L));

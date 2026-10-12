@@ -13,25 +13,13 @@ import java.util.stream.Stream;
 import org.junit.Test;
 
 /**
- * Keeps credentials and identity out of the log file.
- *
- * <p>The plugin logs at DEBUG so a bug report from a stranger carries something
- * to diagnose. That is only safe while four things never appear in a log line:
- * the device token (a bearer credential for the submit API), the account hash
- * and display name (they identify a real account), and a raw request or response
- * body (it contains all three plus the whole capture).
- *
- * <p>Source-scanning, like {@link NoAutomationApiTest} and
- * {@link NoCredentialsInConfigTest}, because the constraint is an argument that
- * must not be passed. A behavioural test would have to provoke each log line to
- * find out, and the lines that matter are the ones on the failure paths nobody
- * exercises by accident.
+ * Log calls never pass the device token, account hash, display name or a raw request or
+ * response body.
  */
 public class NoSecretsInLogsTest {
 
   private static final Path SOURCE_ROOT = Paths.get("src", "main", "java");
 
-  /** Identifiers that hold something a log must never carry. */
   private static final String[] FORBIDDEN_ARGUMENTS = {
     "token", "accountHash", "displayName", "body", "getToken()",
   };
@@ -48,18 +36,14 @@ public class NoSecretsInLogsTest {
           if (isComment(line) || !line.contains("log.")) {
             continue;
           }
-          // A log call can wrap across lines, so the whole statement is read up
-          // to its closing `);` rather than just the line the call starts on.
+          // A log call can wrap across lines, so read the whole statement up to `);`.
           StringBuilder statement = new StringBuilder(line);
           for (int j = i + 1; j < lines.size() && statement.indexOf(");") < 0; j++) {
             if (!isComment(lines.get(j))) {
               statement.append(lines.get(j));
             }
           }
-          // String literals are stripped first. The ban is on passing the value,
-          // not on naming it: "token rejected" is exactly the kind of message a
-          // log SHOULD carry, and matching it would push authors towards vaguer
-          // wording to satisfy a test.
+          // String literals are stripped: the ban is on passing the value, not naming it.
           String args = withoutStringLiterals(statement.toString());
           for (String forbidden : FORBIDDEN_ARGUMENTS) {
             if (args.contains(forbidden)) {
@@ -77,7 +61,6 @@ public class NoSecretsInLogsTest {
         offences.isEmpty());
   }
 
-  /** Everything between double quotes removed, escapes included. */
   private static String withoutStringLiterals(String statement) {
     return statement.replaceAll("\\\\.", "").replaceAll("\"[^\"]*\"", "\"\"");
   }

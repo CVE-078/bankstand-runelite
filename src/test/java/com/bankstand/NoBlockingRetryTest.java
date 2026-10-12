@@ -12,18 +12,7 @@ import java.util.List;
 import java.util.stream.Stream;
 import org.junit.Test;
 
-/**
- * Holds the Plugin Hub's other line: a retry backs off by scheduling, never by blocking
- * a thread.
- *
- * <p>Review on PR #15400 flagged exactly this: {@code Thread.sleep} in the submit retry's
- * backoff, and the {@code Thread.currentThread().interrupt()} that came with catching its
- * {@code InterruptedException}. Fixed by moving the backoff onto the plugin's own {@code
- * ScheduledExecutorService} (see {@code BankstandClient#attempt}), which needed no blocked
- * thread and no interrupt handling at all. Source-scanning, the same shape as {@link
- * NoAutomationApiTest}, so a future retry loop reaching for the obvious-looking blocking
- * idiom fails a test instead of a review round trip.
- */
+/** Plugin Hub rule: a retry backs off by scheduling, never by blocking a thread. */
 public class NoBlockingRetryTest {
 
   private static final Path SOURCE_ROOT = Paths.get("src", "main", "java");

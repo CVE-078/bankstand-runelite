@@ -16,23 +16,13 @@ import java.util.stream.Stream;
 import org.junit.Test;
 
 /**
- * Derives the gated capability set from the actual call sites, instead of trusting a second
- * hand-written list to stay in sync with them.
- *
- * <p>The literal list in {@code CapabilityManifestTest} has gone stale twice already:
- * {@code accountType} shipped without it being added there, then {@code notableDrops} and
- * {@code petDrops} shipped without it either. A hand-maintained list only catches a gap its
- * own author remembered to update, which is exactly the failure that recurred. This scans
- * every {@code .java} file under {@code src/main/java} for a {@code allows("...")} call and
- * asserts each name it finds is in {@link CapabilityManifest#SUPPORTED_CAPABILITIES}, so a
- * ninth call site added anywhere fails this test the moment it is written rather than
- * shipping a capability that can never be switched on.
+ * Every {@code allows("...")} call under src/main/java names a capability in
+ * {@link CapabilityManifest#SUPPORTED_CAPABILITIES}, derived from source rather than a list.
  */
 public class CapabilityAllowlistCoverageTest {
 
   private static final Path SOURCE_ROOT = Paths.get("src", "main", "java");
 
-  /** What a gate call looks like on the wire: {@code manifest.allows("someCapability")}. */
   private static final Pattern ALLOWS_CALL = Pattern.compile("allows\\(\"([^\"]+)\"\\)");
 
   @Test
@@ -53,8 +43,7 @@ public class CapabilityAllowlistCoverageTest {
       }
     }
 
-    // A scan that finds nothing is not a passing test, it is a broken one: the pattern
-    // stopped matching real call sites and silently stopped protecting anything.
+    // A scan that finds nothing means the pattern broke.
     assertFalse(
         "found no manifest.allows(...) call sites under src/main/java; the scan itself is"
             + " broken, this is not a pass",

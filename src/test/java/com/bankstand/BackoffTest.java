@@ -9,13 +9,11 @@ public class BackoffTest {
 
   @Test
   public void doublesTheWindowEachAttempt() {
-    // Held at the midpoint of the draw, so what moves between them is the window.
     assertEquals(500L, BankstandClient.backoffMillis(1, 1000L, 0.5));
     assertEquals(1000L, BankstandClient.backoffMillis(2, 1000L, 0.5));
     assertEquals(2000L, BankstandClient.backoffMillis(3, 1000L, 0.5));
   }
 
-  /** Full jitter, not equal jitter: the whole window is in play, including nearly zero. */
   @Test
   public void picksFromZeroUpToTheWindow() {
     assertEquals(0L, BankstandClient.backoffMillis(3, 1000L, 0.0));
@@ -31,11 +29,7 @@ public class BackoffTest {
     }
   }
 
-  /**
-   * The cap is on the window, not on the draw, so a capped attempt can still come back
-   * quickly. Equal jitter would pin every late attempt near the cap and re-synchronise
-   * exactly the clients the jitter is there to spread.
-   */
+  /** The cap is on the window, not the draw, so late attempts stay spread out. */
   @Test
   public void aCappedAttemptStillJitters() {
     assertEquals(0L, BankstandClient.backoffMillis(20, 1000L, 0.0));

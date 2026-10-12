@@ -6,10 +6,7 @@ import static org.junit.Assert.assertTrue;
 import java.util.List;
 import org.junit.Test;
 
-/**
- * What {@code ::bstand export} prints: the current Collect/Events toggle state, plain
- * values so the wording is testable without a live config.
- */
+/** What {@code ::bstand export} prints: the current Collect/Events toggle state. */
 public class ExportLinesTest {
 
   private static boolean mentions(List<String> lines, String needle) {
@@ -32,8 +29,7 @@ public class ExportLinesTest {
 
   @Test
   public void namesOnePerToggle() {
-    // The same guard CapabilityNamesTest already keeps for the status line: a toggle
-    // added to the config without being added here silently omits it from the export.
+    // A toggle missing here is silently omitted from the export.
     List<String> lines =
         StatusReport.exportLines(true, true, true, true, true, true, true, 1_000_000, true);
     assertTrue(mentions(lines, "Skill XP"));
@@ -55,9 +51,7 @@ public class ExportLinesTest {
 
   @Test
   public void neverMentionsThePairingCodeDeviceTokenOrServerUrl() {
-    // The one hard rule this command exists under: none of the three secrets/identity
-    // fields this plugin holds may ever appear in an export meant to be pasted
-    // somewhere else.
+    // No token, account hash or display name may appear in an export.
     List<String> lines =
         StatusReport.exportLines(true, true, true, true, true, true, true, 1_000_000, true);
     for (String line : lines) {

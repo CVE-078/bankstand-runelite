@@ -21,11 +21,8 @@ public class CapabilityManifestTest {
 
   @Test
   public void cannotExpressAnythingButPrimitives() {
-    // **The whole guarantee, asserted rather than described.** A Plugin Hub reviewer's
-    // question is whether a compromised server could make this plugin read a bank, an
-    // inventory, chat or a location. It cannot, because the wire type has no field that
-    // could carry a varbit, a script, a widget, a URL, a class name or an expression.
-    // This fails the moment somebody adds one.
+    // The wire type has no field that could carry a varbit, script, widget, URL, class name
+    // or expression, so a compromised server cannot widen what the plugin reads.
     for (Field field : CapabilityManifest.RawManifest.class.getDeclaredFields()) {
       if (field.isSynthetic()) {
         continue;
@@ -36,7 +33,6 @@ public class CapabilityManifestTest {
         ok = true;
       } else if (type instanceof ParameterizedType) {
         ParameterizedType p = (ParameterizedType) type;
-        // The one container allowed, and only of strings.
         ok = p.getRawType() == List.class && p.getActualTypeArguments()[0] == String.class;
       } else {
         ok = false;
@@ -62,9 +58,7 @@ public class CapabilityManifestTest {
 
   @Test
   public void rejectsAWholeManifestOnAnUnknownSchemaVersion() {
-    // The version gates the document, not a field. A manifest written against a contract
-    // this build does not speak cannot be partly understood, and honouring the parts that
-    // look familiar is how a client ends up applying half of something.
+    // An unknown version rejects the whole document; half-applying a manifest is unsafe.
     assertNull(
         CapabilityManifest.validate(
             parse("{\"schemaVersion\":2,\"capabilities\":[\"skills\"],\"uploadIntervalSeconds\":300}")));
@@ -75,9 +69,7 @@ public class CapabilityManifestTest {
 
   @Test
   public void dropsAnUnknownCapabilityAndKeepsTheRest() {
-    // Deliberately the opposite of the version gate. A new capability is an additive
-    // change the server is entitled to make, and rejecting the whole manifest over one
-    // would mean no capability could ever be introduced without stranding older clients.
+    // Unlike the version gate, an unknown capability is ignored so the server can add one.
     CapabilityManifest m =
         CapabilityManifest.validate(
             parse(
@@ -89,9 +81,6 @@ public class CapabilityManifestTest {
 
   @Test
   public void refusesTheCapabilitiesTheProductPromisedNeverToTake() {
-    // Named explicitly because these are the ones the product states it will not capture.
-    // They are unreachable twice over: not on the allowlist, and not expressible in the
-    // wire type at all.
     CapabilityManifest m =
         CapabilityManifest.validate(
             parse(
@@ -106,8 +95,7 @@ public class CapabilityManifestTest {
 
   @Test
   public void holdsTheUploadIntervalBetweenItsOwnFloorAndCeiling() {
-    // A server able to drive this to zero could turn every paired client into a load
-    // generator against Bankstand and against Wise Old Man. The client keeps the floor.
+    // The client keeps a floor so the server cannot turn clients into a load generator.
     assertEquals(
         CapabilityManifest.MIN_UPLOAD_INTERVAL_SECONDS, CapabilityManifest.clampInterval(0));
     assertEquals(
@@ -122,8 +110,6 @@ public class CapabilityManifestTest {
 
   @Test
   public void ignoresFieldsItDoesNotKnow() {
-    // What lets the server add a field without stranding older clients. Gson simply has
-    // nowhere to put them, which is the behaviour we want and worth pinning.
     CapabilityManifest m =
         CapabilityManifest.validate(
             parse(
@@ -158,8 +144,7 @@ public class CapabilityManifestTest {
 
   @Test
   public void survivesRubbish() {
-    // Every failure resolves to "keep what you have", never to an exception. A manifest
-    // outage must not stop a paired client working.
+    // Every failure resolves to "keep what you have", never an exception.
     assertNull(CapabilityManifest.validate(null));
     assertNull(CapabilityManifest.validate(parse("{}")));
     assertNull(CapabilityManifest.validate(parse("{\"schemaVersion\":1}")));
@@ -169,8 +154,7 @@ public class CapabilityManifestTest {
 
   @Test
   public void fallsBackToEverythingThisBuildSupports() {
-    // Before the first fetch, and after a total failure. The server's copy can only ever
-    // narrow this, never widen it.
+    // The server's copy can only narrow the bundled one, never widen it.
     CapabilityManifest bundled = CapabilityManifest.bundled();
     assertEquals(
         CapabilityManifest.SUPPORTED_CAPABILITIES.size(), bundled.capabilities().size());
@@ -183,7 +167,6 @@ public class CapabilityManifestTest {
 
   @Test
   public void describesItselfForTheDebugOutput() {
-    // The active manifest should never be a guess when someone is reading a bug report.
     String line = CapabilityManifest.bundled().describe();
     assertTrue(line, line.contains("skills"));
     assertTrue(line, line.contains("v1"));
@@ -191,9 +174,7 @@ public class CapabilityManifestTest {
 
   @Test
   public void everyCapabilityTheClientEverGatesOnIsInTheAllowlist() {
-    // Every string BankstandPlugin ever passes to manifest.allows(...). Kept as a
-    // literal list here, not derived, so this test does not accidentally validate
-    // itself: it must independently know what the plugin gates on.
+    // Literal, not derived, so the test does not validate itself.
     List<String> gatedOn =
         Arrays.asList(
             "skills", "quests", "diaries", "collectionLog", "combatAchievements",

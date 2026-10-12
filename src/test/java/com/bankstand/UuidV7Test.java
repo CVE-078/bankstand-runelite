@@ -11,7 +11,6 @@ public class UuidV7Test {
   @Test
   public void generatesACanonicalVersion7Uuid() {
     String s = UuidV7.generate();
-    // Canonical 8-4-4-4-12 form, parseable by java.util.UUID.
     UUID parsed = UUID.fromString(s);
     assertEquals("36 chars", 36, s.length());
     assertEquals("version 7", 7, parsed.version());

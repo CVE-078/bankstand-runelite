@@ -4,11 +4,8 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- * A frozen snapshot of everything {@link BankstandPanel} shows, assembled by the plugin
- * on the client thread and handed to the panel to render on the Swing event dispatch
- * thread. Plain data, deliberately: the panel never reaches back into the plugin, the
- * client, or the config to ask for anything itself, so what it draws can be reasoned
- * about, and tested, from a value alone.
+ * An immutable snapshot of what {@link BankstandPanel} shows, built on the client thread and
+ * rendered on the Swing EDT. The panel never reads the client or config itself.
  */
 final class PanelModel {
 
@@ -37,8 +34,6 @@ final class PanelModel {
     this.serverUrl = serverUrl;
   }
 
-  /** What the panel shows before the plugin has ever built a real snapshot: the initial
-   *  paint, before any capture or button click has run. */
   static PanelModel empty(String serverUrl) {
     return new PanelModel(
         false,
@@ -50,8 +45,7 @@ final class PanelModel {
         serverUrl);
   }
 
-  /** One row of the per-capability list: a display name and when it last genuinely
-   *  synced, or null when it never has. */
+  /** {@code lastSyncedAtMs} is null when it never synced. */
   static final class CapabilityRow {
     final String name;
     final Long lastSyncedAtMs;
@@ -62,7 +56,6 @@ final class PanelModel {
     }
   }
 
-  /** One row of the recent-activity list: what was sent, and when. */
   static final class ActivityRow {
     final String description;
     final long atMs;

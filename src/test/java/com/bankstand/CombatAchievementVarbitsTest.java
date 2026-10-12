@@ -24,8 +24,7 @@ public class CombatAchievementVarbitsTest {
 
   @Test
   public void keysAreTheServersWireKeys() {
-    // Lowercase, matching the server's CA_TIER_KEYS. An uppercase key would be
-    // rejected by the envelope's tier refine, silently dropping the whole block.
+    // Lowercase, matching the server's tier keys; uppercase drops the whole block.
     for (String key : CombatAchievementVarbits.ALL.keySet()) {
       assertEquals(key, key.toLowerCase());
     }
@@ -33,10 +32,7 @@ public class CombatAchievementVarbitsTest {
 
   @Test
   public void readsTaskCountsAndNotRewardClaims() {
-    // The trap this table exists to avoid. COMBAT_ACHIEVEMENT_TIER_* sit right
-    // beside these and track whether the tier's REWARDS were claimed from the
-    // taskmaster, which is a different fact: a player can finish every Easy task
-    // and never claim, and reading those would report them at zero.
+    // COMBAT_ACHIEVEMENT_TIER_* track claimed rewards, not completed tasks, so must not be read.
     Set<Integer> rewardVarbits =
         new HashSet<>(
             Arrays.asList(

@@ -6,27 +6,15 @@ import java.util.Map;
 import net.runelite.api.gameval.VarPlayerID;
 
 /**
- * Maps the same wire region keys {@link DiaryVarbits}/{@link DiaryTaskVarbits} use to the
- * varplayer(s) that pack that region's per-task completion bits.
+ * Maps each wire region key to the varplayers that pack its per-task completion bits (27 in
+ * total). Which bit is which task is {@link DiaryTaskManifest}'s job.
  *
- * <p>No varbit names an individual task, only {@code *_COMPLETE}/{@code *_REWARD}/
- * {@code *_COUNT} per tier. The bits live in these varplayers instead, with no RuneLite
- * name for what any one means; that mapping is {@link DiaryTaskManifest}'s job. This table
- * just says which varplayer(s) to read, verified against {@code VarPlayerID} rather than
- * assumed.
- *
- * <p>Ten regions use two ({@code _ACHIEVEMENT_DIARY}/{@code _ACHIEVEMENT_DIARY2}). Kourend
- * & Kebos has a third ({@code _MULTISTAGE}); Karamja predates the standard naming and uses
- * four ({@code ATJUN_TASKS_1..4}). 20 + 3 + 4 = 27.
- *
- * <p>{@code VarPlayerID} really does spell Ardougne's constant {@code
- * ARDOUNGE_ACHIEVEMENT_DIARY} and Lumbridge & Draynor's {@code LUMB_DRAY_ACHIEVEMENT_DIARY}.
- * Copied as-is, not typos.
+ * <p>{@code ARDOUNGE} is RuneLite's own spelling, not a typo.
  */
 public final class DiaryTaskVarplayers {
   private DiaryTaskVarplayers() {}
 
-  /** Ordered, unmodifiable: wire region key to its varplayer ids, region-canonical order. */
+  /** Ordered: wire region key to its varplayer ids. */
   public static final Map<String, int[]> ALL = Collections.unmodifiableMap(build());
 
   private static Map<String, int[]> build() {
@@ -41,12 +29,10 @@ public final class DiaryTaskVarplayers {
         VarPlayerID.FREMENNIK_ACHIEVEMENT_DIARY, VarPlayerID.FREMENNIK_ACHIEVEMENT_DIARY2});
     m.put("KANDARIN", new int[] {
         VarPlayerID.KANDARIN_ACHIEVEMENT_DIARY, VarPlayerID.KANDARIN_ACHIEVEMENT_DIARY2});
-    // KOUREND is the RuneLite constant prefix; the wire key is KOUREND_KEBOS, matching
-    // DiaryVarbits/DiaryTaskVarbits. The third varplayer is this region's own irregularity.
+    // Kourend has a third varplayer.
     m.put("KOUREND_KEBOS", new int[] {
         VarPlayerID.KOUREND_ACHIEVEMENT_DIARY, VarPlayerID.KOUREND_ACHIEVEMENT_DIARY2,
         VarPlayerID.KOUREND_ACHIEVEMENT_DIARY_MULTISTAGE});
-    // LUMB_DRAY is the RuneLite constant prefix; the wire key is LUMBRIDGE_DRAYNOR.
     m.put("LUMBRIDGE_DRAYNOR", new int[] {
         VarPlayerID.LUMB_DRAY_ACHIEVEMENT_DIARY, VarPlayerID.LUMB_DRAY_ACHIEVEMENT_DIARY2});
     m.put("MORYTANIA", new int[] {
@@ -57,8 +43,7 @@ public final class DiaryTaskVarplayers {
         VarPlayerID.WESTERN_ACHIEVEMENT_DIARY, VarPlayerID.WESTERN_ACHIEVEMENT_DIARY2});
     m.put("WILDERNESS", new int[] {
         VarPlayerID.WILDERNESS_ACHIEVEMENT_DIARY, VarPlayerID.WILDERNESS_ACHIEVEMENT_DIARY2});
-    // Karamja's diary predates the standard two-varplayer layout, hence four
-    // differently-named ids instead of a region-prefixed DIARY/DIARY2 pair.
+    // Karamja predates the standard layout and uses four.
     m.put("KARAMJA", new int[] {
         VarPlayerID.ATJUN_TASKS_1, VarPlayerID.ATJUN_TASKS_2,
         VarPlayerID.ATJUN_TASKS_3, VarPlayerID.ATJUN_TASKS_4});

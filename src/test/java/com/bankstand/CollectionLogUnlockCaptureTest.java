@@ -23,19 +23,14 @@ public class CollectionLogUnlockCaptureTest {
     capture.handleMessage("New item added to your collection log: Abyssal orphan");
 
     assertTrue(!outbox.pending().isEmpty());
-    // A typo in TYPE_COLLECTION_LOG_UNLOCK would compile and pass every other
-    // assertion here, then fail permanently in production as a 400 the server
-    // rejects: the type is the one value in this diff the server also checks.
+    // The type is the one value the server also checks, so a typo would 400 permanently.
     assertEquals(
         TransientEvent.TYPE_COLLECTION_LOG_UNLOCK, outbox.pending().get(0).getEvent().getType());
     assertTrue(
         outbox.pending().get(0).getEvent().getPayload().get("itemName").equals("Abyssal orphan"));
   }
 
-  /** The server validates a whole batch in one schema parse (128-char item-name bound)
-   *  and 400s the WHOLE BATCH on any one event failing validation, with the drain
-   *  acking nothing on failure: one oversized name would block every other queued
-   *  event for the account, forever. */
+  /** An oversized name would 400 the whole batch and block every queued event forever. */
   @Test
   public void skipsAnOversizedItemName() throws IOException {
     File file = new File(folder.newFolder("bankstand"), "events.json");
@@ -68,9 +63,7 @@ public class CollectionLogUnlockCaptureTest {
     return builder.toString();
   }
 
-  /** A whitespace-only capture is min(1)-valid junk on the wire, not a real item
-   *  name, and one bad event 400s the whole batch (see the oversized-name test
-   *  above), permanently blocking every other queued event for the account. */
+  /** A whitespace-only name would 400 the whole batch. */
   @Test
   public void doesNotEmitAWhitespaceOnlyItemName() throws IOException {
     File file = new File(folder.newFolder("bankstand"), "events.json");
@@ -106,9 +99,7 @@ public class CollectionLogUnlockCaptureTest {
     assertTrue(outbox.pending().isEmpty());
   }
 
-  /** The toggle must gate the read itself, not only emit, matching NotableDropCapture's
-   *  established convention (#608's own plugin-side session recorded this as the rule
-   *  to follow: a stateless single-message detector gates at the very top). */
+  /** The toggle gates the read itself, not only the emit. */
   @Test
   public void touchesNothingWhenDisabled() throws IOException {
     File file = new File(folder.newFolder("bankstand"), "events.json");

@@ -12,42 +12,19 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 
 /**
- * Reads and writes this client's pairing credentials.
+ * Stores the pairing credentials in a local file, never {@code ConfigManager}: a synced profile
+ * uploads all config to RuneLite's servers, and the token is a bearer credential. Per-install
+ * storage also keeps each machine its own device.
  *
- * <p><b>A file, not {@code ConfigManager}, and that is the whole point of this class.</b>
- * {@code ConfigManager.saveConfiguration} checks {@code ConfigProfile.isSync()} and, when
- * the profile is synced, PATCHes the whole changed key set to RuneLite's own config
- * service. There is no per-key exclusion, so a plugin cannot mark one value local-only.
- * The device token is a bearer credential for the submit API, and a player who paired
- * with Bankstand did not agree to RuneLite storing that credential.
- *
- * <p>It also keeps several clients on one account working rather than breaking them. A
- * synced token gives every machine the same credential, which collapses them into one
- * {@code plugin_device} row: one name, one last-seen time, and revoking one revokes all.
- * Per-install storage is what lets each machine be its own device.
- *
- * <p>Every read failure resolves to "not paired", which asks the player to pair again
- * rather than sending with a credential we could not read. That is the safe direction:
- * the alternative is a submit loop against a token that may not be ours.
- *
- * <p>Not thread-safe across a save/clear racing a load; the plugin calls those from the
- * client thread and its executor, never concurrently for the same file. {@link #cached}
- * is {@code volatile} for a narrower reason: a pairing written on one thread must be
- * visible to the very next {@link #load()} on the other, with no other synchronization
- * between them, the same cross-thread guarantee {@code AccountSession.submitted} already
- * needs one for.
+ * <p>A read failure means "not paired" (fail closed). Save/clear and load are never concurrent;
+ * {@link #cached} is volatile so a save on one thread is seen by the next load on another.
  */
 public class DeviceCredentialStore {
 
   private final File file;
   private final Gson gson;
 
-  // Every gate the plugin registers (isPaired() and its callers) reads the credential on
-  // nearly every in-game event, so re-reading and re-parsing the file on each call cost
-  // real client-thread time for no reason: the credential only ever changes via save/clear,
-  // both of which keep this field in step. Null means "not yet loaded this session", not
-  // "not paired": DeviceCredentials.none() is itself a valid cached value once a real read
-  // (or a clear) has established that.
+  // Read on nearly every game event, so cached. Null means "not loaded yet", not "not paired".
   private volatile DeviceCredentials cached;
 
   public DeviceCredentialStore(File file, Gson gson) {
@@ -86,8 +63,7 @@ public class DeviceCredentialStore {
       if (directory != null) {
         Files.createDirectories(directory);
       }
-      // Temp then move, so a crash midway leaves the previous pairing intact rather
-      // than truncating the only copy of the token.
+      // Temp then move, so a crash midway leaves the previous pairing intact.
       Path temp = Files.createTempFile(directory, "device", ".tmp");
       try (Writer writer = Files.newBufferedWriter(temp, StandardCharsets.UTF_8)) {
         gson.toJson(credentials, writer);
@@ -98,25 +74,19 @@ public class DeviceCredentialStore {
       } catch (AtomicMoveNotSupportedException e) {
         Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING);
       }
-      // Only on the success path: a save that threw below never touched disk, so the
-      // cache must keep reflecting whatever WAS there, the same "previous pairing
-      // intact" guarantee the temp-then-move above already gives the file itself.
+      // Only on success, so the cache always matches disk.
       cached = credentials;
     } catch (IOException | RuntimeException e) {
-      // Swallowed like every other write on this path. A pairing that failed to persist
-      // costs one re-pair; throwing out of the pairing handler costs the chat reply that
-      // tells the player what happened.
+      // Swallowed: a failed save costs one re-pair.
     }
   }
 
-  /** Forgets this device's pairing. A missing file is already forgotten. */
   public void clear() {
     try {
       Files.deleteIfExists(file.toPath());
       cached = DeviceCredentials.none();
     } catch (IOException | RuntimeException e) {
-      // Fall back to an empty document, so a delete the filesystem refuses still leaves
-      // no usable credential behind. save() sets the cache itself on its own success path.
+      // If the delete fails, overwrite with an empty document so no credential remains.
       save(DeviceCredentials.none());
     }
   }

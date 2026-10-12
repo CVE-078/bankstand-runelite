@@ -16,7 +16,6 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
-/** The append-only, bounded, file-backed outbox (#656). */
 public class EventOutboxTest {
 
   @Rule public TemporaryFolder folder = new TemporaryFolder();
@@ -101,12 +100,11 @@ public class EventOutboxTest {
     for (int i = 0; i < EventOutbox.MAX_PENDING; i++) {
       outbox.add(1L, event("id-" + i));
     }
-    // One more than the cap.
     outbox.add(1L, event("overflow"));
 
     List<OutboxEntry> pending = outbox.pending();
     assertEquals(EventOutbox.MAX_PENDING, pending.size());
-    // The very first entry ("id-0") was the oldest and must be the one dropped.
+    // The oldest entry is the one dropped.
     assertEquals("id-1", pending.get(0).getEvent().getId());
     assertEquals("overflow", pending.get(pending.size() - 1).getEvent().getId());
   }
@@ -120,13 +118,8 @@ public class EventOutboxTest {
   }
 
   /**
-   * Reproduces the torn read-modify-write the plugin's own real wiring exposes:
-   * {@code add} runs on the client thread from a capture's {@code @Subscribe}
-   * handler, {@code ack} runs off it from the drain's executor continuation. Both
-   * do an independent read-mutate-write against the same file. {@code ack} here
-   * never matches anything, so every add it does not itself remove must survive.
-   * Fails on an unsynchronized {@code EventOutbox}: some adds land between a
-   * concurrent ack's read and its write and are silently overwritten.
+   * {@code add} runs on the client thread and {@code ack} on the executor, both
+   * read-modify-writing the same file. No add may be lost to a concurrent ack.
    */
   @Test
   public void concurrentAddAndAckDoNotLoseEntries() throws Exception {

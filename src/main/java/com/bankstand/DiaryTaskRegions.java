@@ -5,16 +5,8 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * Resolves the diary task broadcast's own area text ("...completed an elite task in the
- * Western Provinces area...") to the wire region key {@link DiaryVarbits}/
- * {@link DiaryTaskVarbits}/{@link DiaryTaskVarplayers} use.
- *
- * <p>Nine of twelve match wording {@code DiaryTaskCompletionCapture}'s own tests already
- * confirm as real chat text. {@code KOUREND_KEBOS} is not confirmed, guessed by analogy to
- * the other two ampersand-joined names. Not yet checked against a live broadcast.
- *
- * <p>A miss (unrecognised text, including a wrong Kourend &amp; Kebos guess) just falls
- * through to the plain tier/area event, same as before this table existed.
+ * Resolves a diary task broadcast's area text ("...an elite task in the Western Provinces
+ * area...") to the wire region key. A miss falls back to the plain tier/area event.
  */
 public final class DiaryTaskRegions {
   private DiaryTaskRegions() {}
@@ -28,7 +20,7 @@ public final class DiaryTaskRegions {
     m.put("Falador", "FALADOR");
     m.put("Fremennik", "FREMENNIK");
     m.put("Kandarin", "KANDARIN");
-    // Not independently corroborated; see the class javadoc.
+    // Unconfirmed against a live broadcast, guessed from the other "&" names.
     m.put("Kourend & Kebos", "KOUREND_KEBOS");
     m.put("Lumbridge & Draynor", "LUMBRIDGE_DRAYNOR");
     m.put("Morytania", "MORYTANIA");

@@ -29,7 +29,6 @@ public class BankstandClientTest {
 
   private static final String BASE = "https://example.test";
 
-  /** Records the request and returns a canned response, or throws, without a socket. */
   private static final class FakeTransport implements HttpTransport {
     String url;
     String body;
@@ -72,7 +71,6 @@ public class BankstandClientTest {
     }
   }
 
-  /** Returns a scripted sequence of responses/errors and counts calls, for retry tests. */
   private static final class SequencedTransport implements HttpTransport {
     private final java.util.Deque<Object> steps = new java.util.ArrayDeque<>();
     int calls;
@@ -101,10 +99,7 @@ public class BankstandClientTest {
     }
   }
 
-  // Real, not a stub: the retry tests below need actual scheduling to happen.
-  // Single-threaded and shared for the whole class rather than one per test,
-  // matching how a plugin holds exactly one; every test here uses a zero base
-  // delay, so nothing queues up waiting on it.
+  // Real scheduling for the retry tests; every test uses a zero base delay.
   private static final ScheduledExecutorService EXECUTOR = Executors.newSingleThreadScheduledExecutor();
 
   private static final long GET_TIMEOUT_SECONDS = 5;
@@ -113,8 +108,6 @@ public class BankstandClientTest {
     return new BankstandClient(transport, new Gson(), EXECUTOR);
   }
 
-  /** Unwraps the {@link SubmitException} a retrying call's future fails with,
-   *  the same shape {@code Future.get()} always reports a failure in. */
   private static SubmitException unwrapSubmitException(ExecutionException e) {
     return (SubmitException) e.getCause();
   }
@@ -492,8 +485,7 @@ public class BankstandClientTest {
 
   @Test
   public void treatsAnyManifestFailureAsNoManifest() {
-    // Null, never an exception. The manifest is an optimisation and a client that cannot
-    // fetch one falls back to its cache or its bundle and carries on working.
+    // Null, never an exception: the client falls back to its cache or bundle.
     assertNull(
         new BankstandClient(new FakeTransport(null, new IOException("offline")), new Gson(), EXECUTOR)
             .fetchManifest(BASE));
@@ -507,8 +499,7 @@ public class BankstandClientTest {
 
   @Test
   public void sendsNoCredentialWhenFetchingTheManifest() {
-    // The document is public and inert, and a client may need it before it has a token.
-    // Sending one anyway would put a credential on a request that does not need it.
+    // The manifest is public, so no credential goes on the request.
     FakeTransport transport = new FakeTransport(new HttpResponse(200, "{\"schemaVersion\":1}"));
     new BankstandClient(transport, new Gson(), EXECUTOR).fetchManifest(BASE);
     for (String key : transport.headers.keySet()) {
