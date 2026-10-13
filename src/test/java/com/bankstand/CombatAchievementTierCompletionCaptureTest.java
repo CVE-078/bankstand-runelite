@@ -82,4 +82,17 @@ public class CombatAchievementTierCompletionCaptureTest {
 
     assertTrue(outbox.pending().isEmpty());
   }
+
+  @Test
+  public void emitsWhenTheBroadcastCarriesAPrefix() throws IOException {
+    EventOutbox outbox = outboxIn(newFile());
+    CombatAchievementTierCompletionCapture capture =
+        new CombatAchievementTierCompletionCapture(outbox, () -> true, () -> 1L);
+
+    capture.handleMessage(
+        "CA_ID:1|Congratulations, you have completed the medium tier of the Combat Achievements!");
+
+    assertEquals(1, outbox.pending().size());
+    assertEquals("medium", outbox.pending().get(0).getEvent().getPayload().get("tier"));
+  }
 }

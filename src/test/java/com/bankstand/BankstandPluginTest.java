@@ -392,6 +392,13 @@ public class BankstandPluginTest {
   }
 
   @Test
+  public void idsToAckIncludesARejectedInvalidOutcome() {
+    Set<String> ids = BankstandPlugin.idsToAck(Collections.singletonList(ack("a", "rejected", "invalid")));
+
+    assertTrue(ids.contains("a"));
+  }
+
+  @Test
   public void idsToAckExcludesARejectedNotAppliedOutcome() {
     // The capability flag can be turned on later, so this stays worth retrying.
     Set<String> ids =

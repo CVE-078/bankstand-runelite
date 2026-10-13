@@ -33,4 +33,33 @@ public class BankstandKeysTest {
   public void keepsAnExplicitUrl() {
     assertEquals("http://localhost:3001", BankstandKeys.normaliseServerUrl("http://localhost:3001"));
   }
+
+  @Test
+  public void keepsHttpsAndLocalHttp() {
+    assertEquals("https://bankstand.gg", BankstandKeys.normaliseServerUrl("https://bankstand.gg"));
+    assertEquals("http://127.0.0.1:3001", BankstandKeys.normaliseServerUrl("http://127.0.0.1:3001"));
+    assertEquals("http://[::1]:3001", BankstandKeys.normaliseServerUrl("http://[::1]:3001"));
+  }
+
+  @Test
+  public void upgradesRemoteHttpToHttps() {
+    assertEquals("https://example.com", BankstandKeys.normaliseServerUrl("http://example.com"));
+    assertEquals("https://example.com", BankstandKeys.normaliseServerUrl("HTTP://example.com"));
+    assertEquals(
+        "https://localhost.example.com",
+        BankstandKeys.normaliseServerUrl("http://localhost.example.com"));
+  }
+
+  @Test
+  public void fallsBackToTheDefaultForAnUnusableUrl() {
+    assertEquals(BankstandKeys.DEFAULT_SERVER_URL, BankstandKeys.normaliseServerUrl("ftp://example.com"));
+    assertEquals(BankstandKeys.DEFAULT_SERVER_URL, BankstandKeys.normaliseServerUrl("bankstand.gg"));
+
+  }
+
+  @Test
+  public void keepsAPortAndPathWhenUpgrading() {
+    assertEquals("https://my_app:3000/x", BankstandKeys.normaliseServerUrl("http://my_app:3000/x"));
+    assertEquals("http://localhost:3001/", BankstandKeys.normaliseServerUrl("http://localhost:3001/"));
+  }
 }
