@@ -552,6 +552,7 @@ public class BankstandPlugin extends Plugin {
   @Schedule(period = EVENT_DRAIN_INTERVAL_SECONDS, unit = ChronoUnit.SECONDS)
   public void drainEventOutbox() {
     pulsePresence();
+    retryQueuedPresence();
     if (lootOutbox != null) {
       lootOutbox.addAll(lootLedger.closeAll());
     }
@@ -609,6 +610,17 @@ public class BankstandPlugin extends Plugin {
         new PresenceSignal(PresenceSignal.ACTIVE, hash, System.nanoTime())
             .withLoot(isLootConsented()));
     sendPresence();
+  }
+
+  /** A failed logout or off stays queued; retry it here, logged in or not. */
+  private void retryQueuedPresence() {
+    if (shouldRetryPresence(presenceQueue.size(), manifest.allows("sessions"))) {
+      sendPresence();
+    }
+  }
+
+  static boolean shouldRetryPresence(int queued, boolean serverAllowsSessions) {
+    return queued > 0 && serverAllowsSessions;
   }
 
   /** Queues transitions if sessions are on, then sends them. */

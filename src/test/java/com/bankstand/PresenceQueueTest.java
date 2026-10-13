@@ -1,8 +1,10 @@
 package com.bankstand;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
+import static org.junit.Assert.assertTrue;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -140,6 +142,34 @@ public class PresenceQueueTest {
       for (String banned : new String[] {"java.io", "java.nio", "Gson", "ConfigManager"}) {
         assertEquals(name + " must not use " + banned, -1, source.indexOf(banned));
       }
+    }
+  }
+
+  @Test
+  public void aQueuedTransitionRetriesWheneverTheServerTakesSessions() {
+    assertTrue(BankstandPlugin.shouldRetryPresence(1, true));
+    assertFalse(BankstandPlugin.shouldRetryPresence(0, true));
+    assertFalse(BankstandPlugin.shouldRetryPresence(1, false));
+  }
+
+  @Test
+  public void theMinuteDrainRetriesPresenceWithoutALoginGate() throws IOException {
+    String source =
+        new String(
+            Files.readAllBytes(
+                Paths.get("src", "main", "java", "com", "bankstand", "BankstandPlugin.java")),
+            StandardCharsets.UTF_8);
+    int drain = source.indexOf("public void drainEventOutbox() {");
+    int nextReturn = source.indexOf("return;", drain);
+    int retry = source.indexOf("retryQueuedPresence();", drain);
+    assertTrue("drainEventOutbox must call retryQueuedPresence", retry > drain);
+    assertTrue("the retry must run before any early return", retry < nextReturn);
+    String body =
+        source.substring(
+            source.indexOf("private void retryQueuedPresence() {"),
+            source.indexOf("static boolean shouldRetryPresence("));
+    for (String gate : new String[] {"session.", "presenceTracker", "collectSessions"}) {
+      assertEquals("retryQueuedPresence must not check " + gate, -1, body.indexOf(gate));
     }
   }
 }
