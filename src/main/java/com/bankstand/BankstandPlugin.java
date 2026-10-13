@@ -27,6 +27,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.function.BooleanSupplier;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -39,7 +40,6 @@ import net.runelite.api.ItemComposition;
 import net.runelite.api.Player;
 import net.runelite.api.Quest;
 import net.runelite.api.Skill;
-import net.runelite.api.WorldType;
 import net.runelite.api.events.ChatMessage;
 import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.GameTick;
@@ -258,6 +258,7 @@ public class BankstandPlugin extends Plugin {
   private CombatAchievementCompletionCapture combatAchievementCompletionCapture;
   private CombatAchievementTierCompletionCapture combatAchievementTierCompletionCapture;
   private DiaryTaskCompletionCapture diaryTaskCompletionCapture;
+  private QuestCompletionCapture questCompletionCapture;
   private SlayerTaskCompletionCapture slayerTaskCompletionCapture;
   private final SlayerTaskBaseline slayerTaskBaseline = new SlayerTaskBaseline();
   // Ticks since the last LOGGED_IN. Client thread.
@@ -300,6 +301,8 @@ public class BankstandPlugin extends Plugin {
   private final SubmitGate submitGate = new SubmitGate();
   // The last trusted skill read, so the logout read is checked against it, not trusted blind.
   private Map<String, Integer> lastSkillRead;
+  // World and login-settle check shared by every capture.
+  private final CaptureGate captureGate = new CaptureGate();
   // Zero until something reached the server. Written on the executor, read on the client thread.
   private volatile long lastSubmitAtMs;
   // A change means the account switched and the baseline must be forgotten.
@@ -333,7 +336,7 @@ public class BankstandPlugin extends Plugin {
     notableDropCapture =
         new NotableDropCapture(
             eventOutbox,
-            this::isNotableDropCaptureEnabled,
+            gated(this::isNotableDropCaptureEnabled),
             this::currentAccountHash,
             itemManager,
             () -> (long) config.notableDropThreshold(),
@@ -341,31 +344,42 @@ public class BankstandPlugin extends Plugin {
             onEmit);
     petDropCapture =
         new PetDropCapture(
-            eventOutbox, this::isPetDropCaptureEnabled, this::currentAccountHash, onEmit);
+            eventOutbox, gated(this::isPetDropCaptureEnabled), this::currentAccountHash, onEmit);
     collectionLogUnlockCapture =
         new CollectionLogUnlockCapture(
-            eventOutbox, this::isCollectionLogEventCaptureEnabled, this::currentAccountHash, onEmit);
+            eventOutbox,
+            gated(this::isCollectionLogEventCaptureEnabled),
+            this::currentAccountHash,
+            onEmit);
     combatAchievementCompletionCapture =
         new CombatAchievementCompletionCapture(
             eventOutbox,
-            this::isCombatAchievementCompletionCaptureEnabled,
+            gated(this::isCombatAchievementCompletionCaptureEnabled),
             this::currentAccountHash,
             onEmit);
     combatAchievementTierCompletionCapture =
         new CombatAchievementTierCompletionCapture(
             eventOutbox,
-            this::isCombatAchievementTierCompletionCaptureEnabled,
+            gated(this::isCombatAchievementTierCompletionCaptureEnabled),
             this::currentAccountHash,
             onEmit);
     diaryTaskCompletionCapture =
         new DiaryTaskCompletionCapture(
             eventOutbox,
-            this::isDiaryTaskCompletionCaptureEnabled,
+            gated(this::isDiaryTaskCompletionCaptureEnabled),
             this::currentAccountHash,
             client::getVarpValue,
             diaryTaskBits,
             diaryTaskManifest,
             () -> saveAckedState(currentAccountHash()),
+            onEmit);
+    questCompletionCapture =
+        new QuestCompletionCapture(
+            eventOutbox,
+            gated(this::isQuestCompletionCaptureEnabled),
+            this::currentAccountHash,
+            client,
+            BankstandPlugin::isKnownQuest,
             onEmit);
     eventBus.register(notableDropCapture);
     eventBus.register(petDropCapture);
@@ -373,6 +387,7 @@ public class BankstandPlugin extends Plugin {
     eventBus.register(combatAchievementCompletionCapture);
     eventBus.register(combatAchievementTierCompletionCapture);
     eventBus.register(diaryTaskCompletionCapture);
+    eventBus.register(questCompletionCapture);
     slayerTaskCompletionCapture =
         new SlayerTaskCompletionCapture(
             eventOutbox,
@@ -442,6 +457,9 @@ public class BankstandPlugin extends Plugin {
     if (diaryTaskCompletionCapture != null) {
       eventBus.unregister(diaryTaskCompletionCapture);
     }
+    if (questCompletionCapture != null) {
+      eventBus.unregister(questCompletionCapture);
+    }
     if (slayerTaskCompletionCapture != null) {
       eventBus.unregister(slayerTaskCompletionCapture);
     }
@@ -470,6 +488,16 @@ public class BankstandPlugin extends Plugin {
 
   private long currentAccountHash() {
     return session.getAccountHash();
+  }
+
+  /** True once logged in long enough to read, on a world whose progress counts. */
+  boolean isCaptureReady() {
+    return captureGate.allows(client.getWorldType());
+  }
+
+  /** Wraps an event capture's gate in the shared world and settle check. */
+  BooleanSupplier gated(BooleanSupplier capability) {
+    return () -> isCaptureReady() && capability.getAsBoolean();
   }
 
   private boolean isNotableDropCaptureEnabled() {
@@ -503,7 +531,7 @@ public class BankstandPlugin extends Plugin {
     return pairingClient != null
         && isPaired()
         && session.isActive()
-        && isStandardWorld(client.getWorldType())
+        && captureGate.allows(client.getWorldType())
         && config.collectLoot()
         && manifest.allows("loot");
   }
@@ -516,7 +544,7 @@ public class BankstandPlugin extends Plugin {
     return pairingClient != null
         && isPaired()
         && session.isActive()
-        && isStandardWorld(client.getWorldType())
+        && captureGate.allows(client.getWorldType())
         && isSlayerCaptureEnabled();
   }
 
@@ -801,7 +829,9 @@ public class BankstandPlugin extends Plugin {
   }
 
   private static boolean isPermanentlyRejected(EventAck ack) {
-    return "rejected".equals(ack.getOutcome()) && "stale".equals(ack.getReason());
+    // An invalid event fails the same check on every resend.
+    return "rejected".equals(ack.getOutcome())
+        && ("stale".equals(ack.getReason()) || "invalid".equals(ack.getReason()));
   }
 
   private java.util.List<String> statusLines() {
@@ -872,6 +902,10 @@ public class BankstandPlugin extends Plugin {
     }
     if (!isSkillCaptureEnabled()) {
       notice("Turn on skill capture first: it carries the name and hash that link a character.");
+      return;
+    }
+    if (!isCaptureReady()) {
+      notice("Bankstand does not capture on this world. Try again on a regular world.");
       return;
     }
     clientThread.invoke(
@@ -981,6 +1015,10 @@ public class BankstandPlugin extends Plugin {
       notice("Open your collection log first, then run ::bstand log.");
       return;
     }
+    if (!isCaptureReady()) {
+      notice("Bankstand does not capture on this world. Try again on a regular world.");
+      return;
+    }
     collectionLogSync.arm();
     showSyncInfoBox();
     notice("Armed. Click Search in the collection log to read it.");
@@ -1036,6 +1074,7 @@ public class BankstandPlugin extends Plugin {
     map.put(TransientEvent.TYPE_COLLECTION_LOG_UNLOCK, "collectionLog");
     map.put(TransientEvent.TYPE_COMBAT_ACHIEVEMENT_COMPLETED, "combatAchievements");
     map.put(TransientEvent.TYPE_DIARY_TASK_COMPLETED, "diaries");
+    map.put(TransientEvent.TYPE_QUEST_COMPLETED, "quests");
     map.put(TransientEvent.TYPE_SLAYER_TASK_COMPLETED, "slayer");
     return map;
   }
@@ -1219,7 +1258,9 @@ public class BankstandPlugin extends Plugin {
    */
   @Subscribe
   public void onScriptPreFired(ScriptPreFired event) {
-    if (event.getScriptId() != COLLECTION_LOG_ITEM_SCRIPT || !isCollectionLogCaptureEnabled()) {
+    if (event.getScriptId() != COLLECTION_LOG_ITEM_SCRIPT
+        || !isCollectionLogCaptureEnabled()
+        || !isCaptureReady()) {
       return;
     }
     Object[] args = event.getScriptEvent() == null ? null : event.getScriptEvent().getArguments();
@@ -1473,6 +1514,22 @@ public class BankstandPlugin extends Plugin {
     return pairingClient != null && isPaired() && session.isActive() && isDiaryCaptureEnabled();
   }
 
+  // Same gates as above. Reuses the quests capability: it is the same disclosure.
+  private boolean isQuestCompletionCaptureEnabled() {
+    return pairingClient != null && isPaired() && session.isActive() && isQuestCaptureEnabled();
+  }
+
+  static boolean isKnownQuest(String name) {
+    for (Quest quest : Quest.values()) {
+      // The scroll parse drops a trailing "Quest" from most names (Crab Quest reads as Crab).
+      if (quest.getName().equalsIgnoreCase(name)
+          || quest.getName().equalsIgnoreCase(name + " Quest")) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   private boolean isAccountTypeCaptureEnabled() {
     return config.collectAccountType() && manifest.allows("accountType");
   }
@@ -1501,18 +1558,22 @@ public class BankstandPlugin extends Plugin {
       presenceTracker.onHopping();
     } else if (state == GameState.LOGGED_IN) {
       // Adopts the account only if it changed; the -1 logged-out sentinel is ignored.
-      session.onLogin(client.getAccountHash());
+      if (session.onLogin(client.getAccountHash())) {
+        lastSkillRead = null;
+      }
       ticksSinceLoggedIn = 0;
       cancelHopTimer();
       List<PresenceSignal> due =
           presenceTracker.onLoggedIn(
-              isStandardWorld(client.getWorldType()), client.getAccountHash(), System.nanoTime());
+              CaptureGate.allowsWorld(client.getWorldType()), client.getAccountHash(), System.nanoTime());
       synchronized (presenceDueNextTick) {
         presenceDueNextTick.addAll(due);
       }
     } else if (state == GameState.LOGIN_SCREEN) {
       // Before onLogout, which clears the session this needs to attribute the read to.
       captureFinalSnapshot();
+      captureGate.reset();
+      lastSkillRead = null;
       // Loot first, so the last kills go before the logout.
       if (lootOutbox != null) {
         lootOutbox.addAll(lootLedger.closeAll());
@@ -1522,11 +1583,15 @@ public class BankstandPlugin extends Plugin {
       if (presenceTracker.isHopTimerArmed()) {
         armHopTimer();
       }
-      slayerTaskCompletionCapture.reset();
+      if (slayerTaskCompletionCapture != null) {
+        slayerTaskCompletionCapture.reset();
+      }
       session.onLogout();
       // A read belongs to the character that started it; abandon it silently.
       collectionLogSync.reset();
       hideSyncInfoBox();
+    } else if (state == GameState.HOPPING || state == GameState.CONNECTION_LOST) {
+      captureGate.reset();
     }
   }
 
@@ -1568,6 +1633,8 @@ public class BankstandPlugin extends Plugin {
 
   @Subscribe
   public void onGameTick(GameTick event) {
+    Widget welcome = client.getWidget(InterfaceID.WelcomeScreen.MOTW);
+    captureGate.onTick(welcome != null && !welcome.isHidden());
     if (ticksSinceLoggedIn < Integer.MAX_VALUE) {
       ticksSinceLoggedIn++;
     }
@@ -1577,7 +1644,11 @@ public class BankstandPlugin extends Plugin {
       tickCollectionLogSync();
     }
     // Identity once per session. The local player's name is only reliable a tick after LOGGED_IN.
-    if (pairingClient == null || !isPaired() || !session.isActive() || session.isSubmitted()) {
+    if (pairingClient == null
+        || !isPaired()
+        || !session.isActive()
+        || session.isSubmitted()
+        || !isCaptureReady()) {
       return;
     }
     // Identity sends the account hash and name, so it shares the skill capture opt-in.
@@ -1604,6 +1675,9 @@ public class BankstandPlugin extends Plugin {
    */
   private void captureFinalSnapshot() {
     if (pairingClient == null || !isPaired() || !session.isActive() || !isSkillCaptureEnabled()) {
+      return;
+    }
+    if (!isCaptureReady()) {
       return;
     }
     if (!submitGate.allow()) {
@@ -1642,9 +1716,7 @@ public class BankstandPlugin extends Plugin {
     if (client.getGameState() != GameState.LOGGED_IN) {
       return;
     }
-    // Non-standard worlds (tournament, seasonal, deadman, PvP arena) are not main-game progress.
-    EnumSet<WorldType> worldType = client.getWorldType();
-    if (!isStandardWorld(worldType)) {
+    if (!isCaptureReady()) {
       return;
     }
     // Read on the client thread into one snapshot, then submit off-thread.
@@ -1652,6 +1724,10 @@ public class BankstandPlugin extends Plugin {
     // Quest.getState runs a script, so an inline call hits "scripts are not reentrant".
     clientThread.invokeLater(
         () -> {
+          // A hop or disconnect can land between the check above and this read.
+          if (!isCaptureReady()) {
+            return;
+          }
           Player local = client.getLocalPlayer();
           if (local == null) {
             return;
@@ -1677,13 +1753,6 @@ public class BankstandPlugin extends Plugin {
           onSkillsCaptured(
               accountHash, generation, name, skills, quests, diaries, diaryTasks, slayerTask);
         });
-  }
-
-  private static boolean isStandardWorld(EnumSet<WorldType> worldType) {
-    return !worldType.contains(WorldType.TOURNAMENT_WORLD)
-        && !worldType.contains(WorldType.SEASONAL)
-        && !worldType.contains(WorldType.DEADMAN)
-        && !worldType.contains(WorldType.PVP_ARENA);
   }
 
   // Runs on the client thread. Iterates the allowlist, never Skill.values().
@@ -2140,8 +2209,9 @@ public class BankstandPlugin extends Plugin {
     if (fresh == null || fresh.isEmpty()) {
       return false;
     }
+    // No trusted read this session: a cleared client cannot be told apart, so skip it.
     if (previous == null) {
-      return true;
+      return false;
     }
     for (Map.Entry<String, Integer> before : previous.entrySet()) {
       Integer now = fresh.get(before.getKey());

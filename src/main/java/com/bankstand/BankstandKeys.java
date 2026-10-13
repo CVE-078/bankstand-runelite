@@ -1,5 +1,7 @@
 package com.bankstand;
 
+import java.util.Locale;
+
 /**
  * Storage keys and defaults. Config keys must match {@link BankstandConfig}, since the plugin
  * also writes some back through {@code ConfigManager}.
@@ -51,8 +53,41 @@ public final class BankstandKeys {
   /** Changing this reaches new installs only; a paired client keeps its stored URL. */
   public static final String DEFAULT_SERVER_URL = "https://bankstand.gg";
 
-  /** Trimmed, or the default when unset or blank. Every caller must use this. */
+  /**
+   * Trimmed, or the default when unset, blank or unusable. Every caller must use this. Plain http
+   * is allowed only for localhost; any other http address is upgraded to https so the token is
+   * never sent in the clear.
+   */
   public static String normaliseServerUrl(String raw) {
-    return raw == null || raw.trim().isEmpty() ? DEFAULT_SERVER_URL : raw.trim();
+    if (raw == null || raw.trim().isEmpty()) {
+      return DEFAULT_SERVER_URL;
+    }
+    String url = raw.trim();
+    String lower = url.toLowerCase(Locale.ROOT);
+    if (lower.startsWith("https://")) {
+      return url;
+    }
+    if (!lower.startsWith("http://")) {
+      return DEFAULT_SERVER_URL;
+    }
+    String rest = url.substring("http://".length());
+    return isLocalhost(hostOf(rest)) ? url : "https://" + rest;
+  }
+
+  // Host of "host[:port][/path]", brackets kept for IPv6.
+  private static String hostOf(String rest) {
+    int slash = rest.indexOf('/');
+    String authority = slash < 0 ? rest : rest.substring(0, slash);
+    if (authority.startsWith("[")) {
+      int close = authority.indexOf(']');
+      return close < 0 ? authority : authority.substring(0, close + 1);
+    }
+    int colon = authority.indexOf(':');
+    return colon < 0 ? authority : authority.substring(0, colon);
+  }
+
+  private static boolean isLocalhost(String host) {
+    String h = host.toLowerCase(Locale.ROOT);
+    return h.equals("localhost") || h.equals("127.0.0.1") || h.equals("[::1]");
   }
 }

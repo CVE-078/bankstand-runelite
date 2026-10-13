@@ -22,10 +22,9 @@ import net.runelite.client.util.Text;
  */
 public class CombatAchievementTierCompletionCapture extends BaseCapture {
 
-  // Trailing "!" optional: unconfirmed.
+  // Unanchored: the live line is unverified, so a prefix (such as CA_ID) or suffix still matches.
   private static final Pattern TIER_COMPLETION_PATTERN =
-      Pattern.compile(
-          "^Congratulations, you have completed the (\\w+) tier of the Combat Achievements!?$");
+      Pattern.compile("completed the (\\w+) tier of the Combat Achievements");
 
   public CombatAchievementTierCompletionCapture(
       EventOutbox outbox, BooleanSupplier enabled, LongSupplier accountHash) {
@@ -54,7 +53,7 @@ public class CombatAchievementTierCompletionCapture extends BaseCapture {
       return;
     }
     Matcher matcher = TIER_COMPLETION_PATTERN.matcher(message);
-    if (!matcher.matches()) {
+    if (!matcher.find()) {
       return;
     }
     String tier = matcher.group(1).toLowerCase(Locale.ROOT);

@@ -93,7 +93,8 @@ public interface BankstandConfig extends Config {
       name = "Server URL",
       description =
           "Where to send your data. Leave this alone unless you are running Bankstand"
-              + " locally. A stale address here makes every update fail silently.",
+              + " locally. Must be https; plain http only works for localhost. A stale"
+              + " address here makes every update fail silently.",
       section = connectionSection,
       position = 1)
   default String serverBaseUrl() {
@@ -153,8 +154,9 @@ public interface BankstandConfig extends Config {
       // The full name renders truncated in the config panel.
       name = "Collect diary progress",
       description =
-          "Sends which achievement diary tiers you have completed. Tier level only: a tier"
-              + " you are part way through is not yet distinguishable from an untouched one.",
+          "Sends which achievement diary tiers you have completed and how many tasks you"
+              + " have done in each tier. When the game announces a finished diary task in"
+              + " chat, it also sends that task's tier and area.",
       section = diariesSection,
       position = 1)
   default boolean collectDiaries() {

@@ -17,9 +17,9 @@ import net.runelite.client.game.ItemStack;
  * Captures notable drops: an untradeable item on a curated allowlist, or a tradeable drop whose
  * total GE value clears the configured threshold. Pets are handled by {@link PetDropCapture}.
  *
- * <p>NPC kills only: {@code PlayerLootReceived} would send another player's name, and Loot
- * Tracker's {@code LootReceived} double-fires the same kill. GE price is client-side and may
- * differ from the server's.
+ * <p>Only {@link NpcLootReceived} is subscribed. PvP loot is ignored so another player's name is
+ * never sent. Loot Tracker's {@code LootReceived} fires for the same kills, so adding it would
+ * double-emit. GE price is client-side and may differ from the server's.
  */
 public class NotableDropCapture extends BaseCapture {
 

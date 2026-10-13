@@ -30,7 +30,8 @@ Each capability has its own toggle and its own section under **Settings > Bankst
 - **Skill XP** (on by default). Your XP per skill, your account hash and your display name. Checked
   every 60 seconds and sent only when something changed. This toggle gates all the others: with it
   off, nothing is sent.
-- **Quest progress** (opt-in). Each quest's state: not started, started or finished.
+- **Quest progress** (opt-in). Each quest's state: not started, started or finished. For a quest
+  too new for RuneLite's quest list, the quest name from the quest-complete scroll.
 - **Diary progress** (opt-in). A completed task count per diary tier, whether the tier reads
   complete, and the moment a task completes, from the game's chat line.
 - **Combat achievements** (opt-in). A completed count per tier and per boss (where the game has a
@@ -56,6 +57,10 @@ Each capability has its own toggle and its own section under **Settings > Bankst
 
 It also takes one last capture when you log out. A cleared client reads as zeroes, and that read is
 dropped rather than sent.
+
+Nothing is read or sent on Leagues, Deadman, tournament, PvP Arena, beta, no-save or quest
+speedrunning worlds, or before the welcome screen is closed after login. Fresh Start worlds count as
+their own account.
 
 ## What it never captures
 
