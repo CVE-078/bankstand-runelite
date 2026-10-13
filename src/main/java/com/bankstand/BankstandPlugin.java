@@ -2459,6 +2459,7 @@ public class BankstandPlugin extends Plugin {
                           () -> {
                             if (isSuperseded(seq, submitSeq.get())
                                 || submitGate.isHalted()
+                                || pairingClient == null
                                 || !isPaired()) {
                               return;
                             }
@@ -2531,9 +2532,12 @@ public class BankstandPlugin extends Plugin {
   }
 
   private void submitIdentity(long accountHash, int generation, String displayName) {
+    BankstandClient api = pairingClient;
+    if (api == null) {
+      return;
+    }
     String url = savedServerUrl();
     String token = deviceStore.load().getToken();
-    BankstandClient api = pairingClient;
     executor.submit(
         () -> {
           api
@@ -2564,9 +2568,12 @@ public class BankstandPlugin extends Plugin {
   }
 
   private void pair(String rawCode) {
+    BankstandClient api = pairingClient;
+    if (api == null) {
+      return;
+    }
     String url = savedServerUrl();
     notice("Pairing with " + url + "...");
-    BankstandClient api = pairingClient;
     executor.submit(
         () -> {
           try {
