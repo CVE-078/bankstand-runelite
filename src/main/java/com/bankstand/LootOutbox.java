@@ -30,9 +30,10 @@ public class LootOutbox {
 
   static final int MAX_PENDING = 500;
 
-  /** Rejections that resending the same record can never fix, so it is dropped. */
+  /** Rejections that resending the same record can never fix, so it is dropped. A {@code quota}
+   *  rejection stays pending: the daily quota resets at UTC midnight. */
   private static final Set<String> TERMINAL_REJECTIONS =
-      new HashSet<>(Arrays.asList("invalid", "quota", "stale"));
+      new HashSet<>(Arrays.asList("invalid", "stale"));
 
   private static final Type LIST_TYPE = new TypeToken<ArrayList<LootEntry>>() {}.getType();
 

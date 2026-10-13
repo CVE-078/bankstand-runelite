@@ -100,11 +100,18 @@ public class LootOutboxTest {
                     + "{\"id\":\"off\",\"outcome\":\"rejected\",\"reason\":\"not_applied\"},"
                     + "{\"id\":\"unknown\",\"outcome\":\"rejected\",\"reason\":\"something_new\"}"
                     + "]}"));
-    assertEquals(5, ids.size());
+    assertEquals(4, ids.size());
     assertTrue(ids.contains("stored"));
     assertTrue(ids.contains("dup"));
     assertTrue(ids.contains("invalid"));
-    assertTrue(ids.contains("quota"));
     assertTrue(ids.contains("stale"));
+  }
+
+  @Test
+  public void aQuotaRejectionStaysPendingLikeTheEventOutbox() {
+    String json =
+        "{\"acks\":[{\"id\":\"q\",\"outcome\":\"rejected\",\"reason\":\"quota\"}]}";
+    assertTrue(LootOutbox.idsToAck(acks(json)).isEmpty());
+    assertTrue(BankstandPlugin.idsToAck(acks(json)).isEmpty());
   }
 }
