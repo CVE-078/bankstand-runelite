@@ -47,6 +47,8 @@ final class RecentActivityLog {
             + capitalize(String.valueOf(payload.get("tier")))
             + " task completed in "
             + payload.get("area");
+      case TransientEvent.TYPE_QUEST_COMPLETED:
+        return "Quests: " + payload.get("questName") + " completed";
       case TransientEvent.TYPE_NOTABLE_DROP:
         return "Notable drop: " + payload.get("itemName");
       case TransientEvent.TYPE_PET_DROP:
