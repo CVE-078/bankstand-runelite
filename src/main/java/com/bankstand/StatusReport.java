@@ -148,8 +148,14 @@ public final class StatusReport {
       out.add("No capabilities switched on, so there is nothing to sync.");
       return out;
     }
-    out.add("Syncing " + String.join(", ", enabled) + " now.");
-    out.add("The collection log is not included: it can only be read from the log's own Search.");
+    List<String> syncing = new ArrayList<>(enabled);
+    boolean collectionLog = syncing.remove("collection log");
+    if (!syncing.isEmpty()) {
+      out.add("Syncing " + String.join(", ", syncing) + " now.");
+    }
+    if (collectionLog) {
+      out.add("The collection log is not included: it can only be read from the log's own Search.");
+    }
     return out;
   }
 }

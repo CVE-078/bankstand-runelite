@@ -2,6 +2,8 @@ package com.bankstand;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 
 import org.junit.Test;
 
@@ -63,5 +65,35 @@ public class IdentityNoticeTest {
           BankstandPlugin.identityNoticeFor(false, "B0aty", outcome).contains("—"));
     }
     assertFalse(BankstandPlugin.identityNoticeFor(true, "B0aty", "bound").contains("—"));
+  }
+
+  private static final String REJECTED =
+      "Bankstand rejected the device token. Re-pair in Account > Connect RuneLite.";
+
+  /** Identity retries every tick after a failure, so a rejected token must be told once. */
+  @Test
+  public void announcesARejectedTokenOnceUntilRePaired() {
+    SubmitGate submitGate = new SubmitGate();
+    NoticeGate noticeGate = new NoticeGate();
+    SubmitException rejected = new SubmitException(REJECTED, false, true);
+    assertEquals(
+        "Could not verify this character. " + REJECTED,
+        BankstandPlugin.identityFailureNotice(rejected, submitGate, noticeGate));
+    for (int i = 0; i < 4; i++) {
+      assertNull(BankstandPlugin.identityFailureNotice(rejected, submitGate, noticeGate));
+    }
+    submitGate.resume();
+    assertNotNull(BankstandPlugin.identityFailureNotice(rejected, submitGate, noticeGate));
+  }
+
+  @Test
+  public void announcesATransientFailureOnceUntilRecovered() {
+    SubmitGate submitGate = new SubmitGate();
+    NoticeGate noticeGate = new NoticeGate();
+    SubmitException down = new SubmitException("Could not reach Bankstand.", true);
+    assertNotNull(BankstandPlugin.identityFailureNotice(down, submitGate, noticeGate));
+    assertNull(BankstandPlugin.identityFailureNotice(down, submitGate, noticeGate));
+    noticeGate.onSuccess();
+    assertNotNull(BankstandPlugin.identityFailureNotice(down, submitGate, noticeGate));
   }
 }
