@@ -642,7 +642,7 @@ public class BankstandPlugin extends Plugin {
                 next.getLoot());
         presenceQueue.onAnswered(next);
         if (res.isApplied()) {
-          lastSyncedAt.put("sessions", System.currentTimeMillis());
+          lastSyncedAt.put(Capability.SESSIONS.key, System.currentTimeMillis());
           if (PresenceSignal.LOGIN.equals(next.getState())) {
             onSessionStarted(next.getAccountHash());
           }
@@ -717,7 +717,7 @@ public class BankstandPlugin extends Plugin {
           SubmitLootResponse res = client.submitLoot(url, token, group.getKey(), chunk);
           lootOutbox.ack(LootOutbox.idsToAck(res.getAcks()));
           if (res.getAcks().stream().anyMatch(EventAck::isStored)) {
-            lastSyncedAt.put("loot", System.currentTimeMillis());
+            lastSyncedAt.put(Capability.LOOT.key, System.currentTimeMillis());
             refreshPanel();
           }
         } catch (SubmitException e) {
@@ -995,91 +995,40 @@ public class BankstandPlugin extends Plugin {
     }
   }
 
-  // Maps a chat-triggered event to the capability key the panel's "last synced" uses, so a live
-  // event and a snapshot ack update the same figure.
-  private static final Map<String, String> CAPABILITY_KEY_BY_EVENT_TYPE = capabilityKeyByEventType();
-
-  private static Map<String, String> capabilityKeyByEventType() {
-    Map<String, String> map = new LinkedHashMap<>();
-    map.put(TransientEvent.TYPE_NOTABLE_DROP, "notableDrops");
-    map.put(TransientEvent.TYPE_PET_DROP, "petDrops");
-    map.put(TransientEvent.TYPE_COLLECTION_LOG_UNLOCK, "collectionLog");
-    map.put(TransientEvent.TYPE_COMBAT_ACHIEVEMENT_COMPLETED, "combatAchievements");
-    map.put(TransientEvent.TYPE_DIARY_TASK_COMPLETED, "diaries");
-    map.put(TransientEvent.TYPE_QUEST_COMPLETED, "quests");
-    map.put(TransientEvent.TYPE_SLAYER_TASK_COMPLETED, "slayer");
-    return map;
-  }
-
-  /** The panel's per-capability rows, in {@link #capabilityNames} order, skipping disabled ones. */
+  /** The panel's per-capability rows, in {@link Capability} order, skipping disabled ones. */
   static List<PanelModel.CapabilityRow> capabilityRows(
-      boolean skills,
-      boolean quests,
-      boolean diaries,
-      boolean collectionLog,
-      boolean combat,
-      boolean accountType,
-      boolean notableDrops,
-      boolean petDrops,
-      boolean sessions,
-      boolean loot,
-      boolean slayer,
-      Map<String, Long> lastSyncedAt) {
+      EnumSet<Capability> enabled, Map<String, Long> lastSyncedAt) {
     List<PanelModel.CapabilityRow> rows = new ArrayList<>();
-    if (skills) {
-      rows.add(capabilityRow("Skills", "skills", lastSyncedAt));
-    }
-    if (quests) {
-      rows.add(capabilityRow("Quests", "quests", lastSyncedAt));
-    }
-    if (diaries) {
-      rows.add(capabilityRow("Diaries", "diaries", lastSyncedAt));
-    }
-    if (collectionLog) {
-      rows.add(capabilityRow("Collection log", "collectionLog", lastSyncedAt));
-    }
-    if (combat) {
-      rows.add(capabilityRow("Combat achievements", "combatAchievements", lastSyncedAt));
-    }
-    if (accountType) {
-      rows.add(capabilityRow("Account type", "accountType", lastSyncedAt));
-    }
-    if (notableDrops) {
-      rows.add(capabilityRow("Notable drops", "notableDrops", lastSyncedAt));
-    }
-    if (petDrops) {
-      rows.add(capabilityRow("Pet drops", "petDrops", lastSyncedAt));
-    }
-    if (sessions) {
-      rows.add(capabilityRow("Play sessions", "sessions", lastSyncedAt));
-    }
-    if (loot) {
-      rows.add(capabilityRow("Full loot", "loot", lastSyncedAt));
-    }
-    if (slayer) {
-      rows.add(capabilityRow("Slayer task", "slayer", lastSyncedAt));
+    for (Capability capability : enabled) {
+      rows.add(new PanelModel.CapabilityRow(capability.label, lastSyncedAt.get(capability.key)));
     }
     return rows;
   }
 
-  private static PanelModel.CapabilityRow capabilityRow(
-      String label, String key, Map<String, Long> lastSyncedAt) {
-    return new PanelModel.CapabilityRow(label, lastSyncedAt.get(key));
+  private EnumSet<Capability> enabledCapabilitySet() {
+    EnumSet<Capability> on = EnumSet.noneOf(Capability.class);
+    addIf(on, Capability.SKILLS, isSkillCaptureEnabled());
+    addIf(on, Capability.QUESTS, isQuestCaptureEnabled());
+    addIf(on, Capability.DIARIES, isDiaryCaptureEnabled());
+    addIf(on, Capability.COLLECTION_LOG, isCollectionLogCaptureEnabled());
+    addIf(on, Capability.COMBAT_ACHIEVEMENTS, isCombatAchievementCaptureEnabled());
+    addIf(on, Capability.ACCOUNT_TYPE, isAccountTypeCaptureEnabled());
+    addIf(on, Capability.NOTABLE_DROPS, isNotableDropCaptureEnabled());
+    addIf(on, Capability.PET_DROPS, isPetDropCaptureEnabled());
+    addIf(on, Capability.SESSIONS, isSessionCaptureEnabled());
+    addIf(on, Capability.LOOT, isLootConsented());
+    addIf(on, Capability.SLAYER, isSlayerCaptureEnabled());
+    return on;
+  }
+
+  private static void addIf(EnumSet<Capability> set, Capability capability, boolean on) {
+    if (on) {
+      set.add(capability);
+    }
   }
 
   private java.util.List<String> enabledCapabilities() {
-    return capabilityNames(
-        isSkillCaptureEnabled(),
-        isQuestCaptureEnabled(),
-        isDiaryCaptureEnabled(),
-        isCollectionLogCaptureEnabled(),
-        isCombatAchievementCaptureEnabled(),
-        isAccountTypeCaptureEnabled(),
-        isNotableDropCaptureEnabled(),
-        isPetDropCaptureEnabled(),
-        isSessionCaptureEnabled(),
-        isLootConsented(),
-        isSlayerCaptureEnabled());
+    return capabilityNames(enabledCapabilitySet());
   }
 
   /** Loot's toggle and manifest gate, safe off the client thread. */
@@ -1091,51 +1040,10 @@ public class BankstandPlugin extends Plugin {
    * Capability names for the status and sync lines, in a stable order. A capability sent on the
    * wire but missing here makes status silently under-report, so a test pins it.
    */
-  static java.util.List<String> capabilityNames(
-      boolean skills,
-      boolean quests,
-      boolean diaries,
-      boolean collectionLog,
-      boolean combat,
-      boolean accountType,
-      boolean notableDrops,
-      boolean petDrops,
-      boolean sessions,
-      boolean loot,
-      boolean slayer) {
+  static java.util.List<String> capabilityNames(EnumSet<Capability> enabled) {
     java.util.List<String> on = new java.util.ArrayList<>();
-    if (skills) {
-      on.add("skills");
-    }
-    if (quests) {
-      on.add("quests");
-    }
-    if (diaries) {
-      on.add("diaries");
-    }
-    if (collectionLog) {
-      on.add("collection log");
-    }
-    if (combat) {
-      on.add("combat achievements");
-    }
-    if (accountType) {
-      on.add("account type");
-    }
-    if (notableDrops) {
-      on.add("notable drops");
-    }
-    if (petDrops) {
-      on.add("pet drops");
-    }
-    if (sessions) {
-      on.add("play sessions");
-    }
-    if (loot) {
-      on.add("full loot");
-    }
-    if (slayer) {
-      on.add("slayer task");
+    for (Capability capability : enabled) {
+      on.add(capability.statusName);
     }
     return on;
   }
@@ -1319,9 +1227,9 @@ public class BankstandPlugin extends Plugin {
     if (description != null) {
       recentActivityLog.record(description);
     }
-    String capability = CAPABILITY_KEY_BY_EVENT_TYPE.get(event.getType());
+    Capability capability = Capability.forEventType(event.getType());
     if (capability != null) {
-      lastSyncedAt.put(capability, System.currentTimeMillis());
+      lastSyncedAt.put(capability.key, System.currentTimeMillis());
     }
     refreshPanel();
   }
@@ -1333,31 +1241,12 @@ public class BankstandPlugin extends Plugin {
    * specific one.
    */
   static Map<String, String> syncedCapabilitiesThisCycle(
-      boolean skillsAdvanced,
-      boolean skillsChanged,
-      boolean questsAdvanced,
-      boolean diariesAdvanced,
-      boolean collectionLogAdvanced,
-      boolean combatAchievementsAdvanced,
-      boolean accountTypeAdvanced) {
+      EnumSet<Capability> advanced, boolean skillsChanged) {
     Map<String, String> synced = new LinkedHashMap<>();
-    if (skillsAdvanced && skillsChanged) {
-      synced.put("skills", "Skills synced");
-    }
-    if (questsAdvanced) {
-      synced.put("quests", "Quests synced");
-    }
-    if (diariesAdvanced) {
-      synced.put("diaries", "Diaries synced");
-    }
-    if (collectionLogAdvanced) {
-      synced.put("collectionLog", null);
-    }
-    if (combatAchievementsAdvanced) {
-      synced.put("combatAchievements", null);
-    }
-    if (accountTypeAdvanced) {
-      synced.put("accountType", "Account type synced");
+    for (Capability capability : advanced) {
+      if (capability != Capability.SKILLS || skillsChanged) {
+        synced.put(capability.key, capability.syncedLine);
+      }
     }
     return synced;
   }
@@ -1384,19 +1273,7 @@ public class BankstandPlugin extends Plugin {
     Player local = client.getLocalPlayer();
     String name = session.isActive() && local != null ? local.getName() : null;
     List<PanelModel.CapabilityRow> rows =
-        capabilityRows(
-            isSkillCaptureEnabled(),
-            isQuestCaptureEnabled(),
-            isDiaryCaptureEnabled(),
-            isCollectionLogCaptureEnabled(),
-            isCombatAchievementCaptureEnabled(),
-            isAccountTypeCaptureEnabled(),
-            isNotableDropCaptureEnabled(),
-            isPetDropCaptureEnabled(),
-            isSessionCaptureEnabled(),
-            isLootConsented(),
-            isSlayerCaptureEnabled(),
-            lastSyncedAt);
+        capabilityRows(enabledCapabilitySet(), lastSyncedAt);
     PanelPresentation.SyncDot dot =
         PanelPresentation.resolveDot(isPaired(), lastSubmitAtMs > 0L, lastFailureReason != null);
     return new PanelModel(
@@ -2215,20 +2092,20 @@ public class BankstandPlugin extends Plugin {
                                 shouldAdvanceSlayerTask(res, slayerTask != null);
                             if (slayerTaskAdvanced) {
                               slayerTaskBaseline.advance(slayerTask);
-                              lastSyncedAt.put("slayer", System.currentTimeMillis());
+                              lastSyncedAt.put(Capability.SLAYER.key, System.currentTimeMillis());
                             }
+                            EnumSet<Capability> advanced = EnumSet.noneOf(Capability.class);
+                            addIf(advanced, Capability.SKILLS, skillsAdvanced);
+                            addIf(advanced, Capability.QUESTS, questsAdvanced);
+                            addIf(advanced, Capability.DIARIES, diariesAdvanced);
+                            addIf(advanced, Capability.COLLECTION_LOG, collectionLogAdvanced);
+                            addIf(
+                                advanced, Capability.COMBAT_ACHIEVEMENTS, combatAchievementsAdvanced);
+                            addIf(advanced, Capability.ACCOUNT_TYPE, accountTypeAdvanced);
                             // A null activity line stamps the time but records nothing.
                             long now = System.currentTimeMillis();
                             for (Map.Entry<String, String> synced :
-                                syncedCapabilitiesThisCycle(
-                                        skillsAdvanced,
-                                        skillsChanged,
-                                        questsAdvanced,
-                                        diariesAdvanced,
-                                        collectionLogAdvanced,
-                                        combatAchievementsAdvanced,
-                                        accountTypeAdvanced)
-                                    .entrySet()) {
+                                syncedCapabilitiesThisCycle(advanced, skillsChanged).entrySet()) {
                               lastSyncedAt.put(synced.getKey(), now);
                               if (synced.getValue() != null) {
                                 recentActivityLog.record(synced.getValue());

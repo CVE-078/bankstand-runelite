@@ -3,6 +3,7 @@ package com.bankstand;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
+import java.util.EnumSet;
 import java.util.List;
 import org.junit.Test;
 
@@ -12,7 +13,7 @@ public class CapabilityNamesTest {
   @Test
   public void namesEveryEnabledCapability() {
     List<String> all =
-        BankstandPlugin.capabilityNames(true, true, true, true, true, true, true, true, true, true, true);
+        BankstandPlugin.capabilityNames(EnumSet.allOf(Capability.class));
 
     assertEquals(
         List.of(
@@ -35,14 +36,14 @@ public class CapabilityNamesTest {
   public void hasOneNamePerCapability() {
     assertEquals(
         11,
-        BankstandPlugin.capabilityNames(true, true, true, true, true, true, true, true, true, true, true).size());
+        BankstandPlugin.capabilityNames(EnumSet.allOf(Capability.class)).size());
   }
 
   @Test
   public void namesOnlyWhatIsSwitchedOn() {
     List<String> some =
         BankstandPlugin.capabilityNames(
-            true, false, false, false, true, false, false, false, false, false, false);
+            EnumSet.of(Capability.SKILLS, Capability.COMBAT_ACHIEVEMENTS));
 
     assertEquals(List.of("skills", "combat achievements"), some);
   }
@@ -52,7 +53,7 @@ public class CapabilityNamesTest {
     // Drops drain through the event outbox, but the status line has one list for everything.
     List<String> dropsOnly =
         BankstandPlugin.capabilityNames(
-            false, false, false, false, false, false, true, true, false, false, false);
+            EnumSet.of(Capability.NOTABLE_DROPS, Capability.PET_DROPS));
 
     assertEquals(List.of("notable drops", "pet drops"), dropsOnly);
   }
@@ -61,7 +62,7 @@ public class CapabilityNamesTest {
   public void namesTheLiveSessionCapabilities() {
     List<String> live =
         BankstandPlugin.capabilityNames(
-            false, false, false, false, false, false, false, false, true, true, true);
+            EnumSet.of(Capability.SESSIONS, Capability.LOOT, Capability.SLAYER));
 
     assertEquals(List.of("play sessions", "full loot", "slayer task"), live);
   }
@@ -70,7 +71,7 @@ public class CapabilityNamesTest {
   public void namesNothingWhenEverythingIsOff() {
     assertTrue(
         BankstandPlugin.capabilityNames(
-                false, false, false, false, false, false, false, false, false, false, false)
+                EnumSet.noneOf(Capability.class))
             .isEmpty());
   }
 }

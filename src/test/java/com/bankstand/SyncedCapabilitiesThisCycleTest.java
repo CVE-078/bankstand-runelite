@@ -5,6 +5,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
+import java.util.EnumSet;
 import java.util.Map;
 import org.junit.Test;
 
@@ -19,14 +20,20 @@ public class SyncedCapabilitiesThisCycleTest {
       boolean collectionLogAdvanced,
       boolean combatAchievementsAdvanced,
       boolean accountTypeAdvanced) {
-    return BankstandPlugin.syncedCapabilitiesThisCycle(
-        skillsAdvanced,
-        skillsChanged,
-        questsAdvanced,
-        diariesAdvanced,
-        collectionLogAdvanced,
-        combatAchievementsAdvanced,
-        accountTypeAdvanced);
+    EnumSet<Capability> advanced = EnumSet.noneOf(Capability.class);
+    add(advanced, Capability.SKILLS, skillsAdvanced);
+    add(advanced, Capability.QUESTS, questsAdvanced);
+    add(advanced, Capability.DIARIES, diariesAdvanced);
+    add(advanced, Capability.COLLECTION_LOG, collectionLogAdvanced);
+    add(advanced, Capability.COMBAT_ACHIEVEMENTS, combatAchievementsAdvanced);
+    add(advanced, Capability.ACCOUNT_TYPE, accountTypeAdvanced);
+    return BankstandPlugin.syncedCapabilitiesThisCycle(advanced, skillsChanged);
+  }
+
+  private static void add(EnumSet<Capability> set, Capability capability, boolean on) {
+    if (on) {
+      set.add(capability);
+    }
   }
 
   @Test
