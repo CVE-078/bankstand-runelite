@@ -508,7 +508,9 @@ public class BankstandPlugin extends Plugin {
   }
 
   private static boolean isPermanentlyRejected(EventAck ack) {
-    return "rejected".equals(ack.getOutcome()) && "stale".equals(ack.getReason());
+    // An invalid event fails the same check on every resend.
+    return "rejected".equals(ack.getOutcome())
+        && ("stale".equals(ack.getReason()) || "invalid".equals(ack.getReason()));
   }
 
   private java.util.List<String> statusLines() {

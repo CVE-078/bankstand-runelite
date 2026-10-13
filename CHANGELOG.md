@@ -11,6 +11,7 @@ Every notable change to the Bankstand RuneLite plugin. Internal-only changes (re
 - Combat achievement tier completions are recognised even when the game adds text around the message.
 - The server URL must use https. Plain http works only for localhost, and any other http address is upgraded to https.
 - The diary progress setting now describes everything it sends.
+- An event the server can't accept is no longer retried every minute.
 
 ## v0.2.0
 
