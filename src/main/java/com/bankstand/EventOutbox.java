@@ -41,7 +41,8 @@ public class EventOutbox {
 
   public EventOutbox(File file, Gson gson) {
     this.file = file;
-    this.gson = gson;
+    // Keep null payload fields on disk: the server rejects an event missing one.
+    this.gson = gson.newBuilder().serializeNulls().create();
   }
 
   /** Appends one event, evicting the oldest pending entry (logged) if this overflows the cap. */

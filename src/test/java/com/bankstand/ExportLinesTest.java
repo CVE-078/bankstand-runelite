@@ -16,14 +16,14 @@ public class ExportLinesTest {
   @Test
   public void marksAnEnabledToggleOn() {
     List<String> lines =
-        StatusReport.exportLines(true, false, false, false, false, false, false, 1_000_000, false);
+        StatusReport.exportLines(true, false, false, false, false, false, false, 1_000_000, false, false, false, false);
     assertTrue(mentions(lines, "Skill XP: on"));
   }
 
   @Test
   public void marksADisabledToggleOff() {
     List<String> lines =
-        StatusReport.exportLines(false, false, false, false, false, false, false, 1_000_000, false);
+        StatusReport.exportLines(false, false, false, false, false, false, false, 1_000_000, false, false, false, false);
     assertTrue(mentions(lines, "Skill XP: off"));
   }
 
@@ -31,7 +31,7 @@ public class ExportLinesTest {
   public void namesOnePerToggle() {
     // A toggle missing here is silently omitted from the export.
     List<String> lines =
-        StatusReport.exportLines(true, true, true, true, true, true, true, 1_000_000, true);
+        StatusReport.exportLines(true, true, true, true, true, true, true, 1_000_000, true, true, true, true);
     assertTrue(mentions(lines, "Skill XP"));
     assertTrue(mentions(lines, "Quest progress"));
     assertTrue(mentions(lines, "Diary progress"));
@@ -40,12 +40,15 @@ public class ExportLinesTest {
     assertTrue(mentions(lines, "Account type"));
     assertTrue(mentions(lines, "Notable drops"));
     assertTrue(mentions(lines, "Pet drops"));
+    assertTrue(mentions(lines, "Play sessions"));
+    assertTrue(mentions(lines, "Full loot"));
+    assertTrue(mentions(lines, "Slayer task"));
   }
 
   @Test
   public void includesTheNotableDropThreshold() {
     List<String> lines =
-        StatusReport.exportLines(false, false, false, false, false, false, false, 250_000, false);
+        StatusReport.exportLines(false, false, false, false, false, false, false, 250_000, false, false, false, false);
     assertTrue(mentions(lines, "250000"));
   }
 
@@ -53,7 +56,7 @@ public class ExportLinesTest {
   public void neverMentionsThePairingCodeDeviceTokenOrServerUrl() {
     // No token, account hash or display name may appear in an export.
     List<String> lines =
-        StatusReport.exportLines(true, true, true, true, true, true, true, 1_000_000, true);
+        StatusReport.exportLines(true, true, true, true, true, true, true, 1_000_000, true, true, true, true);
     for (String line : lines) {
       String lower = line.toLowerCase();
       assertFalse(lower.contains("pairing"));

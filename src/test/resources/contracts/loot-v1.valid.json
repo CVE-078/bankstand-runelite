@@ -1,0 +1,18 @@
+{
+  "accountHash": "123456789012345",
+  "sentAt": "2026-10-08T12:01:00Z",
+  "events": [
+    {
+      "id": "018f9c8e-7b7a-7c00-8000-000000000101",
+      "npcId": 1047,
+      "npcName": "Cave horror",
+      "kills": 3,
+      "windowStart": "2026-10-08T12:00:00Z",
+      "occurredAt": "2026-10-08T12:00:48Z",
+      "items": [
+        { "id": 995, "qty": 1200 },
+        { "id": 5304, "qty": 3 }
+      ]
+    }
+  ]
+}

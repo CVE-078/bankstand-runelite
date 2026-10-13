@@ -27,12 +27,18 @@ class BankstandPanel extends PluginPanel {
   private final Runnable onSyncNow;
   private final Runnable onOpenBankstand;
   private final Runnable onRequestRefresh;
+  private final Runnable onTurnOnSessions;
 
-  BankstandPanel(Runnable onSyncNow, Runnable onOpenBankstand, Runnable onRequestRefresh) {
+  BankstandPanel(
+      Runnable onSyncNow,
+      Runnable onOpenBankstand,
+      Runnable onRequestRefresh,
+      Runnable onTurnOnSessions) {
     super();
     this.onSyncNow = onSyncNow;
     this.onOpenBankstand = onOpenBankstand;
     this.onRequestRefresh = onRequestRefresh;
+    this.onTurnOnSessions = onTurnOnSessions;
     render(PanelModel.empty(""));
   }
 
@@ -47,6 +53,9 @@ class BankstandPanel extends PluginPanel {
 
     add(buildHeader(model));
     add(buildCapabilityList(model));
+    if (model.offerSessions) {
+      add(buildSessionsPrompt());
+    }
     add(buildRecentActivity(model));
     add(buildActions(model));
 
@@ -173,6 +182,27 @@ class BankstandPanel extends PluginPanel {
     line.add(name, BorderLayout.WEST);
     line.add(synced, BorderLayout.EAST);
     return line;
+  }
+
+  /** One line and a button; ignoring it leaves sessions off. */
+  private JPanel buildSessionsPrompt() {
+    JPanel section = new JPanel();
+    section.setLayout(new javax.swing.BoxLayout(section, javax.swing.BoxLayout.Y_AXIS));
+    section.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+    section.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+
+    JLabel question = new JLabel("Also turn on the Session log?");
+    question.setForeground(Color.WHITE);
+    section.add(leftAligned(question));
+
+    JButton turnOn = new JButton("Turn on");
+    turnOn.setFocusable(false);
+    turnOn.addActionListener(e -> onTurnOnSessions.run());
+    JPanel row = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 4));
+    row.setOpaque(false);
+    row.add(turnOn);
+    section.add(leftAligned(row));
+    return section;
   }
 
   private JPanel buildRecentActivity(PanelModel model) {
