@@ -31,6 +31,7 @@ import java.util.function.BooleanSupplier;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import javax.inject.Inject;
 import javax.swing.SwingUtilities;
 import net.runelite.api.ChatMessageType;
@@ -86,6 +87,10 @@ public class BankstandPlugin extends Plugin {
 
   // Matches the server's per-device cooldown, so a change is reported at most once per window.
   private static final int CAPTURE_INTERVAL_SECONDS = 60;
+
+  // A submit refused by that cooldown is retried once, within these bounds.
+  private static final long COOLDOWN_RETRY_FALLBACK_MS = 60_000L;
+  private static final long COOLDOWN_RETRY_MAX_MS = 120_000L;
 
   // A batch that still fails after its bounded retry waits for the next scheduled drain.
   private static final int EVENT_DRAIN_INTERVAL_SECONDS = 60;
@@ -299,6 +304,8 @@ public class BankstandPlugin extends Plugin {
   private final NoticeGate noticeGate = new NoticeGate();
   // Stops a revoked token retrying forever, and paces a capture against a down server.
   private final SubmitGate submitGate = new SubmitGate();
+  // Bumped per fresh snapshot submit, so a cooldown retry can tell it was superseded.
+  private final AtomicLong submitSeq = new AtomicLong();
   // The last trusted skill read, so the logout read is checked against it, not trusted blind.
   private Map<String, Integer> lastSkillRead;
   // World and login-settle check shared by every capture.
@@ -1898,7 +1905,8 @@ public class BankstandPlugin extends Plugin {
         plan.includesCollectionLog() ? clog : Collections.emptySet(),
         plan.includesAccountType() ? accountType : null,
         plan.includesFullEnumeration(),
-        plan.includesSlayerTask() ? slayerTask : null);
+        plan.includesSlayerTask() ? slayerTask : null,
+        null);
   }
 
   /**
@@ -2257,6 +2265,25 @@ public class BankstandPlugin extends Plugin {
     return included && res.isBlockStored("slayerTask");
   }
 
+  /** Milliseconds until a cooldown-refused submit may retry, or -1 when it was not refused. */
+  static long cooldownRetryDelayMs(String reason, String nextSubmitAfter, long nowMs) {
+    if (!"cooldown".equals(reason)) {
+      return -1;
+    }
+    long delay;
+    try {
+      // A second of margin, so the retry does not land on the window's edge.
+      delay = Instant.parse(nextSubmitAfter).toEpochMilli() - nowMs + 1000L;
+    } catch (RuntimeException e) {
+      delay = COOLDOWN_RETRY_FALLBACK_MS;
+    }
+    return Math.max(1000L, Math.min(COOLDOWN_RETRY_MAX_MS, delay));
+  }
+
+  static boolean isSuperseded(long seq, long latestSeq) {
+    return seq != latestSeq;
+  }
+
   /** Null when already announced: a rejected token halts and is told once until re-pairing. */
   static String identityFailureNotice(
       Throwable failure, SubmitGate submitGate, NoticeGate noticeGate) {
@@ -2279,29 +2306,34 @@ public class BankstandPlugin extends Plugin {
       Set<Integer> collectionLogItems,
       String accountType,
       boolean fullEnumeration,
-      SlayerTask slayerTask) {
+      SlayerTask slayerTask,
+      Map<String, Object> retryBody) {
     String url = savedServerUrl();
     String token = deviceStore.load().getToken();
     String version = getClass().getPackage().getImplementationVersion();
     String pluginVersion = version != null ? version : "dev";
+    // A retry re-sends the original envelope: a cooldown is not recorded, so its id is unused.
+    long seq = retryBody == null ? submitSeq.incrementAndGet() : submitSeq.get();
     Map<String, Object> body =
-        SubmitEnvelope.body(
-            UuidV7.generate(),
-            SubmitEnvelope.SCHEMA_VERSION,
-            pluginVersion,
-            Instant.now().toString(),
-            accountHash,
-            name,
-            skills,
-            quests,
-            diaries,
-            collectionLogItems,
-            combatAchievementCounts,
-            diaryTaskCounts,
-            accountType,
-            fullEnumeration,
-            combatAchievementBossCounts,
-            slayerTask == null ? null : slayerTask.toWire());
+        retryBody != null
+            ? retryBody
+            : SubmitEnvelope.body(
+                UuidV7.generate(),
+                SubmitEnvelope.SCHEMA_VERSION,
+                pluginVersion,
+                Instant.now().toString(),
+                accountHash,
+                name,
+                skills,
+                quests,
+                diaries,
+                collectionLogItems,
+                combatAchievementCounts,
+                diaryTaskCounts,
+                accountType,
+                fullEnumeration,
+                combatAchievementBossCounts,
+                slayerTask == null ? null : slayerTask.toWire());
     executor.submit(
         () -> {
           pairingClient
@@ -2415,6 +2447,37 @@ public class BankstandPlugin extends Plugin {
                         String.join(",", res.getStoredBlocks()));
                     if (session.isCurrent(accountHash, generation) && noticeGate.onSuccess()) {
                       notice("Reconnected. Your progress is syncing again.");
+                    }
+                    long retryDelay =
+                        cooldownRetryDelayMs(
+                            res.getReason(), res.getNextSubmitAfter(), System.currentTimeMillis());
+                    // Once only. Runs even after logout: the ack above still checks the login.
+                    if (retryBody == null && retryDelay >= 0) {
+                      executor.schedule(
+                          () -> {
+                            if (isSuperseded(seq, submitSeq.get())
+                                || submitGate.isHalted()
+                                || !isPaired()) {
+                              return;
+                            }
+                            submitSnapshot(
+                                combatAchievementCounts,
+                                combatAchievementBossCounts,
+                                accountHash,
+                                generation,
+                                name,
+                                skills,
+                                quests,
+                                diaries,
+                                diaryTaskCounts,
+                                collectionLogItems,
+                                accountType,
+                                fullEnumeration,
+                                slayerTask,
+                                body);
+                          },
+                          retryDelay,
+                          TimeUnit.MILLISECONDS);
                     }
                   });
         });
