@@ -7,10 +7,13 @@ import static org.junit.Assert.assertTrue;
 import com.google.gson.Gson;
 import java.io.File;
 import java.io.IOException;
+import java.lang.reflect.Method;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+import net.runelite.client.eventbus.Subscribe;
+import net.runelite.client.events.NpcLootReceived;
 import net.runelite.client.game.ItemStack;
 import org.junit.Rule;
 import org.junit.Test;
@@ -85,5 +88,15 @@ public class NotableDropCaptureTest {
     capture.handleLoot("Nex", Collections.singletonList(new ItemStack(12791, 1)));
 
     assertTrue(outbox.pending().isEmpty());
+  }
+
+  /** PvP loot would send the other player's name as the source, so only NPC loot is heard. */
+  @Test
+  public void subscribesToNpcLootOnly() {
+    for (Method m : NotableDropCapture.class.getMethods()) {
+      if (m.isAnnotationPresent(Subscribe.class)) {
+        assertEquals(m.getName(), NpcLootReceived.class, m.getParameterTypes()[0]);
+      }
+    }
   }
 }

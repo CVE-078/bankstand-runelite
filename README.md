@@ -49,6 +49,10 @@ Each capability has its own toggle and its own section under **Settings > Bankst
 It also takes one last capture when you log out. A cleared client reads as zeroes, and that read is
 dropped rather than sent.
 
+Nothing is read or sent on Leagues, Deadman, tournament, PvP Arena, beta, no-save or quest
+speedrunning worlds, or before the welcome screen is closed after login. Fresh Start worlds count as
+their own account.
+
 ## What it never captures
 
 - Which specific diary task you completed. Only the moment, tier and area.

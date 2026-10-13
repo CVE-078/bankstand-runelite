@@ -2,6 +2,16 @@
 
 Every notable change to the Bankstand RuneLite plugin. Internal-only changes (refactors, test changes, dependency bumps) are not listed here.
 
+## v0.2.1
+
+- Notable drops no longer include PvP loot, so another player's name is never sent.
+- Nothing is captured on Leagues, Deadman, tournament, PvP Arena, beta, no-save or quest speedrunning worlds. This now covers the logout capture and every chat and loot event, not just the regular capture.
+- The logout capture is skipped if nothing was captured earlier in the session, since a cleared client cannot be told apart then.
+- Waits until the welcome screen is closed and a few ticks have passed after login before reading anything, so values still loading are not sent.
+- Combat achievement tier completions are recognised even when the game adds text around the message.
+- The server URL must use https. Plain http works only for localhost, and any other http address is upgraded to https.
+- The diary progress setting now describes everything it sends.
+
 ## v0.2.0
 
 - Added a sidebar status panel: when each capability last synced, your recent activity, and a manual sync button.

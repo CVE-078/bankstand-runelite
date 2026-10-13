@@ -53,10 +53,11 @@ public class FinalReadTest {
     assertFalse(BankstandPlugin.isPlausibleFinalRead(xp(100, 200), partial));
   }
 
-  /** With no previous read, a non-empty one is taken at face value. */
+  /** With no read this session there is nothing to check a cleared client against. */
   @Test
-  public void acceptsAnyNonEmptyReadWhenThereIsNoPreviousOne() {
-    assertTrue(BankstandPlugin.isPlausibleFinalRead(null, xp(100, 200)));
+  public void rejectsEveryReadWhenThereIsNoPreviousOne() {
+    assertFalse(BankstandPlugin.isPlausibleFinalRead(null, xp(100, 200)));
+    assertFalse(BankstandPlugin.isPlausibleFinalRead(null, xp(0, 0)));
     assertFalse(BankstandPlugin.isPlausibleFinalRead(null, new LinkedHashMap<>()));
   }
 
