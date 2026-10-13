@@ -12,6 +12,7 @@ Every notable change to the Bankstand RuneLite plugin. Internal-only changes (re
 - The server URL must use https. Plain http works only for localhost, and any other http address is upgraded to https.
 - The diary progress setting now describes everything it sends.
 - An event the server can't accept is no longer retried every minute.
+- A quest too new for RuneLite's quest list is still sent when you complete it, using the name on the quest-complete scroll.
 
 ## v0.2.0
 

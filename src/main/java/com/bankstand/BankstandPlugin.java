@@ -247,6 +247,7 @@ public class BankstandPlugin extends Plugin {
   private CombatAchievementCompletionCapture combatAchievementCompletionCapture;
   private CombatAchievementTierCompletionCapture combatAchievementTierCompletionCapture;
   private DiaryTaskCompletionCapture diaryTaskCompletionCapture;
+  private QuestCompletionCapture questCompletionCapture;
   // Null while the plugin is stopped. volatile: shutDown() clears it while refreshPanel()
   // reads it from the executor; refreshPanel snapshots it into a local.
   private volatile BankstandPanel panel;
@@ -342,12 +343,21 @@ public class BankstandPlugin extends Plugin {
             diaryTaskManifest,
             () -> saveAckedState(currentAccountHash()),
             onEmit);
+    questCompletionCapture =
+        new QuestCompletionCapture(
+            eventOutbox,
+            gated(this::isQuestCompletionCaptureEnabled),
+            this::currentAccountHash,
+            client,
+            BankstandPlugin::isKnownQuest,
+            onEmit);
     eventBus.register(notableDropCapture);
     eventBus.register(petDropCapture);
     eventBus.register(collectionLogUnlockCapture);
     eventBus.register(combatAchievementCompletionCapture);
     eventBus.register(combatAchievementTierCompletionCapture);
     eventBus.register(diaryTaskCompletionCapture);
+    eventBus.register(questCompletionCapture);
 
     // A toolbar icon, not a permanent sidebar tab: the panel is checked on demand.
     panel =
@@ -386,6 +396,9 @@ public class BankstandPlugin extends Plugin {
     }
     if (diaryTaskCompletionCapture != null) {
       eventBus.unregister(diaryTaskCompletionCapture);
+    }
+    if (questCompletionCapture != null) {
+      eventBus.unregister(questCompletionCapture);
     }
     if (navButton != null) {
       clientToolbar.removeNavigation(navButton);
@@ -750,6 +763,7 @@ public class BankstandPlugin extends Plugin {
     map.put(TransientEvent.TYPE_COLLECTION_LOG_UNLOCK, "collectionLog");
     map.put(TransientEvent.TYPE_COMBAT_ACHIEVEMENT_COMPLETED, "combatAchievements");
     map.put(TransientEvent.TYPE_DIARY_TASK_COMPLETED, "diaries");
+    map.put(TransientEvent.TYPE_QUEST_COMPLETED, "quests");
     return map;
   }
 
@@ -1120,6 +1134,22 @@ public class BankstandPlugin extends Plugin {
   // Same gates as above. Reuses the diaries capability: it is the same disclosure.
   private boolean isDiaryTaskCompletionCaptureEnabled() {
     return pairingClient != null && isPaired() && session.isActive() && isDiaryCaptureEnabled();
+  }
+
+  // Same gates as above. Reuses the quests capability: it is the same disclosure.
+  private boolean isQuestCompletionCaptureEnabled() {
+    return pairingClient != null && isPaired() && session.isActive() && isQuestCaptureEnabled();
+  }
+
+  static boolean isKnownQuest(String name) {
+    for (Quest quest : Quest.values()) {
+      // The scroll parse drops a trailing "Quest" from most names (Crab Quest reads as Crab).
+      if (quest.getName().equalsIgnoreCase(name)
+          || quest.getName().equalsIgnoreCase(name + " Quest")) {
+        return true;
+      }
+    }
+    return false;
   }
 
   private boolean isAccountTypeCaptureEnabled() {
