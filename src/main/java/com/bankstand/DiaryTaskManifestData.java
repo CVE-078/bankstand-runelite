@@ -7,6 +7,8 @@ import java.util.Map;
  * Generated per-task bit positions for {@link DiaryTaskManifest#shipped()}. Task names are
  * ordinal placeholders, not game text. Karamja has Elite only: its other tiers are varbits,
  * which the diary capture does not read. Desert medium task 11 has a second, ironman bit.
+ *
+ * <p>Bit positions derived from weirdgloop/wikisync-api (MIT); see THIRD_PARTY_NOTICES.
  */
 final class DiaryTaskManifestData {
   private DiaryTaskManifestData() {}
