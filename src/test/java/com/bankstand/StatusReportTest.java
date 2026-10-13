@@ -98,9 +98,20 @@ public class StatusReportTest {
 
   @Test
   public void syncNamesWhatItIsSendingAndWhatItIsNot() {
-    List<String> lines = StatusReport.syncLines(true, Arrays.asList("skills", "quests"));
-    assertTrue(mentions(lines, "skills, quests"));
+    List<String> lines =
+        StatusReport.syncLines(true, Arrays.asList("skills", "collection log", "quests"));
+    assertTrue(mentions(lines, "Syncing skills, quests now."));
+    assertFalse(lines.get(0).contains("collection log"));
     assertTrue(mentions(lines, "collection log is not included"));
+  }
+
+  @Test
+  public void syncOnlyExplainsTheCollectionLogWhenItIsOn() {
+    assertFalse(
+        mentions(StatusReport.syncLines(true, Arrays.asList("skills")), "collection log"));
+    List<String> onlyLog = StatusReport.syncLines(true, Arrays.asList("collection log"));
+    assertEquals(1, onlyLog.size());
+    assertTrue(mentions(onlyLog, "collection log is not included"));
   }
 
   @Test
