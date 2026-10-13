@@ -9,8 +9,10 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Stream;
 import org.junit.Test;
 
@@ -22,23 +24,26 @@ public class SourceSizeTest {
   private static final int MAX_LINES = 400;
 
   /** Static data and the config interface grow with the game, not with logic. */
-  private static final String[] EXEMPT = {"DiaryTaskManifestData.java", "BankstandConfig.java"};
+  private static final Set<String> EXEMPT =
+      Set.of("com/bankstand/DiaryTaskManifestData.java", "com/bankstand/BankstandConfig.java");
 
   /** Files still over the limit. Lower an entry when its file shrinks; never raise one. */
   private static final Map<String, Integer> RATCHET = new HashMap<>();
 
   static {
-    RATCHET.put("BankstandPlugin.java", 2671);
-    RATCHET.put("BankstandClient.java", 469);
+    RATCHET.put("com/bankstand/BankstandPlugin.java", 2671);
+    RATCHET.put("com/bankstand/BankstandClient.java", 469);
   }
 
   @Test
   public void noSourceFileGrowsPastItsLimit() throws IOException {
     List<String> offences = new ArrayList<>();
+    Set<String> seen = new HashSet<>();
     try (Stream<Path> files = Files.walk(SOURCE_ROOT)) {
       for (Path file : (Iterable<Path>) files.filter(p -> p.toString().endsWith(".java"))::iterator) {
-        String name = file.getFileName().toString();
-        if (isExempt(name)) {
+        String name = SOURCE_ROOT.relativize(file).toString().replace('\\', '/');
+        seen.add(name);
+        if (EXEMPT.contains(name)) {
           continue;
         }
         int lines = Files.readAllLines(file, StandardCharsets.UTF_8).size();
@@ -52,15 +57,16 @@ public class SourceSizeTest {
         }
       }
     }
-    assertTrue(String.join("\n", offences), offences.isEmpty());
-  }
-
-  private static boolean isExempt(String name) {
-    for (String exempt : EXEMPT) {
-      if (exempt.equals(name)) {
-        return true;
+    for (String name : RATCHET.keySet()) {
+      if (!seen.contains(name)) {
+        offences.add(name + " has a ratchet entry but no longer exists: remove the entry");
       }
     }
-    return false;
+    for (String name : EXEMPT) {
+      if (!seen.contains(name)) {
+        offences.add(name + " is exempt but no longer exists: remove the exemption");
+      }
+    }
+    assertTrue(String.join("\n", offences), offences.isEmpty());
   }
 }
