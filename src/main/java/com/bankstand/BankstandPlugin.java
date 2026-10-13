@@ -314,7 +314,7 @@ public class BankstandPlugin extends Plugin {
   private volatile long lastSubmitAtMs;
   // A change means the account switched and the baseline must be forgotten.
   private int baselineGeneration = -1;
-  private BankstandClient pairingClient;
+  private volatile BankstandClient pairingClient;
   // Set when a guided read finishes COMPLETE; cleared only once the server acknowledged a
   // submission carrying the flag, so a failed send keeps it pending.
   private boolean pendingFullEnumeration = false;
@@ -605,12 +605,13 @@ public class BankstandPlugin extends Plugin {
     }
     String url = savedServerUrl();
     String token = deviceStore.load().getToken();
+    BankstandClient api = pairingClient;
     executor.submit(
         () -> {
           for (Map.Entry<Long, List<TransientEvent>> group : byAccount.entrySet()) {
             for (List<TransientEvent> chunk : chunkEvents(group.getValue(), MAX_EVENTS_PER_SUBMIT)) {
               // Chunks retry independently; the retry is a scheduled task, never a blocked thread.
-              pairingClient
+              api
                   .submitEventsWithRetry(
                       url, token, group.getKey(), chunk, MAX_SUBMIT_ATTEMPTS, SUBMIT_RETRY_BASE_DELAY_MS)
                   .whenComplete(
@@ -2334,9 +2335,10 @@ public class BankstandPlugin extends Plugin {
                 fullEnumeration,
                 combatAchievementBossCounts,
                 slayerTask == null ? null : slayerTask.toWire());
+    BankstandClient api = pairingClient;
     executor.submit(
         () -> {
-          pairingClient
+          api
               .submitSnapshotWithRetry(url, token, body, MAX_SUBMIT_ATTEMPTS, SUBMIT_RETRY_BASE_DELAY_MS)
               .whenComplete(
                   (res, failure) -> {
@@ -2457,6 +2459,7 @@ public class BankstandPlugin extends Plugin {
                           () -> {
                             if (isSuperseded(seq, submitSeq.get())
                                 || submitGate.isHalted()
+                                || pairingClient == null
                                 || !isPaired()) {
                               return;
                             }
@@ -2515,9 +2518,10 @@ public class BankstandPlugin extends Plugin {
       return;
     }
     String url = savedServerUrl();
+    BankstandClient api = pairingClient;
     executor.submit(
         () -> {
-          CapabilityManifest.RawManifest raw = pairingClient.fetchManifest(url);
+          CapabilityManifest.RawManifest raw = api.fetchManifest(url);
           CapabilityManifest validated = CapabilityManifest.validate(raw);
           if (validated != null) {
             manifestStore.save(raw);
@@ -2528,11 +2532,15 @@ public class BankstandPlugin extends Plugin {
   }
 
   private void submitIdentity(long accountHash, int generation, String displayName) {
+    BankstandClient api = pairingClient;
+    if (api == null) {
+      return;
+    }
     String url = savedServerUrl();
     String token = deviceStore.load().getToken();
     executor.submit(
         () -> {
-          pairingClient
+          api
               .submitIdentityWithRetry(
                   url, token, accountHash, displayName, MAX_SUBMIT_ATTEMPTS, SUBMIT_RETRY_BASE_DELAY_MS)
               .whenComplete(
@@ -2560,12 +2568,16 @@ public class BankstandPlugin extends Plugin {
   }
 
   private void pair(String rawCode) {
+    BankstandClient api = pairingClient;
+    if (api == null) {
+      return;
+    }
     String url = savedServerUrl();
     notice("Pairing with " + url + "...");
     executor.submit(
         () -> {
           try {
-            PairResponse res = pairingClient.exchangePairingCode(url, rawCode);
+            PairResponse res = api.exchangePairingCode(url, rawCode);
             storeToken(res);
             // A fresh pairing resets failure notices, and is the only thing that lifts an
             // auth halt.

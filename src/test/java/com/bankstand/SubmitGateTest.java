@@ -156,4 +156,26 @@ public class SubmitGateTest {
     assertTrue(gate.isHalted());
     assertFalse(gate.allow());
   }
+
+  @Test
+  public void concurrentAuthFailuresAnnounceExactlyOnce() throws Exception {
+    SubmitGate gate = new SubmitGate();
+    java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(8);
+    java.util.concurrent.atomic.AtomicInteger announced = new java.util.concurrent.atomic.AtomicInteger();
+    java.util.concurrent.CountDownLatch start = new java.util.concurrent.CountDownLatch(1);
+    for (int i = 0; i < 8; i++) {
+      pool.submit(
+          () -> {
+            start.await();
+            if (gate.onAuthFailure()) {
+              announced.incrementAndGet();
+            }
+            return null;
+          });
+    }
+    start.countDown();
+    pool.shutdown();
+    assertTrue(pool.awaitTermination(5, java.util.concurrent.TimeUnit.SECONDS));
+    assertEquals(1, announced.get());
+  }
 }
