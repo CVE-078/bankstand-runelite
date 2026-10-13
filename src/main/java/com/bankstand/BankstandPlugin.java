@@ -2439,6 +2439,8 @@ public class BankstandPlugin extends Plugin {
 
   private void disconnect() {
     deviceStore.clear();
+    // Queued presence belongs to this pairing; never send it under the next one.
+    presenceQueue.clear();
     // Unsetting the legacy keys is what removes the token from a synced profile upstream.
     forgetLegacyCredentialKeys();
     // Untick the toggle so ticking it again fires this afresh.
@@ -2514,6 +2516,7 @@ public class BankstandPlugin extends Plugin {
     credentials.setDeviceId(res.getDeviceId());
     credentials.setExpiresAt(res.getExpiresAt());
     deviceStore.save(credentials);
+    presenceQueue.clear();
   }
 
   // Normalised, so a blank or padded value never reaches the socket; a cleared field gets prod.

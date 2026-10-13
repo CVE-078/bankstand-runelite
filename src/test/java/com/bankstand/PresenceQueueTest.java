@@ -100,16 +100,15 @@ public class PresenceQueueTest {
   }
 
   @Test
-  public void aHeartbeatWaitsBehindEveryTransition() {
+  public void aHeartbeatOfferedBehindATransitionIsDropped() {
     PresenceQueue queue = new PresenceQueue();
-    PresenceSignal login = signal(PresenceSignal.LOGIN, 1);
-    queue.addTransition(login);
-    PresenceSignal active = signal(PresenceSignal.ACTIVE, 2);
-    queue.offerHeartbeat(active);
+    PresenceSignal logout = signal(PresenceSignal.LOGOUT, 1);
+    queue.addTransition(logout);
+    queue.offerHeartbeat(signal(PresenceSignal.ACTIVE, 2));
 
-    assertSame(login, queue.peek());
-    queue.onAnswered(login);
-    assertSame(active, queue.peek());
+    assertSame(logout, queue.peek());
+    queue.onAnswered(logout);
+    assertNull(queue.peek());
   }
 
   @Test
@@ -170,6 +169,12 @@ public class PresenceQueueTest {
             source.indexOf("static boolean shouldRetryPresence("));
     for (String gate : new String[] {"session.", "presenceTracker", "collectSessions"}) {
       assertEquals("retryQueuedPresence must not check " + gate, -1, body.indexOf(gate));
+    }
+    // A queued signal must never go out under a later pairing.
+    for (String method : new String[] {"private void disconnect() {", "private void storeToken("}) {
+      int start = source.indexOf(method);
+      String methodBody = source.substring(start, source.indexOf("\n  }\n", start));
+      assertTrue(method + " must clear the presence queue", methodBody.contains("presenceQueue.clear();"));
     }
   }
 }

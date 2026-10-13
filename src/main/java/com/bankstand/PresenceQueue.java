@@ -26,8 +26,11 @@ final class PresenceQueue {
     heartbeat = null;
   }
 
+  /** Ignored while a transition waits, so a heartbeat can never follow a queued logout. */
   synchronized void offerHeartbeat(PresenceSignal signal) {
-    heartbeat = signal;
+    if (transitions.isEmpty()) {
+      heartbeat = signal;
+    }
   }
 
   /** The next value to send, or null when there is nothing. Does not remove it. */
