@@ -42,7 +42,7 @@ public class SubmitPlanTest {
 
     BankstandPlugin.SubmitPlan plan(
         Map<String, Integer> s, Map<String, String> q, Map<String, String> d, Set<Integer> c) {
-      return BankstandPlugin.plan(skills, s, quests, q, diaries, d, log, c);
+      return TestPlans.plan(skills, s, quests, q, diaries, d, log, c);
     }
   }
 
@@ -146,7 +146,7 @@ public class SubmitPlanTest {
     skills.advance(skills("attack", 100));
 
     BankstandPlugin.SubmitPlan plan =
-        BankstandPlugin.plan(
+        TestPlans.plan(
             skills,
             skills("attack", 100),
             new QuestBaseline(),
@@ -166,7 +166,7 @@ public class SubmitPlanTest {
   @Test
   public void anEmptyBlockIsNeverSent() {
     BankstandPlugin.SubmitPlan plan =
-        BankstandPlugin.plan(
+        TestPlans.plan(
             new SkillBaseline(),
             skills("attack", 100),
             new QuestBaseline(),
@@ -209,7 +209,7 @@ public class SubmitPlanTest {
     combat.advance(skills("easy", 23));
 
     BankstandPlugin.SubmitPlan plan =
-        BankstandPlugin.plan(
+        TestPlans.plan(
             acked.skills,
             skills("attack", 200),
             acked.quests,
@@ -234,7 +234,7 @@ public class SubmitPlanTest {
     Acked acked = new Acked();
 
     BankstandPlugin.SubmitPlan plan =
-        BankstandPlugin.plan(
+        TestPlans.plan(
             acked.skills,
             skills("attack", 100),
             acked.quests,
@@ -260,7 +260,7 @@ public class SubmitPlanTest {
     Acked acked = new Acked();
 
     BankstandPlugin.SubmitPlan plan =
-        BankstandPlugin.plan(
+        TestPlans.plan(
             acked.skills,
             skills("attack", 200),
             acked.quests,
@@ -284,7 +284,7 @@ public class SubmitPlanTest {
     Acked acked = new Acked();
 
     BankstandPlugin.SubmitPlan plan =
-        BankstandPlugin.plan(
+        TestPlans.plan(
             acked.skills,
             skills("attack", 100),
             acked.quests,
