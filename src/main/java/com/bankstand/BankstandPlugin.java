@@ -1648,7 +1648,8 @@ public class BankstandPlugin extends Plugin {
         || !isPaired()
         || !session.isActive()
         || session.isSubmitted()
-        || !isCaptureReady()) {
+        || !isCaptureReady()
+        || submitGate.isHalted()) {
       return;
     }
     // Identity sends the account hash and name, so it shares the skill capture opt-in.
@@ -2256,6 +2257,15 @@ public class BankstandPlugin extends Plugin {
     return included && res.isBlockStored("slayerTask");
   }
 
+  /** Null when already announced: a rejected token halts and is told once until re-pairing. */
+  static String identityFailureNotice(
+      Throwable failure, SubmitGate submitGate, NoticeGate noticeGate) {
+    boolean auth = failure instanceof SubmitException && ((SubmitException) failure).isAuthFailure();
+    boolean announce =
+        auth ? submitGate.onAuthFailure() : noticeGate.onFailure(failure.getMessage());
+    return announce ? "Could not verify this character. " + failure.getMessage() : null;
+  }
+
   private void submitSnapshot(
       Map<String, Integer> combatAchievementCounts,
       Map<String, Integer> combatAchievementBossCounts,
@@ -2470,8 +2480,10 @@ public class BankstandPlugin extends Plugin {
                       // Guarded on the login instance.
                       session.markSubmitFailed(accountHash, generation);
                       // Never log the token or account hash.
-                      if (session.isCurrent(accountHash, generation)) {
-                        notice("Could not verify this character. " + failure.getMessage());
+                      String message =
+                          identityFailureNotice(failure, submitGate, noticeGate);
+                      if (session.isCurrent(accountHash, generation) && message != null) {
+                        notice(message);
                       }
                       return;
                     }
