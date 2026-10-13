@@ -39,7 +39,7 @@ public class AckedStateRestartTest {
 
     BankstandPlugin.SubmitPlan plan(
         Map<String, Integer> s, Map<String, String> q, Map<String, String> d) {
-      return BankstandPlugin.plan(skills, s, quests, q, diaries, d, logBaseline, log.observed());
+      return TestPlans.plan(skills, s, quests, q, diaries, d, logBaseline, log.observed());
     }
 
     void ackAll(Map<String, Integer> s, Map<String, String> q, Map<String, String> d) {

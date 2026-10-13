@@ -115,82 +115,6 @@ public class BankstandPlugin extends Plugin {
   // Slayer varps read zero until the game sends them, a few ticks after login.
   static final int SLAYER_READ_DELAY_TICKS = 10;
 
-  // Untradeable pets have no GE price, so they are matched by name. Each entry must be the
-  // exact ItemComposition#getName() string (checked against the cache, not wiki display names),
-  // since the check is a plain Set#contains. Package-private so a test pins its content.
-  static final Set<String> NOTABLE_UNTRADEABLE_ALLOWLIST = Set.of(
-      "Abyssal orphan",
-      "Abyssal protector",
-      "Aggy",
-      "Baby Mole",
-      "Baby chinchompa",
-      "Baron",
-      "Beaver",
-      "Beef",
-      "Bloodhound",
-      "Bran",
-      "Butch",
-      "Callisto cub",
-      "Chompy chick",
-      "Dom",
-      "Giant Squirrel",
-      "Gull",
-      "Hellpuppy",
-      "Herbi",
-      "Heron",
-      "Huberte",
-      "Ikkle Hydra",
-      "Jal-Nib-Rek",
-      "Kalphite Princess",
-      "Lil' Creator",
-      "Lil' Zik",
-      "Lil'viathan",
-      "Little Nightmare",
-      "Maggot marquess",
-      "Moxi",
-      "Mr McGroot",
-      "Muphin",
-      "Nexling",
-      "Nid",
-      "Noon",
-      "Olmlet",
-      "Pet Chaos Elemental",
-      "Pet Dagannoth Prime",
-      "Pet Dagannoth Rex",
-      "Pet Dagannoth Supreme",
-      "Pet General Graardor",
-      "Pet K'ril Tsutsaroth",
-      "Pet Kraken",
-      "Pet Kree'arra",
-      "Pet Penance Queen",
-      "Pet Smoke Devil",
-      "Pet Snakeling",
-      "Pet Zilyana",
-      "Pet dark core",
-      "Phoenix",
-      "Prince Black Dragon",
-      "Quetzin",
-      "Rift guardian",
-      "Rock golem",
-      "Rocky",
-      "Scorpia's offspring",
-      "Scurry",
-      "Skotos",
-      "Smol Heredit",
-      "Smolcano",
-      "Soup",
-      "Sraracha",
-      "Tangleroot",
-      "Tiny tempor",
-      "Tumeken's guardian",
-      "TzRek-Jad",
-      "Venenatis spiderling",
-      "Vet'ion jr.",
-      "Vorki",
-      "Wisp",
-      "Yami",
-      "Youngllef");
-
 
   // Prefix for every chat line the plugin writes. The darker light-theme gold stays readable
   // both on the parchment chat box and on a transparent one.
@@ -347,7 +271,7 @@ public class BankstandPlugin extends Plugin {
             this::currentAccountHash,
             itemManager,
             () -> (long) config.notableDropThreshold(),
-            NOTABLE_UNTRADEABLE_ALLOWLIST,
+            NotableDropCapture.UNTRADEABLE_ALLOWLIST,
             onEmit);
     petDropCapture =
         new PetDropCapture(
@@ -576,7 +500,7 @@ public class BankstandPlugin extends Plugin {
         unitValue,
         quantity,
         config.notableDropThreshold(),
-        NOTABLE_UNTRADEABLE_ALLOWLIST);
+        NotableDropCapture.UNTRADEABLE_ALLOWLIST);
   }
 
   /**
@@ -1786,11 +1710,7 @@ public class BankstandPlugin extends Plugin {
 
   /** Per-tier task counts. Same consent gate as {@link #readDiaryStates()}: one disclosure. */
   private Map<String, Integer> readDiaryTaskCounts() {
-    Map<String, Integer> counts = new LinkedHashMap<>();
-    for (Map.Entry<String, Integer> e : DiaryTaskVarbits.ALL.entrySet()) {
-      counts.put(e.getKey(), client.getVarbitValue(e.getValue()));
-    }
-    return counts;
+    return readVarbits(DiaryTaskVarbits.ALL);
   }
 
   // Client thread. The exact value of a completed tier's varbit is unverified, so read "not zero".
@@ -1805,20 +1725,21 @@ public class BankstandPlugin extends Plugin {
 
   // Counts per tier only: the game exposes no per-task state. A zero is a fact (0/41), kept.
   private Map<String, Integer> readCombatAchievementCounts() {
-    Map<String, Integer> counts = new LinkedHashMap<>();
-    for (Map.Entry<String, Integer> e : CombatAchievementVarbits.ALL.entrySet()) {
-      counts.put(e.getKey(), client.getVarbitValue(e.getValue()));
-    }
-    return counts;
+    return readVarbits(CombatAchievementVarbits.ALL);
   }
 
   // Per boss/activity. Rides the combat achievement gate and baseline.
   private Map<String, Integer> readCombatAchievementBossCounts() {
-    Map<String, Integer> counts = new LinkedHashMap<>();
-    for (Map.Entry<String, Integer> e : CombatAchievementBossVarbits.ALL.entrySet()) {
-      counts.put(e.getKey(), client.getVarbitValue(e.getValue()));
+    return readVarbits(CombatAchievementBossVarbits.ALL);
+  }
+
+  // Client thread. One value per varbit, in the table's order.
+  private Map<String, Integer> readVarbits(Map<String, Integer> varbits) {
+    Map<String, Integer> values = new LinkedHashMap<>();
+    for (Map.Entry<String, Integer> e : varbits.entrySet()) {
+      values.put(e.getKey(), client.getVarbitValue(e.getValue()));
     }
-    return counts;
+    return values;
   }
 
   private void onSkillsCaptured(
@@ -2025,123 +1946,6 @@ public class BankstandPlugin extends Plugin {
     boolean includesSlayerTask() {
       return slayerTask;
     }
-  }
-
-  /** Without combat achievements. */
-  static SubmitPlan plan(
-      SkillBaseline skillBaseline,
-      Map<String, Integer> skills,
-      QuestBaseline questBaseline,
-      Map<String, String> quests,
-      DiaryBaseline diaryBaseline,
-      Map<String, String> diaries,
-      CollectionLogBaseline collectionLogBaseline,
-      Set<Integer> collectionLogItems) {
-    return plan(
-        skillBaseline,
-        skills,
-        questBaseline,
-        quests,
-        diaryBaseline,
-        diaries,
-        collectionLogBaseline,
-        collectionLogItems,
-        new CombatAchievementBaseline(),
-        null,
-        new AccountTypeBaseline(),
-        null,
-        false);
-  }
-
-  /** Without the account type. */
-  static SubmitPlan plan(
-      SkillBaseline skillBaseline,
-      Map<String, Integer> skills,
-      QuestBaseline questBaseline,
-      Map<String, String> quests,
-      DiaryBaseline diaryBaseline,
-      Map<String, String> diaries,
-      CollectionLogBaseline collectionLogBaseline,
-      Set<Integer> collectionLogItems,
-      CombatAchievementBaseline combatAchievementBaseline,
-      Map<String, Integer> combatAchievements) {
-    return plan(
-        skillBaseline,
-        skills,
-        questBaseline,
-        quests,
-        diaryBaseline,
-        diaries,
-        collectionLogBaseline,
-        collectionLogItems,
-        combatAchievementBaseline,
-        combatAchievements,
-        new AccountTypeBaseline(),
-        null,
-        false);
-  }
-
-  /** Without the full-enumeration signal. */
-  static SubmitPlan plan(
-      SkillBaseline skillBaseline,
-      Map<String, Integer> skills,
-      QuestBaseline questBaseline,
-      Map<String, String> quests,
-      DiaryBaseline diaryBaseline,
-      Map<String, String> diaries,
-      CollectionLogBaseline collectionLogBaseline,
-      Set<Integer> collectionLogItems,
-      CombatAchievementBaseline combatAchievementBaseline,
-      Map<String, Integer> combatAchievements,
-      AccountTypeBaseline accountTypeBaseline,
-      String accountType) {
-    return plan(
-        skillBaseline,
-        skills,
-        questBaseline,
-        quests,
-        diaryBaseline,
-        diaries,
-        collectionLogBaseline,
-        collectionLogItems,
-        combatAchievementBaseline,
-        combatAchievements,
-        accountTypeBaseline,
-        accountType,
-        false);
-  }
-
-  /** Without the slayer task. */
-  static SubmitPlan plan(
-      SkillBaseline skillBaseline,
-      Map<String, Integer> skills,
-      QuestBaseline questBaseline,
-      Map<String, String> quests,
-      DiaryBaseline diaryBaseline,
-      Map<String, String> diaries,
-      CollectionLogBaseline collectionLogBaseline,
-      Set<Integer> collectionLogItems,
-      CombatAchievementBaseline combatAchievementBaseline,
-      Map<String, Integer> combatAchievements,
-      AccountTypeBaseline accountTypeBaseline,
-      String accountType,
-      boolean fullEnumerationPending) {
-    return plan(
-        skillBaseline,
-        skills,
-        questBaseline,
-        quests,
-        diaryBaseline,
-        diaries,
-        collectionLogBaseline,
-        collectionLogItems,
-        combatAchievementBaseline,
-        combatAchievements,
-        accountTypeBaseline,
-        accountType,
-        fullEnumerationPending,
-        new SlayerTaskBaseline(),
-        null);
   }
 
   /**

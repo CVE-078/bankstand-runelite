@@ -88,7 +88,7 @@ public class BankstandPluginTest {
       Map<String, String> diaries,
       CollectionLogBaseline collectionLogBaseline,
       int collectionLogCount) {
-    return BankstandPlugin.plan(
+    return TestPlans.plan(
             skillBaseline,
             skills,
             questBaseline,
@@ -416,13 +416,13 @@ public class BankstandPluginTest {
 
   @Test
   public void notableUntradeableAllowlistIsNotEmpty() {
-    assertFalse(BankstandPlugin.NOTABLE_UNTRADEABLE_ALLOWLIST.isEmpty());
+    assertFalse(NotableDropCapture.UNTRADEABLE_ALLOWLIST.isEmpty());
   }
 
   @Test
   public void notableUntradeableAllowlistUsesRealInGameCasing() {
     // Exact cache names (e.g. "Baby Mole", not "Baby mole"), since the check is Set#contains.
-    Set<String> allowlist = BankstandPlugin.NOTABLE_UNTRADEABLE_ALLOWLIST;
+    Set<String> allowlist = NotableDropCapture.UNTRADEABLE_ALLOWLIST;
     assertTrue(allowlist.contains("Baby Mole"));
     assertTrue(allowlist.contains("Pet Kree'arra"));
     assertTrue(allowlist.contains("TzRek-Jad"));

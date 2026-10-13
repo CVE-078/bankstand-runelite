@@ -25,7 +25,7 @@ public class AccountTypeCaptureTest {
       AccountTypeBaseline baseline, String accountType) {
     SkillBaseline skillBaseline = new SkillBaseline();
     skillBaseline.advance(skills(100));
-    return BankstandPlugin.plan(
+    return TestPlans.plan(
         skillBaseline,
         skills(100),
         new QuestBaseline(),
