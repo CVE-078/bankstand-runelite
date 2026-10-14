@@ -22,7 +22,7 @@ public class CapabilityRowsTest {
   @Test
   public void rowsEveryEnabledCapabilityInTheSameOrderAsCapabilityNames() {
     List<PanelModel.CapabilityRow> rows =
-        BankstandPlugin.capabilityRows(
+        PanelController.capabilityRows(
             EnumSet.allOf(Capability.class), new LinkedHashMap<>());
 
     assertEquals(
@@ -44,7 +44,7 @@ public class CapabilityRowsTest {
   @Test
   public void skipsWhatIsSwitchedOff() {
     List<PanelModel.CapabilityRow> rows =
-        BankstandPlugin.capabilityRows(
+        PanelController.capabilityRows(
             EnumSet.of(Capability.SKILLS, Capability.COMBAT_ACHIEVEMENTS), new LinkedHashMap<>());
 
     assertEquals(
@@ -55,7 +55,7 @@ public class CapabilityRowsTest {
   @Test
   public void rowsNothingWhenEverythingIsOff() {
     assertTrue(
-        BankstandPlugin.capabilityRows(
+        PanelController.capabilityRows(
                 EnumSet.noneOf(Capability.class), new LinkedHashMap<>())
             .isEmpty());
   }
@@ -63,7 +63,7 @@ public class CapabilityRowsTest {
   @Test
   public void carriesTheLastSyncedTimeForItsOwnKey() {
     List<PanelModel.CapabilityRow> rows =
-        BankstandPlugin.capabilityRows(
+        PanelController.capabilityRows(
             EnumSet.of(Capability.SKILLS), syncedAt("skills", 1_000L));
 
     assertEquals(1, rows.size());
@@ -73,7 +73,7 @@ public class CapabilityRowsTest {
   @Test
   public void aNeverSyncedCapabilityCarriesNullRatherThanAFakeTime() {
     List<PanelModel.CapabilityRow> rows =
-        BankstandPlugin.capabilityRows(
+        PanelController.capabilityRows(
             EnumSet.of(Capability.SKILLS), new LinkedHashMap<>());
 
     assertNull(rows.get(0).lastSyncedAtMs);
@@ -82,7 +82,7 @@ public class CapabilityRowsTest {
   @Test
   public void aCapabilityOnlyReadsItsOwnKeyNeverAnotherOnes() {
     List<PanelModel.CapabilityRow> rows =
-        BankstandPlugin.capabilityRows(
+        PanelController.capabilityRows(
             EnumSet.of(Capability.SKILLS), syncedAt("notableDrops", 1_000L));
 
     assertNull(rows.get(0).lastSyncedAtMs);
