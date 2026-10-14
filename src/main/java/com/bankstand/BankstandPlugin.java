@@ -200,6 +200,7 @@ public class BankstandPlugin extends Plugin {
   private volatile int forcedSubmitGeneration = -1;
   private NavigationButton navButton;
   private Notifier notifier;
+  private BankstandCommands commands;
   private final PanelController panelController =
       new PanelController(r -> clientThread.invoke(r), new PanelInputs());
 
@@ -234,6 +235,9 @@ public class BankstandPlugin extends Plugin {
   @Override
   protected void startUp() {
     notifier = new Notifier(client, clientThread, chatMessageManager);
+    commands =
+        new BankstandCommands(
+            config, notifier::notice, panelController::statusLines, new CommandActions());
     HttpTransport transport = new OkHttpTransport(okHttpClient);
     pairingClient = new BankstandClient(transport, gson, executor);
     // A file, not ConfigManager. See AckedStateStore.
@@ -804,85 +808,11 @@ public class BankstandPlugin extends Plugin {
         });
   }
 
-  /** Which action a {@code ::bstand} invocation resolves to. Pure routing, testable. */
-  enum CommandAction {
-    STATUS,
-    SYNC,
-    LINK,
-    LOG,
-    REPAIR,
-    EXPORT,
-    HELP,
-    UNKNOWN
-  }
-
-  static boolean isBankstandCommand(String command) {
-    return BankstandKeys.COMMAND.equalsIgnoreCase(command)
-        || BankstandKeys.COMMAND_ALIAS.equalsIgnoreCase(command);
-  }
-
-  static CommandAction actionFor(String[] args) {
-    String action = args.length > 0 ? args[0].toLowerCase(java.util.Locale.ROOT) : "status";
-    switch (action) {
-      case "status":
-        return CommandAction.STATUS;
-      case "sync":
-        return CommandAction.SYNC;
-      case "link":
-        return CommandAction.LINK;
-      case "log":
-        return CommandAction.LOG;
-      case "repair":
-        return CommandAction.REPAIR;
-      case "export":
-        return CommandAction.EXPORT;
-      case "help":
-      case "commands":
-        return CommandAction.HELP;
-      default:
-        return CommandAction.UNKNOWN;
-    }
-  }
-
   // A :: command, not !, so these private account actions are never broadcast to public chat.
   // A chat command because RuneLite config has no button item.
   @Subscribe
   public void onCommandExecuted(CommandExecuted event) {
-    if (!isBankstandCommand(event.getCommand())) {
-      return;
-    }
-    switch (actionFor(event.getArguments())) {
-      case STATUS:
-        for (String line : panelController.statusLines()) {
-          notifier.notice(line);
-        }
-        break;
-      case SYNC:
-        runManualSync();
-        break;
-      case LINK:
-        relinkCharacter();
-        break;
-      case LOG:
-        armCollectionLogRead();
-        break;
-      case REPAIR:
-        disconnect();
-        notifier.notice("Paste a fresh pairing code in the Bankstand settings to reconnect.");
-        break;
-      case EXPORT:
-        exportConfig();
-        break;
-      case HELP:
-        for (String line : StatusReport.helpLines()) {
-          notifier.notice(line);
-        }
-        break;
-      case UNKNOWN:
-      default:
-        notifier.notice("Unknown command. Try ::bstand help to see what's available.");
-        break;
-    }
+    commands.handle(event.getCommand(), event.getArguments());
   }
 
   /**
@@ -907,44 +837,6 @@ public class BankstandPlugin extends Plugin {
     notifier.notice("Armed. Click Search in the collection log to read it.");
   }
 
-  /**
-   * Prints the Collect/Events toggle state and copies it to the clipboard where one is
-   * reachable. Chat gets the lines either way.
-   */
-  private void exportConfig() {
-    List<String> lines =
-        StatusReport.exportLines(
-            config.collectSkills(),
-            config.collectQuests(),
-            config.collectDiaries(),
-            config.collectCollectionLog(),
-            config.collectCombatAchievements(),
-            config.collectAccountType(),
-            config.collectNotableDrops(),
-            config.notableDropThreshold(),
-            config.collectPetDrops(),
-            config.collectSessions(),
-            config.collectLoot(),
-            config.collectSlayer());
-    for (String line : lines) {
-      notifier.notice(line);
-    }
-    if (copyToClipboard(String.join("\n", lines))) {
-      notifier.notice("Copied to clipboard.");
-    }
-  }
-
-  /** Best effort: a headless environment throws rather than failing quietly. */
-  private static boolean copyToClipboard(String text) {
-    try {
-      java.awt.Toolkit.getDefaultToolkit()
-          .getSystemClipboard()
-          .setContents(new java.awt.datatransfer.StringSelection(text), null);
-      return true;
-    } catch (RuntimeException e) {
-      return false;
-    }
-  }
 
   private EnumSet<Capability> enabledCapabilitySet() {
     EnumSet<Capability> on = EnumSet.noneOf(Capability.class);
@@ -1145,6 +1037,29 @@ public class BankstandPlugin extends Plugin {
 
   private BufferedImage icon() {
     return ImageUtil.loadImageResource(BankstandPlugin.class, "icon.png");
+  }
+
+  /** What the {@code ::bstand} commands do in the plugin. Client thread only. */
+  private final class CommandActions implements BankstandCommands.Actions {
+    @Override
+    public void sync() {
+      runManualSync();
+    }
+
+    @Override
+    public void link() {
+      relinkCharacter();
+    }
+
+    @Override
+    public void armCollectionLogRead() {
+      BankstandPlugin.this.armCollectionLogRead();
+    }
+
+    @Override
+    public void disconnect() {
+      BankstandPlugin.this.disconnect();
+    }
   }
 
   /** What the panel and status lines read from the plugin. Client thread only. */
