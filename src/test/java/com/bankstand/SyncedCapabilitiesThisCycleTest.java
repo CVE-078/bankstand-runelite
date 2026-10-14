@@ -27,7 +27,7 @@ public class SyncedCapabilitiesThisCycleTest {
     add(advanced, Capability.COLLECTION_LOG, collectionLogAdvanced);
     add(advanced, Capability.COMBAT_ACHIEVEMENTS, combatAchievementsAdvanced);
     add(advanced, Capability.ACCOUNT_TYPE, accountTypeAdvanced);
-    return BankstandPlugin.syncedCapabilitiesThisCycle(advanced, skillsChanged);
+    return PanelController.syncedCapabilitiesThisCycle(advanced, skillsChanged);
   }
 
   private static void add(EnumSet<Capability> set, Capability capability, boolean on) {

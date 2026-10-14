@@ -12,7 +12,6 @@ import com.bankstand.http.OkHttpTransport;
 import com.bankstand.session.AccountSession;
 import com.google.gson.Gson;
 import com.google.inject.Provides;
-import java.awt.Color;
 import java.awt.image.BufferedImage;
 import java.io.File;
 import java.time.Instant;
@@ -25,7 +24,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.function.BooleanSupplier;
 import java.util.concurrent.ScheduledFuture;
@@ -33,7 +31,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import javax.inject.Inject;
-import javax.swing.SwingUtilities;
 import net.runelite.api.ChatMessageType;
 import net.runelite.api.Client;
 import net.runelite.api.GameState;
@@ -49,9 +46,7 @@ import net.runelite.api.gameval.InterfaceID;
 import net.runelite.api.widgets.Widget;
 import net.runelite.client.callback.ClientThread;
 import net.runelite.api.events.CommandExecuted;
-import net.runelite.client.chat.ChatMessageBuilder;
 import net.runelite.client.chat.ChatMessageManager;
-import net.runelite.client.chat.QueuedMessage;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.events.ConfigChanged;
 import net.runelite.client.eventbus.EventBus;
@@ -116,10 +111,6 @@ public class BankstandPlugin extends Plugin {
   static final int SLAYER_READ_DELAY_TICKS = 10;
 
 
-  // Prefix for every chat line the plugin writes. The darker light-theme gold stays readable
-  // both on the parchment chat box and on a transparent one.
-  private static final Color BRAND = new Color(0xB3730A);
-  private static final String NOTICE_PREFIX = "Bankstand: ";
 
   // The server contract is an explicit skill allowlist, not Skill.values(): an unknown key
   // (OVERALL, or a newly added skill) rejects the whole skills block. Widen the server first.
@@ -207,16 +198,10 @@ public class BankstandPlugin extends Plugin {
   private volatile ScheduledFuture<?> hopTimer;
   // The generation whose next capture skips the change gate; -1 when none.
   private volatile int forcedSubmitGeneration = -1;
-  // Null while the plugin is stopped. volatile: shutDown() clears it while refreshPanel()
-  // reads it from the executor; refreshPanel snapshots it into a local.
-  private volatile BankstandPanel panel;
   private NavigationButton navButton;
-  // Session-scoped: a restart or account switch starts empty.
-  private final RecentActivityLog recentActivityLog = new RecentActivityLog();
-  // Written on the client thread, read on the EDT. Keyed by capability name.
-  private final Map<String, Long> lastSyncedAt = new ConcurrentHashMap<>();
-  // Set from the HTTP completion thread, read on the client thread.
-  private volatile String lastFailureReason;
+  private Notifier notifier;
+  private final PanelController panelController =
+      new PanelController(r -> clientThread.invoke(r), new PanelInputs());
 
   /**
    * What the server currently ingests. Never null: falls back to the cached manifest, then the
@@ -234,8 +219,6 @@ public class BankstandPlugin extends Plugin {
   private Map<String, Integer> lastSkillRead;
   // World and login-settle check shared by every capture.
   private final CaptureGate captureGate = new CaptureGate();
-  // Zero until something reached the server. Written on the executor, read on the client thread.
-  private volatile long lastSubmitAtMs;
   // A change means the account switched and the baseline must be forgotten.
   private int baselineGeneration = -1;
   private volatile BankstandClient pairingClient;
@@ -250,6 +233,7 @@ public class BankstandPlugin extends Plugin {
 
   @Override
   protected void startUp() {
+    notifier = new Notifier(client, clientThread, chatMessageManager);
     HttpTransport transport = new OkHttpTransport(okHttpClient);
     pairingClient = new BankstandClient(transport, gson, executor);
     // A file, not ConfigManager. See AckedStateStore.
@@ -263,7 +247,7 @@ public class BankstandPlugin extends Plugin {
 
     eventOutbox = new EventOutbox(new File(ACKED_STATE_DIR, EVENTS_FILE), gson);
     // Feeds the panel from the same emit the captures make to the outbox.
-    java.util.function.Consumer<TransientEvent> onEmit = this::recordEmittedActivity;
+    java.util.function.Consumer<TransientEvent> onEmit = panelController::recordEmittedActivity;
     notableDropCapture =
         new NotableDropCapture(
             eventOutbox,
@@ -350,12 +334,13 @@ public class BankstandPlugin extends Plugin {
     eventBus.register(lootCapture);
 
     // A toolbar icon, not a permanent sidebar tab: the panel is checked on demand.
-    panel =
+    BankstandPanel panel =
         new BankstandPanel(
             () -> clientThread.invoke(this::runManualSync),
             () -> LinkBrowser.browse(savedServerUrl()),
-            this::refreshPanel,
+            panelController::refresh,
             this::turnOnSessions);
+    panelController.attach(panel);
     navButton =
         NavigationButton.builder()
             .tooltip("Bankstand")
@@ -364,7 +349,7 @@ public class BankstandPlugin extends Plugin {
             .priority(5)
             .build();
     clientToolbar.addNavigation(navButton);
-    refreshPanel();
+    panelController.refresh();
   }
 
   @Override
@@ -410,7 +395,7 @@ public class BankstandPlugin extends Plugin {
     if (navButton != null) {
       clientToolbar.removeNavigation(navButton);
     }
-    panel = null;
+    panelController.detach();
     navButton = null;
     // An infobox outlives the plugin that added it.
     collectionLogSync.reset();
@@ -642,7 +627,7 @@ public class BankstandPlugin extends Plugin {
                 next.getLoot());
         presenceQueue.onAnswered(next);
         if (res.isApplied()) {
-          lastSyncedAt.put(Capability.SESSIONS.key, System.currentTimeMillis());
+          panelController.stamp(Capability.SESSIONS);
           if (PresenceSignal.LOGIN.equals(next.getState())) {
             onSessionStarted(next.getAccountHash());
           }
@@ -717,8 +702,8 @@ public class BankstandPlugin extends Plugin {
           SubmitLootResponse res = client.submitLoot(url, token, group.getKey(), chunk);
           lootOutbox.ack(LootOutbox.idsToAck(res.getAcks()));
           if (res.getAcks().stream().anyMatch(EventAck::isStored)) {
-            lastSyncedAt.put(Capability.LOOT.key, System.currentTimeMillis());
-            refreshPanel();
+            panelController.stamp(Capability.LOOT);
+            panelController.refresh();
           }
         } catch (SubmitException e) {
           log.debug("loot send failed: {}", e.getMessage());
@@ -766,47 +751,13 @@ public class BankstandPlugin extends Plugin {
         && ("stale".equals(ack.getReason()) || "invalid".equals(ack.getReason()));
   }
 
-  private java.util.List<String> statusLines() {
-    Player local = client.getLocalPlayer();
-    String name = session.isActive() && local != null ? local.getName() : null;
-    return StatusReport.lines(
-        isPaired(),
-        savedServerUrl(),
-        name == null || name.isEmpty() ? null : name,
-        lastSubmitAtMs == 0L ? null : describeAge(System.currentTimeMillis() - lastSubmitAtMs),
-        submitGate.isHalted() ? "authentication failed, so submission is paused. Re-pair to resume." : null,
-        enabledCapabilities(),
-        collectionLog.isEmpty() ? -1 : collectionLog.size(),
-        // Only with an account loaded: the varbit reads 0 logged out, same as a regular account.
-        name == null || name.isEmpty()
-            ? null
-            : AccountTypes.describe(client.getVarbitValue(AccountTypes.ACCOUNT_TYPE_VARBIT)),
-        "Server accepts: " + manifest.describe() + ".");
-  }
-
-  /** Coarse on purpose: more precision would imply more than we know. */
-  private static String describeAge(long millis) {
-    long minutes = millis / 60_000L;
-    if (minutes < 1) {
-      return "less than a minute ago";
-    }
-    if (minutes == 1) {
-      return "1 minute ago";
-    }
-    if (minutes < 60) {
-      return minutes + " minutes ago";
-    }
-    long hours = minutes / 60;
-    return hours == 1 ? "1 hour ago" : hours + " hours ago";
-  }
-
   /**
    * Runs the scheduled capture rather than a second submit path, so it inherits the change
    * gate, per-block ack, world check, backoff and persistence.
    */
   private void requestManualCapture() {
     if (submitGate.isHalted()) {
-      notice("Submission is paused after an authentication failure. Re-pair to resume.");
+      notifier.notice("Submission is paused after an authentication failure. Re-pair to resume.");
       return;
     }
     captureSkills();
@@ -815,7 +766,7 @@ public class BankstandPlugin extends Plugin {
   /** Shared by {@code ::bstand sync} and the panel's "Sync now" button. */
   private void runManualSync() {
     for (String line : StatusReport.syncLines(isPaired(), enabledCapabilities())) {
-      notice(line);
+      notifier.notice(line);
     }
     if (isPaired() && !enabledCapabilities().isEmpty()) {
       requestManualCapture();
@@ -825,19 +776,19 @@ public class BankstandPlugin extends Plugin {
   /** Re-runs the identity submit, ignoring the once-per-session flag. */
   private void relinkCharacter() {
     if (!isPaired()) {
-      notice("Not paired. Paste a pairing code in the Bankstand settings first.");
+      notifier.notice("Not paired. Paste a pairing code in the Bankstand settings first.");
       return;
     }
     if (!session.isActive()) {
-      notice("Log in first, then run ::bstand link.");
+      notifier.notice("Log in first, then run ::bstand link.");
       return;
     }
     if (!isSkillCaptureEnabled()) {
-      notice("Turn on skill capture first: it carries the name and hash that link a character.");
+      notifier.notice("Turn on skill capture first: it carries the name and hash that link a character.");
       return;
     }
     if (!isCaptureReady()) {
-      notice("Bankstand does not capture on this world. Try again on a regular world.");
+      notifier.notice("Bankstand does not capture on this world. Try again on a regular world.");
       return;
     }
     clientThread.invoke(
@@ -845,10 +796,10 @@ public class BankstandPlugin extends Plugin {
           Player local = client.getLocalPlayer();
           String name = local == null ? null : local.getName();
           if (name == null || name.isEmpty()) {
-            notice("Could not read your character name. Try again in a moment.");
+            notifier.notice("Could not read your character name. Try again in a moment.");
             return;
           }
-          notice("Linking " + name + "...");
+          notifier.notice("Linking " + name + "...");
           submitIdentity(session.getAccountHash(), session.getGeneration(), name);
         });
   }
@@ -902,8 +853,8 @@ public class BankstandPlugin extends Plugin {
     }
     switch (actionFor(event.getArguments())) {
       case STATUS:
-        for (String line : statusLines()) {
-          notice(line);
+        for (String line : panelController.statusLines()) {
+          notifier.notice(line);
         }
         break;
       case SYNC:
@@ -917,19 +868,19 @@ public class BankstandPlugin extends Plugin {
         break;
       case REPAIR:
         disconnect();
-        notice("Paste a fresh pairing code in the Bankstand settings to reconnect.");
+        notifier.notice("Paste a fresh pairing code in the Bankstand settings to reconnect.");
         break;
       case EXPORT:
         exportConfig();
         break;
       case HELP:
         for (String line : StatusReport.helpLines()) {
-          notice(line);
+          notifier.notice(line);
         }
         break;
       case UNKNOWN:
       default:
-        notice("Unknown command. Try ::bstand help to see what's available.");
+        notifier.notice("Unknown command. Try ::bstand help to see what's available.");
         break;
     }
   }
@@ -940,20 +891,20 @@ public class BankstandPlugin extends Plugin {
    */
   private void armCollectionLogRead() {
     if (!isCollectionLogCaptureEnabled()) {
-      notice("Collection log capture is off. Turn it on in the Bankstand settings first.");
+      notifier.notice("Collection log capture is off. Turn it on in the Bankstand settings first.");
       return;
     }
     if (!isCollectionLogOpen()) {
-      notice("Open your collection log first, then run ::bstand log.");
+      notifier.notice("Open your collection log first, then run ::bstand log.");
       return;
     }
     if (!isCaptureReady()) {
-      notice("Bankstand does not capture on this world. Try again on a regular world.");
+      notifier.notice("Bankstand does not capture on this world. Try again on a regular world.");
       return;
     }
     collectionLogSync.arm();
     showSyncInfoBox();
-    notice("Armed. Click Search in the collection log to read it.");
+    notifier.notice("Armed. Click Search in the collection log to read it.");
   }
 
   /**
@@ -976,10 +927,10 @@ public class BankstandPlugin extends Plugin {
             config.collectLoot(),
             config.collectSlayer());
     for (String line : lines) {
-      notice(line);
+      notifier.notice(line);
     }
     if (copyToClipboard(String.join("\n", lines))) {
-      notice("Copied to clipboard.");
+      notifier.notice("Copied to clipboard.");
     }
   }
 
@@ -993,16 +944,6 @@ public class BankstandPlugin extends Plugin {
     } catch (RuntimeException e) {
       return false;
     }
-  }
-
-  /** The panel's per-capability rows, in {@link Capability} order, skipping disabled ones. */
-  static List<PanelModel.CapabilityRow> capabilityRows(
-      EnumSet<Capability> enabled, Map<String, Long> lastSyncedAt) {
-    List<PanelModel.CapabilityRow> rows = new ArrayList<>();
-    for (Capability capability : enabled) {
-      rows.add(new PanelModel.CapabilityRow(capability.label, lastSyncedAt.get(capability.key)));
-    }
-    return rows;
   }
 
   private EnumSet<Capability> enabledCapabilitySet() {
@@ -1028,24 +969,12 @@ public class BankstandPlugin extends Plugin {
   }
 
   private java.util.List<String> enabledCapabilities() {
-    return capabilityNames(enabledCapabilitySet());
+    return PanelController.capabilityNames(enabledCapabilitySet());
   }
 
   /** Loot's toggle and manifest gate, safe off the client thread. */
   private boolean isLootConsented() {
     return config.collectLoot() && manifest.allows("loot");
-  }
-
-  /**
-   * Capability names for the status and sync lines, in a stable order. A capability sent on the
-   * wire but missing here makes status silently under-report, so a test pins it.
-   */
-  static java.util.List<String> capabilityNames(EnumSet<Capability> enabled) {
-    java.util.List<String> on = new java.util.ArrayList<>();
-    for (Capability capability : enabled) {
-      on.add(capability.statusName);
-    }
-    return on;
   }
 
   /**
@@ -1076,7 +1005,7 @@ public class BankstandPlugin extends Plugin {
     }
     if (BankstandKeys.KEY_COLLECT_SESSIONS.equals(event.getKey())
         || BankstandKeys.KEY_COLLECT_LOOT.equals(event.getKey())) {
-      refreshPanel();
+      panelController.refresh();
     }
   }
 
@@ -1150,7 +1079,7 @@ public class BankstandPlugin extends Plugin {
     hideSyncInfoBox();
     if (outcome != null) {
       // Slots filled, not raw ids held.
-      notice(syncOutcomeMessage(outcome, VariantIds.countEntries(collectionLog.observed())));
+      notifier.notice(syncOutcomeMessage(outcome, VariantIds.countEntries(collectionLog.observed())));
       if (outcome == CollectionLogSync.Outcome.COMPLETE) {
         pendingFullEnumeration = true;
       }
@@ -1218,73 +1147,54 @@ public class BankstandPlugin extends Plugin {
     return ImageUtil.loadImageResource(BankstandPlugin.class, "icon.png");
   }
 
-  /**
-   * Adds a capture's emit to the panel: a recent-activity line and a fresh last-synced stamp.
-   * Runs on the client thread, so refreshing the panel inline is safe.
-   */
-  private void recordEmittedActivity(TransientEvent event) {
-    String description = RecentActivityLog.describe(event.getType(), event.getPayload());
-    if (description != null) {
-      recentActivityLog.record(description);
+  /** What the panel and status lines read from the plugin. Client thread only. */
+  private final class PanelInputs implements PanelController.Inputs {
+    @Override
+    public boolean isPaired() {
+      return BankstandPlugin.this.isPaired();
     }
-    Capability capability = Capability.forEventType(event.getType());
-    if (capability != null) {
-      lastSyncedAt.put(capability.key, System.currentTimeMillis());
-    }
-    refreshPanel();
-  }
 
-  /**
-   * Which capabilities this ack synced, with a recent-activity line each (null for no line).
-   * Skills ride along on every submission, so they also need {@code skillsChanged}. The
-   * collection log and combat achievements get no line: their chat captures already add a more
-   * specific one.
-   */
-  static Map<String, String> syncedCapabilitiesThisCycle(
-      EnumSet<Capability> advanced, boolean skillsChanged) {
-    Map<String, String> synced = new LinkedHashMap<>();
-    for (Capability capability : advanced) {
-      if (capability != Capability.SKILLS || skillsChanged) {
-        synced.put(capability.key, capability.syncedLine);
-      }
+    @Override
+    public String serverUrl() {
+      return savedServerUrl();
     }
-    return synced;
-  }
 
-  /**
-   * Rebuilds the panel. Safe from any thread: builds the model on the client thread, renders on
-   * the EDT. Reads {@code panel} once into a local, so a racing {@code shutDown()} cannot cause an
-   * NPE on the EDT; a late render into a detached panel is harmless.
-   */
-  private void refreshPanel() {
-    BankstandPanel current = panel;
-    if (current == null) {
-      return;
+    @Override
+    public String playerName() {
+      Player local = client.getLocalPlayer();
+      String name = session.isActive() && local != null ? local.getName() : null;
+      return name == null || name.isEmpty() ? null : name;
     }
-    clientThread.invoke(
-        () -> {
-          PanelModel model = buildPanelModel();
-          SwingUtilities.invokeLater(() -> current.render(model));
-        });
-  }
 
-  /** Must run on the client thread. Returns a frozen snapshot for the panel. */
-  private PanelModel buildPanelModel() {
-    Player local = client.getLocalPlayer();
-    String name = session.isActive() && local != null ? local.getName() : null;
-    List<PanelModel.CapabilityRow> rows =
-        capabilityRows(enabledCapabilitySet(), lastSyncedAt);
-    PanelPresentation.SyncDot dot =
-        PanelPresentation.resolveDot(isPaired(), lastSubmitAtMs > 0L, lastFailureReason != null);
-    return new PanelModel(
-        isPaired(),
-        name == null || name.isEmpty() ? null : name,
-        dot,
-        rows,
-        recentActivityLog.recent(),
-        lastFailureReason,
-        savedServerUrl(),
-        PanelModel.shouldOfferSessions(config.collectLoot(), config.collectSessions()));
+    @Override
+    public EnumSet<Capability> enabledCapabilities() {
+      return enabledCapabilitySet();
+    }
+
+    @Override
+    public boolean isSubmitHalted() {
+      return submitGate.isHalted();
+    }
+
+    @Override
+    public int collectionLogSize() {
+      return collectionLog.isEmpty() ? -1 : collectionLog.size();
+    }
+
+    @Override
+    public String accountType() {
+      return AccountTypes.describe(client.getVarbitValue(AccountTypes.ACCOUNT_TYPE_VARBIT));
+    }
+
+    @Override
+    public String manifestDescription() {
+      return manifest.describe();
+    }
+
+    @Override
+    public boolean offerSessions() {
+      return PanelModel.shouldOfferSessions(config.collectLoot(), config.collectSessions());
+    }
   }
 
   /** The panel prompt's button: the same as ticking the setting. */
@@ -1643,9 +1553,8 @@ public class BankstandPlugin extends Plugin {
       collectionLogBaseline.reset();
       // A pending COMPLETE claim is about the log just reset, so it must not survive a relog.
       pendingFullEnumeration = false;
-      // loadAckedState repopulates lastSyncedAt; the activity log is session-only.
-      lastSyncedAt.clear();
-      recentActivityLog.clear();
+      // loadAckedState repopulates the synced stamps; the activity log is session-only.
+      panelController.clearForNewAccount();
       baselineGeneration = generation;
       loadAckedState(accountHash, generation);
     }
@@ -1733,9 +1642,8 @@ public class BankstandPlugin extends Plugin {
                 // Together, never one alone. See CollectionLogBaseline.restore.
                 collectionLog.restore(state.getCollectionLogItems());
                 collectionLogBaseline.restore(state.getCollectionLogAcked());
-                lastSyncedAt.clear();
-                lastSyncedAt.putAll(state.getLastSyncedAt());
-                refreshPanel();
+                panelController.restoreSyncedAt(state.getLastSyncedAt());
+                panelController.refresh();
               });
         });
   }
@@ -1757,7 +1665,7 @@ public class BankstandPlugin extends Plugin {
     state.setAccountType(accountTypeBaseline.ackedValue());
     state.setCollectionLogItems(collectionLog.observed());
     state.setCollectionLogAcked(collectionLogBaseline.ackedCount());
-    state.setLastSyncedAt(lastSyncedAt);
+    state.setLastSyncedAt(panelController.syncedAt());
     executor.submit(() -> ackedStore.save(accountHash, state));
   }
 
@@ -2027,15 +1935,14 @@ public class BankstandPlugin extends Plugin {
                       // Baseline not advanced, so the next cycle retries. Never log the token
                       // or account hash.
                       SubmitException e = (SubmitException) failure;
-                      // Shown on the panel's header dot and failure footer.
-                      lastFailureReason = e.getMessage();
-                      refreshPanel();
+                      panelController.submitFailed(e.getMessage());
+                      panelController.refresh();
                       if (e.isAuthFailure()) {
                         // Retrying cannot fix a revoked token. This is the one failure the
                         // player must act on, so the gate announces it.
                         log.debug("submit refused: token rejected, halting until re-paired");
                         if (submitGate.onAuthFailure()) {
-                          notice("This client is no longer paired. Re-pair from your Bankstand account.");
+                          notifier.notice("This client is no longer paired. Re-pair from your Bankstand account.");
                         }
                         return;
                       }
@@ -2044,7 +1951,7 @@ public class BankstandPlugin extends Plugin {
                       submitGate.onFailure();
                       if (session.isCurrent(accountHash, generation)
                           && noticeGate.onFailure(e.getMessage())) {
-                        notice("Could not sync your progress. " + e.getMessage());
+                        notifier.notice("Could not sync your progress. " + e.getMessage());
                       }
                       return;
                     }
@@ -2092,7 +1999,7 @@ public class BankstandPlugin extends Plugin {
                                 shouldAdvanceSlayerTask(res, slayerTask != null);
                             if (slayerTaskAdvanced) {
                               slayerTaskBaseline.advance(slayerTask);
-                              lastSyncedAt.put(Capability.SLAYER.key, System.currentTimeMillis());
+                              panelController.stamp(Capability.SLAYER);
                             }
                             EnumSet<Capability> advanced = EnumSet.noneOf(Capability.class);
                             addIf(advanced, Capability.SKILLS, skillsAdvanced);
@@ -2102,26 +2009,17 @@ public class BankstandPlugin extends Plugin {
                             addIf(
                                 advanced, Capability.COMBAT_ACHIEVEMENTS, combatAchievementsAdvanced);
                             addIf(advanced, Capability.ACCOUNT_TYPE, accountTypeAdvanced);
-                            // A null activity line stamps the time but records nothing.
-                            long now = System.currentTimeMillis();
-                            for (Map.Entry<String, String> synced :
-                                syncedCapabilitiesThisCycle(advanced, skillsChanged).entrySet()) {
-                              lastSyncedAt.put(synced.getKey(), now);
-                              if (synced.getValue() != null) {
-                                recentActivityLog.record(synced.getValue());
-                              }
-                            }
+                            panelController.recordSynced(advanced, skillsChanged);
                             // Unconditional: passive browsing can grow the accumulator even
                             // when nothing was stored.
                             saveAckedState(accountHash);
-                            refreshPanel();
+                            panelController.refresh();
                           }
                         });
                     // A reached server counts as success for notices, even if it stored
                     // nothing. Only the recovery is announced, so a healthy client is quiet.
                     submitGate.onSuccess();
-                    lastSubmitAtMs = System.currentTimeMillis();
-                    lastFailureReason = null;
+                    panelController.submitSucceeded();
                     // Stored blocks only, never the body.
                     log.debug(
                         "submit {}: reason={} storedBlocks=[{}]",
@@ -2129,7 +2027,7 @@ public class BankstandPlugin extends Plugin {
                         res.getReason(),
                         String.join(",", res.getStoredBlocks()));
                     if (session.isCurrent(accountHash, generation) && noticeGate.onSuccess()) {
-                      notice("Reconnected. Your progress is syncing again.");
+                      notifier.notice("Reconnected. Your progress is syncing again.");
                     }
                     long retryDelay =
                         cooldownRetryDelayMs(
@@ -2235,14 +2133,14 @@ public class BankstandPlugin extends Plugin {
                       String message =
                           identityFailureNotice(failure, submitGate, noticeGate);
                       if (session.isCurrent(accountHash, generation) && message != null) {
-                        notice(message);
+                        notifier.notice(message);
                       }
                       return;
                     }
                     // Drop the result unless this login instance is still current: the retry
                     // backoff can span a relog.
                     if (session.isCurrent(accountHash, generation)) {
-                      notice(identityNoticeFor(res.isVerified(), res.getLinkedRsn(), res.getOutcome()));
+                      notifier.notice(identityNoticeFor(res.isVerified(), res.getLinkedRsn(), res.getOutcome()));
                     }
                   });
         });
@@ -2254,7 +2152,7 @@ public class BankstandPlugin extends Plugin {
       return;
     }
     String url = savedServerUrl();
-    notice("Pairing with " + url + "...");
+    notifier.notice("Pairing with " + url + "...");
     executor.submit(
         () -> {
           try {
@@ -2264,10 +2162,10 @@ public class BankstandPlugin extends Plugin {
             // auth halt.
             noticeGate.onSuccess();
             submitGate.resume();
-            notice("Connected. Your progress will sync from now on.");
+            notifier.notice("Connected. Your progress will sync from now on.");
           } catch (PairingException e) {
             // The message is generic; the raw code and token are never logged.
-            notice("Pairing failed. " + e.getMessage());
+            notifier.notice("Pairing failed. " + e.getMessage());
           } finally {
             // Always clear the code: it is single-use either way.
             clearPairingCode();
@@ -2284,37 +2182,11 @@ public class BankstandPlugin extends Plugin {
     // Untick the toggle so ticking it again fires this afresh.
     configManager.setConfiguration(
         BankstandKeys.GROUP, BankstandKeys.KEY_DISCONNECT, Boolean.FALSE.toString());
-    notice("Disconnected. Nothing will be sent until you pair again.");
+    notifier.notice("Disconnected. Nothing will be sent until you pair again.");
   }
 
   private void clearPairingCode() {
     configManager.setConfiguration(BankstandKeys.GROUP, BankstandKeys.KEY_PAIRING_CODE, "");
-  }
-
-  /**
-   * Writes a line to the chat box. Logged out, the message is dropped, not queued: an outcome is
-   * only worth reporting while the player is there to read it.
-   */
-  private void notice(String message) {
-    String formatted = brandedNotice(message);
-    clientThread.invoke(
-        () -> {
-          if (client.getGameState() == GameState.LOGGED_IN) {
-            chatMessageManager.queue(
-                QueuedMessage.builder()
-                    .type(ChatMessageType.CONSOLE)
-                    .runeLiteFormattedMessage(formatted)
-                    .build());
-          }
-        });
-  }
-
-  /**
-   * One chat line: the brand-coloured prefix, then the message in the chat's own colour. The
-   * prefix is part of the text because a CONSOLE message does not render the sender name.
-   */
-  static String brandedNotice(String message) {
-    return new ChatMessageBuilder().append(BRAND, NOTICE_PREFIX).append(message).build();
   }
 
   /**

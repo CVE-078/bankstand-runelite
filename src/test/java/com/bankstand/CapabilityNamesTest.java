@@ -13,7 +13,7 @@ public class CapabilityNamesTest {
   @Test
   public void namesEveryEnabledCapability() {
     List<String> all =
-        BankstandPlugin.capabilityNames(EnumSet.allOf(Capability.class));
+        PanelController.capabilityNames(EnumSet.allOf(Capability.class));
 
     assertEquals(
         List.of(
@@ -36,13 +36,13 @@ public class CapabilityNamesTest {
   public void hasOneNamePerCapability() {
     assertEquals(
         11,
-        BankstandPlugin.capabilityNames(EnumSet.allOf(Capability.class)).size());
+        PanelController.capabilityNames(EnumSet.allOf(Capability.class)).size());
   }
 
   @Test
   public void namesOnlyWhatIsSwitchedOn() {
     List<String> some =
-        BankstandPlugin.capabilityNames(
+        PanelController.capabilityNames(
             EnumSet.of(Capability.SKILLS, Capability.COMBAT_ACHIEVEMENTS));
 
     assertEquals(List.of("skills", "combat achievements"), some);
@@ -52,7 +52,7 @@ public class CapabilityNamesTest {
   public void namesTheEventDrivenCapabilities() {
     // Drops drain through the event outbox, but the status line has one list for everything.
     List<String> dropsOnly =
-        BankstandPlugin.capabilityNames(
+        PanelController.capabilityNames(
             EnumSet.of(Capability.NOTABLE_DROPS, Capability.PET_DROPS));
 
     assertEquals(List.of("notable drops", "pet drops"), dropsOnly);
@@ -61,7 +61,7 @@ public class CapabilityNamesTest {
   @Test
   public void namesTheLiveSessionCapabilities() {
     List<String> live =
-        BankstandPlugin.capabilityNames(
+        PanelController.capabilityNames(
             EnumSet.of(Capability.SESSIONS, Capability.LOOT, Capability.SLAYER));
 
     assertEquals(List.of("play sessions", "full loot", "slayer task"), live);
@@ -70,7 +70,7 @@ public class CapabilityNamesTest {
   @Test
   public void namesNothingWhenEverythingIsOff() {
     assertTrue(
-        BankstandPlugin.capabilityNames(
+        PanelController.capabilityNames(
                 EnumSet.noneOf(Capability.class))
             .isEmpty());
   }
