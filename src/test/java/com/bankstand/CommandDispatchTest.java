@@ -4,7 +4,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
-import com.bankstand.BankstandPlugin.CommandAction;
+import com.bankstand.BankstandCommands.CommandAction;
 import org.junit.Test;
 
 /** Which {@code ::bstand} command is ours and which word maps to which action. */
@@ -12,61 +12,61 @@ public class CommandDispatchTest {
 
   @Test
   public void recognisesTheMainCommandName() {
-    assertTrue(BankstandPlugin.isBankstandCommand("bstand"));
+    assertTrue(BankstandCommands.isBankstandCommand("bstand"));
   }
 
   @Test
   public void recognisesTheAliasCommandName() {
-    assertTrue(BankstandPlugin.isBankstandCommand("stand"));
+    assertTrue(BankstandCommands.isBankstandCommand("stand"));
   }
 
   @Test
   public void commandNameMatchingIsCaseInsensitive() {
-    assertTrue(BankstandPlugin.isBankstandCommand("BSTAND"));
-    assertTrue(BankstandPlugin.isBankstandCommand("Stand"));
+    assertTrue(BankstandCommands.isBankstandCommand("BSTAND"));
+    assertTrue(BankstandCommands.isBankstandCommand("Stand"));
   }
 
   @Test
   public void ignoresAnUnrelatedCommandName() {
-    assertFalse(BankstandPlugin.isBankstandCommand("bank"));
+    assertFalse(BankstandCommands.isBankstandCommand("bank"));
   }
 
   @Test
   public void defaultsToStatusWithNoArguments() {
-    assertEquals(CommandAction.STATUS, BankstandPlugin.actionFor(new String[0]));
+    assertEquals(CommandAction.STATUS, BankstandCommands.actionFor(new String[0]));
   }
 
   @Test
   public void resolvesEveryNamedAction() {
-    assertEquals(CommandAction.STATUS, BankstandPlugin.actionFor(new String[] {"status"}));
-    assertEquals(CommandAction.SYNC, BankstandPlugin.actionFor(new String[] {"sync"}));
-    assertEquals(CommandAction.LINK, BankstandPlugin.actionFor(new String[] {"link"}));
-    assertEquals(CommandAction.LOG, BankstandPlugin.actionFor(new String[] {"log"}));
-    assertEquals(CommandAction.REPAIR, BankstandPlugin.actionFor(new String[] {"repair"}));
-    assertEquals(CommandAction.EXPORT, BankstandPlugin.actionFor(new String[] {"export"}));
-    assertEquals(CommandAction.HELP, BankstandPlugin.actionFor(new String[] {"help"}));
+    assertEquals(CommandAction.STATUS, BankstandCommands.actionFor(new String[] {"status"}));
+    assertEquals(CommandAction.SYNC, BankstandCommands.actionFor(new String[] {"sync"}));
+    assertEquals(CommandAction.LINK, BankstandCommands.actionFor(new String[] {"link"}));
+    assertEquals(CommandAction.LOG, BankstandCommands.actionFor(new String[] {"log"}));
+    assertEquals(CommandAction.REPAIR, BankstandCommands.actionFor(new String[] {"repair"}));
+    assertEquals(CommandAction.EXPORT, BankstandCommands.actionFor(new String[] {"export"}));
+    assertEquals(CommandAction.HELP, BankstandCommands.actionFor(new String[] {"help"}));
   }
 
   @Test
   public void commandsIsAnAliasForHelp() {
-    assertEquals(CommandAction.HELP, BankstandPlugin.actionFor(new String[] {"commands"}));
+    assertEquals(CommandAction.HELP, BankstandCommands.actionFor(new String[] {"commands"}));
   }
 
   @Test
   public void actionWordMatchingIsCaseInsensitive() {
-    assertEquals(CommandAction.SYNC, BankstandPlugin.actionFor(new String[] {"SYNC"}));
-    assertEquals(CommandAction.LOG, BankstandPlugin.actionFor(new String[] {"Log"}));
+    assertEquals(CommandAction.SYNC, BankstandCommands.actionFor(new String[] {"SYNC"}));
+    assertEquals(CommandAction.LOG, BankstandCommands.actionFor(new String[] {"Log"}));
   }
 
   @Test
   public void resolvesAnUnrecognisedActionWordToUnknown() {
-    assertEquals(CommandAction.UNKNOWN, BankstandPlugin.actionFor(new String[] {"nonsense"}));
+    assertEquals(CommandAction.UNKNOWN, BankstandCommands.actionFor(new String[] {"nonsense"}));
   }
 
   @Test
   public void ignoresArgumentsPastTheFirst() {
     // Only the first word is the action.
     assertEquals(
-        CommandAction.SYNC, BankstandPlugin.actionFor(new String[] {"sync", "now", "please"}));
+        CommandAction.SYNC, BankstandCommands.actionFor(new String[] {"sync", "now", "please"}));
   }
 }
