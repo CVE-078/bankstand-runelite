@@ -1,136 +1,62 @@
 # Bankstand RuneLite plugin
 
-The RuneLite companion for [Bankstand](https://bankstand.gg).
-
-## What it does
-
-- Links your RuneLite client to your Bankstand account.
-- Keeps your progress on the site up to date while you play.
-- Gives your linked character a "RuneLite verified" badge.
-- Everything it sends is private to your own account. Nothing is public or ranked. Who can see it is
-  a separate setting on the website.
+The RuneLite companion for [Bankstand](https://bankstand.gg). It links your client to your Bankstand
+account and keeps your progress up to date while you play. Everything it sends is private to your
+own account; who else can see it is a separate setting on the website.
 
 ## Pairing
 
-1. Sign in at [bankstand.gg](https://bankstand.gg) and open **Account > Connect RuneLite**.
-   Generate a pairing code.
-2. In RuneLite, open **Settings > Bankstand** and paste the code into **Pairing code**. The field
-   clears itself and the chat box confirms the connection.
+1. On [bankstand.gg](https://bankstand.gg), open **Account > Connect RuneLite** and generate a code.
+2. In RuneLite, paste it into **Settings > Bankstand > Pairing code**. The chat box confirms it.
 3. Log in as a character you track on Bankstand. The chat box shows **Verified as `<name>`**.
 
-If the character is not one you track, the plugin tells you instead of linking it.
+Each machine pairs separately and can be revoked on its own from the website.
 
-Each machine pairs separately and shows up as its own device on Bankstand, with its own revoke
-button.
+## What it sends
 
-## What each toggle captures
+Each capability has its own toggle under **Settings > Bankstand**. Only Skill XP is on by default,
+and turning it off stops everything.
 
-Each capability has its own toggle and its own section under **Settings > Bankstand**.
+| Toggle | What it sends |
+|---|---|
+| Skill XP | XP per skill, your account hash and display name, when they change |
+| Quest progress | Each quest's state (not started, started, finished) |
+| Diary progress | Completed tasks per diary tier, and when a task completes |
+| Combat achievements | Completed counts per tier and boss, and task names the game announces |
+| Collection log | Filled slots and new unlocks; open the log and click **Search** for a full read |
+| Account type | Main, ironman or group type |
+| Notable drops | Unique, untradeable or valuable drops (1,000,000 gp by default) |
+| Pet drops | Which pet and when |
+| Session log | Log in and out, and a once-a-minute online mark (memory only, never on disk) |
+| Loot log | Item ids and quantities from monster kills, with the monster's name |
+| Slayer tracker | Your current task, and when you finish one |
 
-- **Skill XP** (on by default). Your XP per skill, your account hash and your display name. Checked
-  every 60 seconds and sent only when something changed. This toggle gates all the others: with it
-  off, nothing is sent.
-- **Quest progress** (opt-in). Each quest's state: not started, started or finished. For a quest
-  too new for RuneLite's quest list, the quest name from the quest-complete scroll.
-- **Diary progress** (opt-in). A completed task count per diary tier, whether the tier reads
-  complete, and the moment a task completes, from the game's chat line.
-- **Combat achievements** (opt-in). A completed count per tier and per boss (where the game has a
-  counter), the task name when the game announces a completion in chat, and tier completions. Tasks
-  done before you turned this on are counted but not named.
-- **Collection log** (opt-in). Which slots you have filled, plus each new unlock as the game
-  announces it. Browsing the log adds what you see. Open it and click **Search** to read the whole
-  log at once. A partial read never removes anything.
-- **Account type** (opt-in). Whether the account is a main, an ironman or a group type. The hiscores
-  cannot show Group Ironman, so this fills the gap. Your own answer on the site still wins.
-- **Notable drops** (opt-in). Unique, untradeable or high-value drops: the item, its value and the
-  monster. A tradeable drop counts once it clears your gp threshold (1,000,000 by default).
-  Untradeable items are judged by name.
-- **Pet drops** (opt-in). Which pet you got and when.
-- **Session log** (opt-in). When you log in and out, plus an online mark once a minute on a
-  normal world, so the site can show how long you played. A world hop is not a logout. Kept in
-  memory only, never written to disk.
-- **Loot log** (opt-in). Every item you get from killing a monster, as item ids and quantities,
-  with the monster's name and how many kills dropped loot. Sent about once a minute. Separate
-  from notable drops. It does not turn on the Session log; the sidebar panel asks first.
-- **Slayer tracker** (opt-in). Your current task (creature, amount left and assigned, points and
-  streak) or that you have none, and when you finish one, from the game's completion message.
-
-It also takes one last capture when you log out. A cleared client reads as zeroes, and that read is
-dropped rather than sent.
-
-Nothing is read or sent on Leagues, Deadman, tournament, PvP Arena, beta, no-save or quest
-speedrunning worlds, or before the welcome screen is closed after login. Fresh Start worlds count as
-their own account.
+Nothing is read on Leagues, Deadman, tournament, PvP Arena, beta, no-save or speedrunning worlds.
 
 ## What it never captures
 
-- Which specific diary task you completed. Only the moment, tier and area.
-- Bank value, worn equipment, inventory or your location.
-- Anything about other players. Loot from a player kill is never captured.
-- The game's own kill counters. The Loot log only counts kills that dropped something.
-- Which world you are on, or whether you are idle.
-- Your slayer task's location, block list or unlocks.
-- Loot from chests and reward screens (Barrows, raids, clue caskets). These are not monster kills.
-- Anything you or other players type in chat. It only reads the game's own messages, for the
-  capabilities above.
+- Bank value, worn equipment, inventory, location, world or idle state.
+- Anything about other players, including loot from player kills.
+- Anything typed in chat. It only reads the game's own messages.
+- The game's kill counters, which specific diary task you did, and your slayer location, block list
+  or unlocks.
+- Loot from chests and reward screens (Barrows, raids, clue caskets).
 
 It never logs your pairing code, device token, account hash or display name. It only observes the
-client: it never clicks, sends input or runs game scripts.
+client: no clicks, no input, no game scripts.
 
-## Configuration
+## Using it
 
-Under **Settings > Bankstand**:
+- **Sidebar panel:** sync status, when each capability last sent, recent activity, **Sync now**.
+- **Chat:** `::bstand` shows status; `::bstand help` lists the rest (sync, re-link, full log read,
+  re-pair, export settings).
+- **Server URL:** leave it on the default unless you run Bankstand yourself.
+- The pairing lives in `<RUNELITE_DIR>/bankstand/device.json`, outside RuneLite's config, so config
+  sync never uploads it. Failures are reported once in chat and retried with a back-off.
 
-- **Server URL.** Defaults to the live site. Leave it unless you run Bankstand yourself.
-- **Pairing code.** Paste a code to pair. It clears itself once used.
-- **Disconnect.** Tick to forget this device's token. To revoke it on the server, use **Account**
-  on the website.
-- **One section per capability**, each with its own toggle. Notable drops also has its gp
-  threshold.
+## Building
 
-The pairing is stored in `<RUNELITE_DIR>/bankstand/device.json`, not in RuneLite's config, so
-config sync never uploads it.
-
-### Sidebar panel
-
-Click the Bankstand icon in the sidebar.
-
-- **Status dot.** Green: last sync worked. Amber: last attempt failed. Grey: not paired or nothing
-  sent yet.
-- **Capabilities.** When each enabled capability last sent something. A dash means nothing new to
-  send yet.
-- **Recent activity.** Unlocks, achievements, diary tasks, drops and pets sent this session.
-- **Also turn on the Session log?** Shown while the Loot log is on and the Session log is off.
-  Nothing changes unless you press its button.
-- **Sync now** sends immediately. **Open Bankstand** opens the site.
-
-### Chat commands
-
-`::stand` works as a shorthand for `::bstand`.
-
-- `::bstand`: connection status and what was last sent.
-- `::bstand sync`: send now.
-- `::bstand link`: re-link this character.
-- `::bstand log`: start a full collection log read. Needs the log open.
-- `::bstand repair`: clear a stale or revoked pairing, then paste a new code.
-- `::bstand export`: print and copy your toggle settings. Never includes the code, token or URL.
-- `::bstand help`: list the commands.
-
-### When something fails
-
-- The chat box and the panel say what went wrong. A repeated failure is reported once.
-- Repeated failures back off to about 16 minutes and recover on the next success.
-- A rejected or revoked token stops sending until you pair again.
-
-## Building from source
-
-Requires JDK 11 or later.
-
-```
-./gradlew build
-```
-
-This compiles the plugin and runs the tests, the same as CI.
+JDK 11 or later: `./gradlew build` compiles and runs the tests, the same as CI.
 
 ## Reporting a problem
 
@@ -139,8 +65,7 @@ version and what the chat box said. Never paste your pairing code or device toke
 
 ## Licence
 
-BSD 2-Clause. See [`LICENSE`](LICENSE). No runtime dependencies beyond what `runelite-client`
-ships.
+BSD 2-Clause, see [`LICENSE`](LICENSE). No runtime dependencies beyond `runelite-client`.
 
-Bankstand is an independent project and is not affiliated with, endorsed by or sponsored by Jagex
-Ltd or the RuneLite project. Old School RuneScape is a trademark of Jagex Ltd.
+Bankstand is independent and not affiliated with, endorsed or sponsored by Jagex Ltd or the
+RuneLite project. Old School RuneScape is a trademark of Jagex Ltd.
