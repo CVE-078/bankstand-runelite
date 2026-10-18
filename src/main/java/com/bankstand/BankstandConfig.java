@@ -233,8 +233,8 @@ public interface BankstandConfig extends Config {
       keyName = BankstandKeys.KEY_COLLECT_SLAYER,
       name = "Slayer tracker",
       description =
-          "Sends your current slayer task (the creature, how many are left, your points and"
-              + " streak) and when you finish one. Never the task's location.",
+          "Sends your current slayer task (the creature, how many are left, the master, your"
+              + " points and streaks) and when you finish one. Never the task's location.",
       section = playSection,
       position = 3)
   default boolean collectSlayer() {

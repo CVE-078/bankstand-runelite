@@ -81,6 +81,7 @@ public class SlayerTaskCompletionCapture extends BaseCapture {
         payload(
             task == null ? null : task.creature,
             task == null ? null : task.assigned,
+            task == null ? null : task.master,
             parseCount(m.group("awarded")),
             parseCount(totalPoints),
             parseCount(m.group("tasks"))));
@@ -98,11 +99,16 @@ public class SlayerTaskCompletionCapture extends BaseCapture {
   }
 
   static Map<String, Object> payload(
-      String creature, Integer killed, Integer pointsAwarded, Integer pointsTotal, Integer streak) {
+      String creature,
+      Integer killed,
+      String master,
+      Integer pointsAwarded,
+      Integer pointsTotal,
+      Integer streak) {
     Map<String, Object> payload = new LinkedHashMap<>();
     payload.put("creature", creature);
     payload.put("killed", killed);
-    payload.put("master", null);
+    payload.put("master", master);
     payload.put("pointsAwarded", pointsAwarded);
     payload.put("pointsTotal", pointsTotal);
     payload.put("streak", streak);

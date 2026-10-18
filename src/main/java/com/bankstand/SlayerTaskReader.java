@@ -19,6 +19,13 @@ final class SlayerTaskReader {
   // Masters whose streak has its own counter.
   private static final int KRYSTILIA = 7;
   private static final int MORTIMER = 10;
+  // SLAYER_MASTER values 1 to 10, per the OSRS Wiki. Paired masters share a value: Turael and
+  // Aya, Duradel and Kuradal, Nieve and Steve.
+  private static final String[] MASTER_KEYS = {
+    "turael", "mazchna", "vannaka", "chaeldar", "duradel",
+    "nieve", "krystilia", "konar", "spria", "mortimer"
+  };
+  static final int MAX_STREAK = 1_000_000;
 
   private SlayerTaskReader() {}
 
@@ -39,9 +46,22 @@ final class SlayerTaskReader {
         creatureName(client),
         remaining,
         assigned > 0 ? assigned : null,
-        null,
+        masterKey(client.getVarbitValue(VarbitID.SLAYER_MASTER)),
         client.getVarbitValue(VarbitID.SLAYER_POINTS),
-        streak(client));
+        streak(client),
+        SlayerTask.streaks(
+            bounded(client.getVarbitValue(VarbitID.SLAYER_TASKS_COMPLETED)),
+            bounded(client.getVarbitValue(VarbitID.SLAYER_WILDERNESS_TASKS_COMPLETED)),
+            bounded(client.getVarpValue(VarPlayerID.SLAYER_MORTIMER_TASKS_COMPLETED))));
+  }
+
+  /** The master's key, or null for 0 or a value the game added later. */
+  static String masterKey(int value) {
+    return value >= 1 && value <= MASTER_KEYS.length ? MASTER_KEYS[value - 1] : null;
+  }
+
+  private static Integer bounded(int value) {
+    return value >= 0 && value <= MAX_STREAK ? value : null;
   }
 
   private static String creatureName(Client client) {

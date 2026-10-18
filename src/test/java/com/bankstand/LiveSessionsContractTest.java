@@ -49,8 +49,12 @@ public class LiveSessionsContractTest {
   }
 
   private static BankstandClient client(Capture capture) {
+    return client(capture, SENT_AT);
+  }
+
+  private static BankstandClient client(Capture capture, Instant sentAt) {
     return new BankstandClient(
-        capture, new Gson(), Executors.newSingleThreadScheduledExecutor(), () -> SENT_AT);
+        capture, new Gson(), Executors.newSingleThreadScheduledExecutor(), () -> sentAt);
   }
 
   private static JsonObject sent(Capture capture) {
@@ -96,34 +100,57 @@ public class LiveSessionsContractTest {
             "018f9c8e-7b7a-7c00-8000-000000000201",
             TransientEvent.TYPE_SLAYER_TASK_COMPLETED,
             "2026-10-08T12:00:30Z",
-            SlayerTaskCompletionCapture.payload("Cave horrors", 120, 15, 1234, 56));
+            SlayerTaskCompletionCapture.payload("Cave horrors", 120, null, 15, 1234, 56));
     client(capture)
         .submitEvents("https://x.test", "tok", 123456789012345L, Collections.singletonList(event));
     assertEquals(fixture("events-v1.slayer-task-completed.json"), sent(capture));
   }
 
   @Test
+  public void slayerCompletionCarriesTheMaster() throws Exception {
+    Capture capture = new Capture();
+    TransientEvent event =
+        new TransientEvent(
+            "018f9c8e-7b7a-7c00-8000-000000000202",
+            TransientEvent.TYPE_SLAYER_TASK_COMPLETED,
+            "2026-10-18T12:00:30Z",
+            SlayerTaskCompletionCapture.payload("Dust devils", 187, "duradel", 15, 1255, 313));
+    client(capture, Instant.parse("2026-10-18T12:01:00Z"))
+        .submitEvents("https://x.test", "tok", 123456789012345L, Collections.singletonList(event));
+    assertEquals(fixture("events-v1.slayer-task-completed-master.json"), sent(capture));
+  }
+
+  @Test
   public void anActiveSlayerTaskBlockMatchesTheFixture() throws Exception {
     assertSlayerFixture(
-        "submit-v1.slayer-task.json",
-        "018f9c8e-7b7a-7c00-8000-000000000301",
-        new SlayerTask(true, "Cave horrors", 40, 120, null, 1234, 56));
+        "submit-v1.slayer-task-master-streaks.json",
+        "018f9c8e-7b7a-7c00-8000-000000000302",
+        "1.1.0",
+        "2026-10-18T12:00:00.000Z",
+        new SlayerTask(
+            true, "Dust devils", 64, 187, "duradel", 1240, 312,
+            SlayerTask.streaks(312, 14, null)));
   }
 
   @Test
   public void noSlayerTaskMatchesTheFixture() throws Exception {
     assertSlayerFixture(
-        "submit-v1.slayer-task-none.json", "018f9c8e-7b7a-7c00-8000-000000000302", SlayerTask.NONE);
+        "submit-v1.slayer-task-none.json",
+        "018f9c8e-7b7a-7c00-8000-000000000302",
+        "1.0.0",
+        "2026-10-08T12:00:00.000Z",
+        SlayerTask.NONE);
   }
 
-  private static void assertSlayerFixture(String name, String id, SlayerTask task)
+  private static void assertSlayerFixture(
+      String name, String id, String version, String capturedAt, SlayerTask task)
       throws Exception {
     Capture capture = new Capture();
     Map<String, Integer> skills = new LinkedHashMap<>();
     skills.put("slayer", 101333);
     Map<String, Object> body =
         SubmitEnvelope.body(
-            id, 1, "1.0.0", "2026-10-08T12:00:00.000Z", 123456789012345L, null, skills, null,
+            id, 1, version, capturedAt, 123456789012345L, null, skills, null,
             null, null, null, null, null, false, null, task.toWire());
     client(capture).submitSnapshot("https://x.test", "tok", body);
     assertEquals(fixture(name), sent(capture));

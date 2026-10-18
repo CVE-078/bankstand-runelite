@@ -56,7 +56,7 @@ public class SlayerTaskCompletionCaptureTest {
   @Rule public TemporaryFolder folder = new TemporaryFolder();
 
   private static final SlayerTask RUNNING =
-      new SlayerTask(true, "Cave horrors", 3, 120, null, 1200, 55);
+      new SlayerTask(true, "Cave horrors", 3, 120, null, 1200, 55, null);
 
   private EventOutbox outbox;
   private final AtomicBoolean enabled = new AtomicBoolean(true);
@@ -113,6 +113,18 @@ public class SlayerTaskCompletionCaptureTest {
     assertEquals(9, (int) intOf(payload.get("streak")));
     assertTrue(payload.containsKey("master"));
     assertNull(payload.get("master"));
+  }
+
+  @Test
+  public void carriesTheMasterOfTheTaskAsLastSeen() throws Exception {
+    current.set(new SlayerTask(true, "Dust devils", 1, 187, "duradel", 1240, 312, null));
+    SlayerTaskCompletionCapture capture = capture();
+    capture.onVarbitChanged(countChanged(1));
+    current.set(SlayerTask.NONE);
+
+    capture.onMessage(Text.removeTags(TASK_POINTS));
+
+    assertEquals("duradel", onlyPayload().get("master"));
   }
 
   @Test

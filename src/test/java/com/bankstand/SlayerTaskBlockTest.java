@@ -14,7 +14,8 @@ import org.junit.Test;
 /** The {@code slayerTask} block: its shape, its change gate and its acknowledgement. */
 public class SlayerTaskBlockTest {
 
-  private static final SlayerTask TASK = new SlayerTask(true, "Cave horrors", 40, 120, null, 1200, 55);
+  private static final SlayerTask TASK = new SlayerTask(
+          true, "Cave horrors", 40, 120, null, 1200, 55, SlayerTask.streaks(55, 3, null));
 
   private static Map<String, Integer> skills() {
     Map<String, Integer> m = new LinkedHashMap<>();
@@ -73,6 +74,7 @@ public class SlayerTaskBlockTest {
     assertTrue("an unknown master is sent as null", wire.containsKey("master"));
     assertEquals(1200, wire.get("points"));
     assertEquals(55, wire.get("streak"));
+    assertEquals(SlayerTask.streaks(55, 3, null), wire.get("streaks"));
   }
 
   @Test
