@@ -43,6 +43,7 @@ public class AckedStateStore {
     copy.setSkills(stored.getSkills());
     copy.setQuests(stored.getQuests());
     copy.setDiaries(stored.getDiaries());
+    copy.setAccountType(stored.getAccountType());
     copy.setCombatAchievements(stored.getCombatAchievements());
     copy.setCollectionLogItems(stored.getCollectionLogItems());
     copy.setCollectionLogAcked(stored.getCollectionLogAcked());

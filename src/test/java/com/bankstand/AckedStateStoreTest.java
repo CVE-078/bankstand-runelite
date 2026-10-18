@@ -53,6 +53,7 @@ public class AckedStateStoreTest {
     state.setSkills("skills-digest");
     state.setQuests("quests-digest");
     state.setDiaries("diaries-digest");
+    state.setAccountType("ironman");
     state.setCollectionLogItems(ids(1, 2, 3));
     state.setCollectionLogAcked(3);
     Map<String, Long> synced = new LinkedHashMap<>();
@@ -65,6 +66,7 @@ public class AckedStateStoreTest {
     assertEquals("skills-digest", loaded.getSkills());
     assertEquals("quests-digest", loaded.getQuests());
     assertEquals("diaries-digest", loaded.getDiaries());
+    assertEquals("ironman", loaded.getAccountType());
     assertEquals(ids(1, 2, 3), loaded.getCollectionLogItems());
     assertEquals(3, loaded.getCollectionLogAcked());
     assertEquals(1_700_000_000_000L, (long) loaded.getLastSyncedAt().get("skills"));
