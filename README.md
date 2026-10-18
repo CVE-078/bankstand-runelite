@@ -52,8 +52,9 @@ Each capability has its own toggle and its own section under **Settings > Bankst
 - **Loot log** (opt-in). Every item you get from killing a monster, as item ids and quantities,
   with the monster's name and how many kills dropped loot. Sent about once a minute. Separate
   from notable drops. It does not turn on the Session log; the sidebar panel asks first.
-- **Slayer tracker** (opt-in). Your current task (creature, amount left and assigned, points and
-  streak) or that you have none, and when you finish one, from the game's completion message.
+- **Slayer tracker** (opt-in). Your current task (creature, amount left and assigned, the master,
+  points, and your standard, Wilderness and Mortimer streaks) or that you have none, and when you
+  finish one, from the game's completion message.
 
 It also takes one last capture when you log out. A cleared client reads as zeroes, and that read is
 dropped rather than sent.
