@@ -62,9 +62,16 @@ final class SlayerTaskStart {
    */
   SlayerTask read(boolean observable) {
     SlayerTask task = SlayerTaskReader.read(client);
-    return observable && session.isActive()
-        ? observe(session.getAccountHash(), session.getGeneration(), task, Instant.now())
-        : task;
+    if (!observable || !session.isActive()) {
+      // Whatever changes while capture is off is not seen live; the next read is a baseline.
+      forgetLive();
+      return task;
+    }
+    return observe(session.getAccountHash(), session.getGeneration(), task, Instant.now());
+  }
+
+  private synchronized void forgetLive() {
+    lastSeen = null;
   }
 
   /** Reads the file. A read failure means nothing is known. Never on the client thread. */
@@ -85,6 +92,10 @@ final class SlayerTaskStart {
 
   /** The task with its start, or with none when it was not seen starting. */
   synchronized SlayerTask observe(long accountHash, int generation, SlayerTask task, Instant now) {
+    // A task whose name has not arrived yet is a partial read, not a new task.
+    if (task.active && task.creature == null) {
+      return task;
+    }
     String seen = identity(task);
     // A new login (or account) starts unseen: the task can change while the client is away.
     boolean changedLive =
