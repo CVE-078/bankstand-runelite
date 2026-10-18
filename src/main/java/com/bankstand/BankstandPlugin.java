@@ -112,9 +112,6 @@ public class BankstandPlugin extends Plugin {
   private static final String EVENTS_FILE = "events.json";
   private static final String LOOT_FILE = "loot-outbox.json";
 
-  // Slayer varps read zero until the game sends them, a few ticks after login.
-  static final int SLAYER_READ_DELAY_TICKS = 10;
-
 
   // Prefix for every chat line the plugin writes. The darker light-theme gold stays readable
   // both on the parchment chat box and on a transparent one.
@@ -189,6 +186,7 @@ public class BankstandPlugin extends Plugin {
   private DiaryTaskCompletionCapture diaryTaskCompletionCapture;
   private QuestCompletionCapture questCompletionCapture;
   private SlayerTaskCompletionCapture slayerTaskCompletionCapture;
+  private SlayerTaskStart slayerTaskStart;
   private final SlayerTaskBaseline slayerTaskBaseline = new SlayerTaskBaseline();
   // Ticks since the last LOGGED_IN. Client thread.
   private int ticksSinceLoggedIn;
@@ -262,6 +260,9 @@ public class BankstandPlugin extends Plugin {
     migrateCredentialsOutOfConfig();
 
     eventOutbox = new EventOutbox(new File(ACKED_STATE_DIR, EVENTS_FILE), gson);
+    slayerTaskStart =
+        new SlayerTaskStart(
+            new File(ACKED_STATE_DIR, "slayer-task-start.json"), gson, executor, client, session);
     // Feeds the panel from the same emit the captures make to the outbox.
     java.util.function.Consumer<TransientEvent> onEmit = this::recordEmittedActivity;
     notableDropCapture =
@@ -324,7 +325,9 @@ public class BankstandPlugin extends Plugin {
             eventOutbox,
             this::isSlayerEventCaptureEnabled,
             this::currentAccountHash,
-            () -> SlayerTaskReader.read(client),
+            () ->
+                slayerTaskStart.read(
+                    isSlayerCaptureEnabled() && SlayerTaskReader.isReadable(ticksSinceLoggedIn)),
             onEmit);
     eventBus.register(slayerTaskCompletionCapture);
     lootOutbox = new LootOutbox(new File(ACKED_STATE_DIR, LOOT_FILE), gson);
@@ -1435,11 +1438,6 @@ public class BankstandPlugin extends Plugin {
     enqueuePresence(due);
   }
 
-  /** Whether the slayer values have had time to arrive since the last {@code LOGGED_IN}. */
-  static boolean isSlayerTaskReadable(int ticksSinceLoggedIn) {
-    return ticksSinceLoggedIn >= SLAYER_READ_DELAY_TICKS;
-  }
-
   @Subscribe
   public void onGameTick(GameTick event) {
     Widget welcome = client.getWidget(InterfaceID.WelcomeScreen.MOTW);
@@ -1557,8 +1555,8 @@ public class BankstandPlugin extends Plugin {
               isDiaryCaptureEnabled() ? readDiaryTaskCounts() : null;
           // Read too early, a real task looks like none.
           SlayerTask slayerTask =
-              isSlayerCaptureEnabled() && isSlayerTaskReadable(ticksSinceLoggedIn)
-                  ? SlayerTaskReader.read(client)
+              isSlayerCaptureEnabled() && SlayerTaskReader.isReadable(ticksSinceLoggedIn)
+                  ? slayerTaskStart.read(true)
                   : null;
           onSkillsCaptured(
               accountHash, generation, name, skills, quests, diaries, diaryTasks, slayerTask);

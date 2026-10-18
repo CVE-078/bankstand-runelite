@@ -75,6 +75,10 @@ public class SlayerTaskBlockTest {
     assertEquals(1200, wire.get("points"));
     assertEquals(55, wire.get("streak"));
     assertEquals(SlayerTask.streaks(55, 3, null), wire.get("streaks"));
+    assertFalse("an unknown start is left out", wire.containsKey("startedAt"));
+    assertEquals(
+        "2026-10-18T09:12:03Z",
+        TASK.withStartedAt("2026-10-18T09:12:03Z").toWire().get("startedAt"));
   }
 
   @Test
@@ -116,9 +120,9 @@ public class SlayerTaskBlockTest {
 
   @Test
   public void isNotReadForTheFirstTenTicksAfterALogin() {
-    assertFalse(BankstandPlugin.isSlayerTaskReadable(0));
-    assertFalse(BankstandPlugin.isSlayerTaskReadable(BankstandPlugin.SLAYER_READ_DELAY_TICKS - 1));
-    assertTrue(BankstandPlugin.isSlayerTaskReadable(BankstandPlugin.SLAYER_READ_DELAY_TICKS));
+    assertFalse(SlayerTaskReader.isReadable(0));
+    assertFalse(SlayerTaskReader.isReadable(SlayerTaskReader.READ_DELAY_TICKS - 1));
+    assertTrue(SlayerTaskReader.isReadable(SlayerTaskReader.READ_DELAY_TICKS));
   }
 
   @Test

@@ -26,8 +26,15 @@ final class SlayerTaskReader {
     "nieve", "krystilia", "konar", "spria", "mortimer"
   };
   static final int MAX_STREAK = 1_000_000;
+  // Slayer varps read zero until the game sends them, a few ticks after login.
+  static final int READ_DELAY_TICKS = 10;
 
   private SlayerTaskReader() {}
+
+  /** Whether the slayer values have had time to arrive since the last {@code LOGGED_IN}. */
+  static boolean isReadable(int ticksSinceLoggedIn) {
+    return ticksSinceLoggedIn >= READ_DELAY_TICKS;
+  }
 
   /** The current task. Reads zero until the game sends the varps after login. */
   static SlayerTask read(Client client) {

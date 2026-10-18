@@ -54,7 +54,8 @@ Each capability has its own toggle and its own section under **Settings > Bankst
   from notable drops. It does not turn on the Session log; the sidebar panel asks first.
 - **Slayer tracker** (opt-in). Your current task (creature, amount left and assigned, the master,
   points, and your standard, Wilderness and Mortimer streaks) or that you have none, and when you
-  finish one, from the game's completion message.
+  finish one, from the game's completion message. Also when you got the task, if the plugin was
+  running to see it; kept in a local file so a restart does not lose it.
 
 It also takes one last capture when you log out. A cleared client reads as zeroes, and that read is
 dropped rather than sent.

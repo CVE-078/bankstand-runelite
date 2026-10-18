@@ -121,6 +121,34 @@ public class LiveSessionsContractTest {
   }
 
   @Test
+  public void slayerCompletionCarriesTheStart() throws Exception {
+    Capture capture = new Capture();
+    TransientEvent event =
+        new TransientEvent(
+            "018f9c8e-7b7a-7c00-8000-000000000203",
+            TransientEvent.TYPE_SLAYER_TASK_COMPLETED,
+            "2026-10-18T12:00:30Z",
+            SlayerTaskCompletionCapture.payload(
+                "Dust devils", 187, "duradel", 15, 1255, 313, "2026-10-18T09:12:03Z"));
+    client(capture, Instant.parse("2026-10-18T12:01:00Z"))
+        .submitEvents("https://x.test", "tok", 123456789012345L, Collections.singletonList(event));
+    assertEquals(fixture("events-v1.slayer-task-completed-started.json"), sent(capture));
+  }
+
+  @Test
+  public void aSlayerTaskBlockCarriesTheStart() throws Exception {
+    assertSlayerFixture(
+        "submit-v1.slayer-task-started.json",
+        "018f9c8e-7b7a-7c00-8000-000000000303",
+        "1.1.0",
+        "2026-10-18T12:00:00.000Z",
+        new SlayerTask(
+                true, "Dust devils", 64, 187, "duradel", 1240, 312,
+                SlayerTask.streaks(312, 14, null))
+            .withStartedAt("2026-10-18T09:12:03Z"));
+  }
+
+  @Test
   public void anActiveSlayerTaskBlockMatchesTheFixture() throws Exception {
     assertSlayerFixture(
         "submit-v1.slayer-task-master-streaks.json",
