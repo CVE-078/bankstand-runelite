@@ -41,14 +41,17 @@ public class SlayerTaskCompletionCapture extends BaseCapture {
     this.currentTask = currentTask;
   }
 
-  /** Remembers the running task each time its kill count moves. */
+  /**
+   * Remembers the running task each time its kill count moves. Reads at zero too, so the task is
+   * seen ending and the next one counts as seen starting.
+   */
   @Subscribe
   public void onVarbitChanged(VarbitChanged event) {
-    if (event.getVarpId() != VarPlayerID.SLAYER_COUNT || event.getValue() <= 0) {
+    if (event.getVarpId() != VarPlayerID.SLAYER_COUNT) {
       return;
     }
     SlayerTask task = currentTask.get();
-    if (task != null && task.active) {
+    if (event.getValue() > 0 && task != null && task.active) {
       lastSeen = task;
     }
   }
@@ -84,7 +87,8 @@ public class SlayerTaskCompletionCapture extends BaseCapture {
             task == null ? null : task.master,
             parseCount(m.group("awarded")),
             parseCount(totalPoints),
-            parseCount(m.group("tasks"))));
+            parseCount(m.group("tasks")),
+            task == null ? null : task.startedAt));
   }
 
   /** Forgets the remembered task, on an account switch. */
@@ -105,6 +109,17 @@ public class SlayerTaskCompletionCapture extends BaseCapture {
       Integer pointsAwarded,
       Integer pointsTotal,
       Integer streak) {
+    return payload(creature, killed, master, pointsAwarded, pointsTotal, streak, null);
+  }
+
+  static Map<String, Object> payload(
+      String creature,
+      Integer killed,
+      String master,
+      Integer pointsAwarded,
+      Integer pointsTotal,
+      Integer streak,
+      String startedAt) {
     Map<String, Object> payload = new LinkedHashMap<>();
     payload.put("creature", creature);
     payload.put("killed", killed);
@@ -112,6 +127,10 @@ public class SlayerTaskCompletionCapture extends BaseCapture {
     payload.put("pointsAwarded", pointsAwarded);
     payload.put("pointsTotal", pointsTotal);
     payload.put("streak", streak);
+    // Omitted when unknown, which the server reads as not observed.
+    if (startedAt != null) {
+      payload.put("startedAt", startedAt);
+    }
     return payload;
   }
 

@@ -9,7 +9,9 @@ import com.google.gson.Gson;
 import java.io.File;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Supplier;
 import net.runelite.api.events.VarbitChanged;
 import net.runelite.api.gameval.VarPlayerID;
 import net.runelite.client.util.Text;
@@ -125,6 +127,32 @@ public class SlayerTaskCompletionCaptureTest {
     capture.onMessage(Text.removeTags(TASK_POINTS));
 
     assertEquals("duradel", onlyPayload().get("master"));
+  }
+
+  @Test
+  public void readsTheTaskWhenTheCountDropsToZero() throws Exception {
+    AtomicInteger reads = new AtomicInteger();
+    Supplier<SlayerTask> reader =
+        () -> {
+          reads.incrementAndGet();
+          return SlayerTask.NONE;
+        };
+    SlayerTaskCompletionCapture capture =
+        new SlayerTaskCompletionCapture(null, enabled::get, () -> 1L, reader, null);
+    capture.onVarbitChanged(countChanged(0));
+    assertEquals(1, reads.get());
+  }
+
+  @Test
+  public void carriesTheStartOfTheTaskAsLastSeen() throws Exception {
+    current.set(RUNNING.withStartedAt("2026-10-18T09:12:03Z"));
+    SlayerTaskCompletionCapture capture = capture();
+    capture.onVarbitChanged(countChanged(1));
+    current.set(SlayerTask.NONE);
+
+    capture.onMessage(Text.removeTags(TASK_POINTS));
+
+    assertEquals("2026-10-18T09:12:03Z", onlyPayload().get("startedAt"));
   }
 
   @Test

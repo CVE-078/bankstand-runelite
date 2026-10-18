@@ -1,0 +1,27 @@
+{
+  "submissionId": "018f9c8e-7b7a-7c00-8000-000000000303",
+  "schemaVersion": 1,
+  "pluginVersion": "1.1.0",
+  "capturedAt": "2026-10-18T12:00:00.000Z",
+  "accountHash": "123456789012345",
+  "skills": {
+    "slayer": {
+      "xp": 101333
+    }
+  },
+  "slayerTask": {
+    "active": true,
+    "creature": "Dust devils",
+    "remaining": 64,
+    "assigned": 187,
+    "master": "duradel",
+    "points": 1240,
+    "streak": 312,
+    "streaks": {
+      "standard": 312,
+      "wilderness": 14,
+      "mortimer": null
+    },
+    "startedAt": "2026-10-18T09:12:03Z"
+  }
+}

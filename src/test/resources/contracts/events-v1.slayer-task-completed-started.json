@@ -1,0 +1,20 @@
+{
+  "accountHash": "123456789012345",
+  "events": [
+    {
+      "id": "018f9c8e-7b7a-7c00-8000-000000000203",
+      "type": "slayer_task_completed",
+      "occurredAt": "2026-10-18T12:00:30Z",
+      "payload": {
+        "creature": "Dust devils",
+        "killed": 187,
+        "master": "duradel",
+        "pointsAwarded": 15,
+        "pointsTotal": 1255,
+        "streak": 313,
+        "startedAt": "2026-10-18T09:12:03Z"
+      }
+    }
+  ],
+  "sentAt": "2026-10-18T12:01:00Z"
+}

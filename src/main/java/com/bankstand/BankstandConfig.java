@@ -234,7 +234,8 @@ public interface BankstandConfig extends Config {
       name = "Slayer tracker",
       description =
           "Sends your current slayer task (the creature, how many are left, the master, your"
-              + " points and streaks) and when you finish one. Never the task's location.",
+              + " points and streaks, and when you got it) and when you finish one. Never the"
+              + " task's location.",
       section = playSection,
       position = 3)
   default boolean collectSlayer() {
