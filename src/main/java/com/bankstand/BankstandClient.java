@@ -221,10 +221,6 @@ public class BankstandClient {
   public SubmitEventsResponse submitEvents(
       String baseUrl, String deviceToken, long accountHash, List<TransientEvent> events)
       throws SubmitException {
-    if (isBlank(deviceToken)) {
-      throw new SubmitException("Not paired.");
-    }
-    String url = trimTrailingSlash(baseUrl) + EVENTS_PATH;
     Map<String, Object> body = new LinkedHashMap<>();
     body.put("accountHash", Long.toString(accountHash));
     List<Map<String, Object>> wireEvents = new ArrayList<>(events.size());
@@ -239,38 +235,7 @@ public class BankstandClient {
     body.put("events", wireEvents);
     // Stamped per attempt so the server can correct for this machine's clock.
     body.put("sentAt", clock.get().toString());
-    Map<String, String> headers = new LinkedHashMap<>();
-    headers.put("Content-Type", "application/json");
-    headers.put("Accept", "application/json");
-    headers.put("User-Agent", USER_AGENT);
-    headers.put("Authorization", "Bearer " + deviceToken);
-
-    HttpResponse response;
-    try {
-      response = transport.post(url, wire.toJson(body), headers);
-    } catch (IOException e) {
-      throw new SubmitException("Could not reach Bankstand.", true);
-    }
-    int status = response.getStatus();
-    if (status != 200) {
-      if (status == 401 || status == 403) {
-        throw new SubmitException(
-            "Bankstand rejected the device token. Re-pair in Account > Connect RuneLite.", false, true);
-      }
-      if (status == 429 || status >= 500) {
-        throw new SubmitException("Bankstand is busy.", true);
-      }
-      throw new SubmitException("Bankstand rejected the update.", false);
-    }
-    try {
-      SubmitEventsResponse parsed = gson.fromJson(response.getBody(), SubmitEventsResponse.class);
-      if (parsed == null) {
-        throw new SubmitException("Unexpected response from Bankstand.");
-      }
-      return parsed;
-    } catch (JsonSyntaxException e) {
-      throw new SubmitException("Unexpected response from Bankstand.");
-    }
+    return parse(authorizedPost(baseUrl, EVENTS_PATH, deviceToken, body), SubmitEventsResponse.class);
   }
 
   public CompletableFuture<SubmitEventsResponse> submitEventsWithRetry(
@@ -422,7 +387,8 @@ public class BankstandClient {
     try {
       result.complete(call.call());
     } catch (SubmitException e) {
-      if (!e.isRetryable() || attemptNumber == maxAttempts) {
+      // A Retry-After is the server asking for quiet, so it is never retried here.
+      if (!e.isRetryable() || e.getRetryAfterMillis() > 0 || attemptNumber == maxAttempts) {
         result.completeExceptionally(e);
         return;
       }
