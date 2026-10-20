@@ -34,7 +34,7 @@ public class BankstandClient {
   private static final String MANIFEST_PATH = "/api/plugin/v1/manifest";
   private static final String PRESENCE_PATH = "/api/plugin/v1/presence";
   private static final String LOOT_PATH = "/api/plugin/v1/loot";
-  private static final String USER_AGENT = "Bankstand-RuneLite";
+  private static final String USER_AGENT = "bankstand-runelite/" + PluginVersion.VERSION;
   private static final String GENERIC_FAILURE = "Pairing failed. Check the code and try again.";
 
   // The pause for a 429 without a Retry-After.
