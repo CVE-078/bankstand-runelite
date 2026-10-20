@@ -129,7 +129,7 @@ public class BankstandClientTest {
     assertEquals(BASE + "/api/plugin/v1/pair", t.url); // trailing slash trimmed
     assertTrue("normalized code in body", t.body.contains("\"ABCDEFGH\""));
     assertEquals("application/json", t.headers.get("Content-Type"));
-    assertTrue(t.headers.get("User-Agent").startsWith("Bankstand-RuneLite"));
+    assertTrue(t.headers.get("User-Agent").matches("bankstand-runelite/\\d+\\.\\d+\\.\\d+"));
   }
 
   @Test
