@@ -21,10 +21,13 @@ public class DisconnectTest {
     int start = source.indexOf("private void disconnect() {");
     String body = source.substring(start, source.indexOf("\n  }\n", start));
 
-    int readToken = body.indexOf("deviceStore.load().getToken()");
+    int readToken = body.indexOf("DeviceCredentials paired = deviceStore.load();");
     int clear = body.indexOf("deviceStore.clear();");
-    int unpair = body.indexOf("pairingClient.unpairInBackground(savedServerUrl(), token,");
+    int unpair = body.indexOf("pairingClient.unpairInBackground(");
     assertTrue("reads the token before forgetting it", readToken >= 0 && readToken < clear);
+    assertTrue(
+        "revokes at the server it was paired with, not the one now configured",
+        body.indexOf("paired.pairedServerUrl(), paired.getToken()", unpair) > unpair);
     assertTrue("clears before and regardless of the server call", clear < unpair);
     assertTrue(
         "tells the player when the server could not be reached",
