@@ -85,8 +85,8 @@ Under **Settings > Bankstand**:
 
 - **Server URL.** Defaults to the live site. Leave it unless you run Bankstand yourself.
 - **Pairing code.** Paste a code to pair. It clears itself once used.
-- **Disconnect.** Tick to forget this device's token. To revoke it on the server, use **Account**
-  on the website.
+- **Disconnect.** Tick to forget this device's token and revoke it on the server. If the server
+  cannot be reached, a chat message says so; remove the device under **Account** on the website.
 - **One section per capability**, each with its own toggle. Notable drops also has its gp
   threshold.
 

@@ -3,9 +3,7 @@ package com.bankstand;
 import com.bankstand.dto.EventAck;
 import com.bankstand.dto.PairResponse;
 import com.bankstand.dto.PresenceResponse;
-import com.bankstand.dto.SubmitEventsResponse;
 import com.bankstand.dto.SubmitLootResponse;
-import com.bankstand.dto.SubmitResponse;
 import com.bankstand.dto.SubmitSnapshotResponse;
 import com.bankstand.http.HttpTransport;
 import com.bankstand.http.OkHttpTransport;
@@ -117,6 +115,7 @@ public class BankstandPlugin extends Plugin {
   // both on the parchment chat box and on a transparent one.
   private static final Color BRAND = new Color(0xB3730A);
   private static final String NOTICE_PREFIX = "Bankstand: ";
+  private static final String UNPAIR_UNREACHABLE = "Could not reach Bankstand. Remove this device on the website.";
 
   // The server contract is an explicit skill allowlist, not Skill.values(): an unknown key
   // (OVERALL, or a newly added skill) rejects the whole skills block. Widen the server first.
@@ -2166,8 +2165,7 @@ public class BankstandPlugin extends Plugin {
   }
 
   private boolean isPaired() {
-    String token = deviceStore.load().getToken();
-    return token != null && !token.trim().isEmpty();
+    return deviceStore.load().isPaired();
   }
 
   // Each gate is consent AND manifest. Config is the player's consent and the only thing that
@@ -2274,6 +2272,7 @@ public class BankstandPlugin extends Plugin {
   }
 
   private void disconnect() {
+    String token = deviceStore.load().getToken();
     deviceStore.clear();
     // Queued presence belongs to this pairing; never send it under the next one.
     presenceQueue.clear();
@@ -2283,6 +2282,7 @@ public class BankstandPlugin extends Plugin {
     configManager.setConfiguration(
         BankstandKeys.GROUP, BankstandKeys.KEY_DISCONNECT, Boolean.FALSE.toString());
     notice("Disconnected. Nothing will be sent until you pair again.");
+    pairingClient.unpairInBackground(savedServerUrl(), token, () -> notice(UNPAIR_UNREACHABLE));
   }
 
   private void clearPairingCode() {
