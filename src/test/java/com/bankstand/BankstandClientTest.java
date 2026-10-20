@@ -396,7 +396,7 @@ public class BankstandClientTest {
     TransientEvent event = new TransientEvent("e1", TransientEvent.TYPE_NOTABLE_DROP, "2026-08-10T10:00:00Z", payload);
 
     SubmitEventsResponse res =
-        client(t).submitEvents(BASE + "/", "bsd_tok", 123456789012345L, Collections.singletonList(event));
+        client(t).submitEvents(BASE + "/", "bsd_tok", 123456789012345L, Collections.singletonList(event), null);
 
     assertTrue(res.isRouted());
     assertEquals(1, res.getAcks().size());
@@ -413,7 +413,7 @@ public class BankstandClientTest {
   public void submitEventsReportsNotRoutedWhenTheHashIsUnbound() throws Exception {
     FakeTransport t = new FakeTransport(new HttpResponse(200, "{\"routed\":false,\"acks\":[]}"));
     SubmitEventsResponse res =
-        client(t).submitEvents(BASE, "bsd_tok", 1L, Collections.emptyList());
+        client(t).submitEvents(BASE, "bsd_tok", 1L, Collections.emptyList(), null);
     assertFalse(res.isRouted());
     assertTrue(res.getAcks().isEmpty());
   }
@@ -422,7 +422,7 @@ public class BankstandClientTest {
   public void submitEventsWithoutATokenFailsBeforeAnyRequest() {
     FakeTransport t = new FakeTransport(new HttpResponse(200, "{}"));
     try {
-      client(t).submitEvents(BASE, "", 1L, Collections.emptyList());
+      client(t).submitEvents(BASE, "", 1L, Collections.emptyList(), null);
       fail("expected SubmitException");
     } catch (SubmitException e) {
       assertFalseCalled(t);
@@ -433,7 +433,7 @@ public class BankstandClientTest {
   public void submitEventsMapsA401ToATerminalFailure() {
     FakeTransport t = new FakeTransport(new HttpResponse(401, "{\"error\":\"unauthorized\"}"));
     try {
-      client(t).submitEvents(BASE, "bsd_tok", 1L, Collections.emptyList());
+      client(t).submitEvents(BASE, "bsd_tok", 1L, Collections.emptyList(), null);
       fail("expected SubmitException");
     } catch (SubmitException e) {
       assertFalse(e.isRetryable());
@@ -448,7 +448,7 @@ public class BankstandClientTest {
             new HttpResponse(200, "{\"routed\":true,\"acks\":[]}"));
     SubmitEventsResponse res =
         new BankstandClient(t, new Gson(), EXECUTOR)
-            .submitEventsWithRetry(BASE, "bsd_tok", 1L, Collections.emptyList(), 3, 0L)
+            .submitEventsWithRetry(BASE, "bsd_tok", 1L, Collections.emptyList(), null, 3, 0L)
             .get(GET_TIMEOUT_SECONDS, TimeUnit.SECONDS);
     assertTrue(res.isRouted());
     assertEquals(2, t.calls);

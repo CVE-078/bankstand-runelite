@@ -33,25 +33,38 @@ public class LootOutbox {
   /** Rejections that resending the same record can never fix, so it is dropped. A {@code quota}
    *  rejection stays pending: the daily quota resets at UTC midnight. */
   private static final Set<String> TERMINAL_REJECTIONS =
-      new HashSet<>(Arrays.asList("invalid", "stale"));
+      new HashSet<>(Arrays.asList("invalid", "stale", "stale_generation"));
 
   private static final Type LIST_TYPE = new TypeToken<ArrayList<LootEntry>>() {}.getType();
 
   private final File file;
   private final Gson gson;
+  private volatile CaptureGenerations generations = new CaptureGenerations();
 
   public LootOutbox(File file, Gson gson) {
     this.file = file;
     this.gson = gson;
   }
 
-  /** Appends closed records, evicting the oldest pending ones past the cap. */
+  /** Where {@link #addAll} reads the generation each record is stamped with. */
+  public void setCaptureGenerations(CaptureGenerations generations) {
+    this.generations = generations;
+  }
+
+  /**
+   * Appends closed records, each stamped with its account's current capture generation,
+   * evicting the oldest pending ones past the cap.
+   */
   public synchronized void addAll(Collection<LootEntry> added) {
     if (added.isEmpty()) {
       return;
     }
     List<LootEntry> entries = read();
-    entries.addAll(added);
+    for (LootEntry entry : added) {
+      entries.add(
+          new LootEntry(
+              entry.getAccountHash(), entry.getEvent(), generations.get(entry.getAccountHash())));
+    }
     int evicted = 0;
     while (entries.size() > MAX_PENDING) {
       entries.remove(0);
@@ -76,6 +89,11 @@ public class LootOutbox {
     List<LootEntry> entries = read();
     entries.removeIf(entry -> ids.contains(entry.getEvent().getId()));
     write(entries);
+  }
+
+  /** Forgets every pending record, on disk too, so a restart cannot send them either. */
+  public synchronized void clear() {
+    write(new ArrayList<>());
   }
 
   /** Stored, duplicate and unfixable rejections are dropped; anything else is resent. */

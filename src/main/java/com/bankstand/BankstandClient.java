@@ -217,14 +217,17 @@ public class BankstandClient {
         () -> submitSnapshot(baseUrl, deviceToken, envelopeBody), maxAttempts, baseDelayMillis);
   }
 
-  /** Wire field names are a server contract; do not rename them. */
+  /**
+   * Wire field names are a server contract; do not rename them. {@code captureGeneration} is
+   * the one every event was queued with; null leaves it out.
+   */
   public SubmitEventsResponse submitEvents(
-      String baseUrl, String deviceToken, long accountHash, List<TransientEvent> events)
+      String baseUrl,
+      String deviceToken,
+      long accountHash,
+      List<TransientEvent> events,
+      Integer captureGeneration)
       throws SubmitException {
-    if (isBlank(deviceToken)) {
-      throw new SubmitException("Not paired.");
-    }
-    String url = trimTrailingSlash(baseUrl) + EVENTS_PATH;
     Map<String, Object> body = new LinkedHashMap<>();
     body.put("accountHash", Long.toString(accountHash));
     List<Map<String, Object>> wireEvents = new ArrayList<>(events.size());
@@ -239,38 +242,8 @@ public class BankstandClient {
     body.put("events", wireEvents);
     // Stamped per attempt so the server can correct for this machine's clock.
     body.put("sentAt", clock.get().toString());
-    Map<String, String> headers = new LinkedHashMap<>();
-    headers.put("Content-Type", "application/json");
-    headers.put("Accept", "application/json");
-    headers.put("User-Agent", USER_AGENT);
-    headers.put("Authorization", "Bearer " + deviceToken);
-
-    HttpResponse response;
-    try {
-      response = transport.post(url, wire.toJson(body), headers);
-    } catch (IOException e) {
-      throw new SubmitException("Could not reach Bankstand.", true);
-    }
-    int status = response.getStatus();
-    if (status != 200) {
-      if (status == 401 || status == 403) {
-        throw new SubmitException(
-            "Bankstand rejected the device token. Re-pair in Account > Connect RuneLite.", false, true);
-      }
-      if (status == 429 || status >= 500) {
-        throw new SubmitException("Bankstand is busy.", true);
-      }
-      throw new SubmitException("Bankstand rejected the update.", false);
-    }
-    try {
-      SubmitEventsResponse parsed = gson.fromJson(response.getBody(), SubmitEventsResponse.class);
-      if (parsed == null) {
-        throw new SubmitException("Unexpected response from Bankstand.");
-      }
-      return parsed;
-    } catch (JsonSyntaxException e) {
-      throw new SubmitException("Unexpected response from Bankstand.");
-    }
+    putCaptureGeneration(body, captureGeneration);
+    return parse(authorizedPost(baseUrl, EVENTS_PATH, deviceToken, body), SubmitEventsResponse.class);
   }
 
   public CompletableFuture<SubmitEventsResponse> submitEventsWithRetry(
@@ -278,10 +251,20 @@ public class BankstandClient {
       String deviceToken,
       long accountHash,
       List<TransientEvent> events,
+      Integer captureGeneration,
       int maxAttempts,
       long baseDelayMillis) {
     return withRetry(
-        () -> submitEvents(baseUrl, deviceToken, accountHash, events), maxAttempts, baseDelayMillis);
+        () -> submitEvents(baseUrl, deviceToken, accountHash, events, captureGeneration),
+        maxAttempts,
+        baseDelayMillis);
+  }
+
+  /** Left out when null, so an unstamped request reads exactly as before. */
+  private static void putCaptureGeneration(Map<String, Object> body, Integer captureGeneration) {
+    if (captureGeneration != null) {
+      body.put("captureGeneration", captureGeneration);
+    }
   }
 
   /**
@@ -294,7 +277,8 @@ public class BankstandClient {
       long accountHash,
       String state,
       long elapsedMs,
-      Boolean loot)
+      Boolean loot,
+      Integer captureGeneration)
       throws SubmitException {
     Map<String, Object> body = new LinkedHashMap<>();
     body.put("accountHash", Long.toString(accountHash));
@@ -303,17 +287,23 @@ public class BankstandClient {
     if (loot != null) {
       body.put("loot", loot);
     }
+    putCaptureGeneration(body, captureGeneration);
     HttpResponse response = authorizedPost(baseUrl, PRESENCE_PATH, deviceToken, body);
     return parse(response, PresenceResponse.class);
   }
 
   /** Sends one account's loot records, single attempt; a 429 carries its Retry-After. */
   public SubmitLootResponse submitLoot(
-      String baseUrl, String deviceToken, long accountHash, List<LootEvent> events)
+      String baseUrl,
+      String deviceToken,
+      long accountHash,
+      List<LootEvent> events,
+      Integer captureGeneration)
       throws SubmitException {
     Map<String, Object> body = new LinkedHashMap<>();
     body.put("accountHash", Long.toString(accountHash));
     body.put("sentAt", clock.get().toString());
+    putCaptureGeneration(body, captureGeneration);
     body.put("events", new ArrayList<>(events));
     HttpResponse response = authorizedPost(baseUrl, LOOT_PATH, deviceToken, body);
     return parse(response, SubmitLootResponse.class);

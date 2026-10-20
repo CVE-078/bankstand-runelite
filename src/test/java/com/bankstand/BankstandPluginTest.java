@@ -345,7 +345,7 @@ public class BankstandPluginTest {
 
   @Test
   public void chunkEventsKeepsAGroupAtExactlyTheCapInOneChunk() {
-    List<List<TransientEvent>> chunks = BankstandPlugin.chunkEvents(events(50), 50);
+    List<List<TransientEvent>> chunks = SendGroup.chunk(events(50), 50);
 
     assertEquals(1, chunks.size());
     assertEquals(50, chunks.get(0).size());
@@ -354,7 +354,7 @@ public class BankstandPluginTest {
   @Test
   public void chunkEventsSplitsAGroupOverTheCapIntoTwoChunks() {
     // Over the server's per-request cap, the whole request is rejected every time.
-    List<List<TransientEvent>> chunks = BankstandPlugin.chunkEvents(events(51), 50);
+    List<List<TransientEvent>> chunks = SendGroup.chunk(events(51), 50);
 
     assertEquals(2, chunks.size());
     assertEquals(50, chunks.get(0).size());
@@ -363,7 +363,7 @@ public class BankstandPluginTest {
 
   @Test
   public void chunkEventsPreservesOrderWithinAndAcrossChunks() {
-    List<List<TransientEvent>> chunks = BankstandPlugin.chunkEvents(events(120), 50);
+    List<List<TransientEvent>> chunks = SendGroup.chunk(events(120), 50);
 
     assertEquals(3, chunks.size());
     assertEquals("id-0", chunks.get(0).get(0).getId());
@@ -377,7 +377,7 @@ public class BankstandPluginTest {
   @Test
   public void idsToAckIncludesStoredAndDuplicateOutcomes() {
     Set<String> ids =
-        BankstandPlugin.idsToAck(Arrays.asList(ack("a", "stored", null), ack("b", "duplicate", null)));
+        EventOutbox.idsToAck(Arrays.asList(ack("a", "stored", null), ack("b", "duplicate", null)));
 
     assertTrue(ids.contains("a"));
     assertTrue(ids.contains("b"));
@@ -386,14 +386,14 @@ public class BankstandPluginTest {
   @Test
   public void idsToAckIncludesARejectedStaleOutcome() {
     // Age only increases, so a stale event can never become deliverable.
-    Set<String> ids = BankstandPlugin.idsToAck(Collections.singletonList(ack("a", "rejected", "stale")));
+    Set<String> ids = EventOutbox.idsToAck(Collections.singletonList(ack("a", "rejected", "stale")));
 
     assertTrue(ids.contains("a"));
   }
 
   @Test
   public void idsToAckIncludesARejectedInvalidOutcome() {
-    Set<String> ids = BankstandPlugin.idsToAck(Collections.singletonList(ack("a", "rejected", "invalid")));
+    Set<String> ids = EventOutbox.idsToAck(Collections.singletonList(ack("a", "rejected", "invalid")));
 
     assertTrue(ids.contains("a"));
   }
@@ -402,14 +402,14 @@ public class BankstandPluginTest {
   public void idsToAckExcludesARejectedNotAppliedOutcome() {
     // The capability flag can be turned on later, so this stays worth retrying.
     Set<String> ids =
-        BankstandPlugin.idsToAck(Collections.singletonList(ack("a", "rejected", "not_applied")));
+        EventOutbox.idsToAck(Collections.singletonList(ack("a", "rejected", "not_applied")));
 
     assertTrue(ids.isEmpty());
   }
 
   @Test
   public void idsToAckExcludesAnUnrecognisedOutcome() {
-    Set<String> ids = BankstandPlugin.idsToAck(Collections.singletonList(ack("a", "pending", null)));
+    Set<String> ids = EventOutbox.idsToAck(Collections.singletonList(ack("a", "pending", null)));
 
     assertTrue(ids.isEmpty());
   }
