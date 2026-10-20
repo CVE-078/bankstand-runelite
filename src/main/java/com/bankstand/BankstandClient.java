@@ -39,6 +39,8 @@ public class BankstandClient {
   private static final long UNPAIR_TIMEOUT_MILLIS = 5_000L;
   private static final String USER_AGENT = "Bankstand-RuneLite";
   private static final String GENERIC_FAILURE = "Pairing failed. Check the code and try again.";
+  // Redirects are never followed, so the token and body never reach a host they were not sent to.
+  static final String REDIRECTED = "The server redirected the request, so it was not sent. Check the Server URL.";
 
   // The pause for a 429 without a Retry-After.
   static final long DEFAULT_RETRY_AFTER_MILLIS = 60_000L;
@@ -91,7 +93,7 @@ public class BankstandClient {
     }
 
     if (response.getStatus() != 200) {
-      throw new PairingException(GENERIC_FAILURE);
+      throw new PairingException(response.getStatus() / 100 == 3 ? REDIRECTED : GENERIC_FAILURE);
     }
 
     PairResponse parsed;
@@ -193,7 +195,7 @@ public class BankstandClient {
       if (status == 429 || status >= 500) {
         throw new SubmitException("Bankstand is busy.", true);
       }
-      throw new SubmitException("Bankstand rejected the update.", false);
+      throw new SubmitException(status / 100 == 3 ? REDIRECTED : "Bankstand rejected the update.", false);
     }
     try {
       SubmitEventsResponse parsed = gson.fromJson(response.getBody(), SubmitEventsResponse.class);
@@ -286,7 +288,7 @@ public class BankstandClient {
     if (status >= 500) {
       throw new SubmitException("Bankstand is busy.", true);
     }
-    throw new SubmitException("Bankstand rejected the update.", false);
+    throw new SubmitException(status / 100 == 3 ? REDIRECTED : "Bankstand rejected the update.", false);
   }
 
   /**
@@ -302,10 +304,8 @@ public class BankstandClient {
     headers.put("User-Agent", USER_AGENT);
     headers.put("Authorization", "Bearer " + deviceToken);
     try {
-      int status =
-          transport
-              .post(trimTrailingSlash(baseUrl) + UNPAIR_PATH, "", headers, UNPAIR_TIMEOUT_MILLIS)
-              .getStatus();
+      String url = trimTrailingSlash(baseUrl) + UNPAIR_PATH;
+      int status = transport.post(url, "", headers, UNPAIR_TIMEOUT_MILLIS).getStatus();
       return status == 204 || status == 401;
     } catch (IOException e) {
       return false;
