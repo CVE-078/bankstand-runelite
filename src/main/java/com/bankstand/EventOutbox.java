@@ -1,5 +1,6 @@
 package com.bankstand;
 
+import com.bankstand.dto.EventAck;
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 import java.io.File;
@@ -38,6 +39,7 @@ public class EventOutbox {
 
   private final File file;
   private final Gson gson;
+  private volatile CaptureGenerations generations = new CaptureGenerations();
 
   public EventOutbox(File file, Gson gson) {
     this.file = file;
@@ -45,10 +47,18 @@ public class EventOutbox {
     this.gson = gson.newBuilder().serializeNulls().create();
   }
 
-  /** Appends one event, evicting the oldest pending entry (logged) if this overflows the cap. */
+  /** Where {@link #add} reads the generation each event is stamped with. */
+  public void setCaptureGenerations(CaptureGenerations generations) {
+    this.generations = generations;
+  }
+
+  /**
+   * Appends one event, stamped with its account's current capture generation, evicting the
+   * oldest pending entry (logged) if this overflows the cap.
+   */
   public synchronized void add(long accountHash, TransientEvent event) {
     List<OutboxEntry> entries = read();
-    entries.add(new OutboxEntry(accountHash, event));
+    entries.add(new OutboxEntry(accountHash, event, generations.get(accountHash)));
     while (entries.size() > MAX_PENDING) {
       OutboxEntry dropped = entries.remove(0);
       log.warn(
@@ -119,6 +129,27 @@ public class EventOutbox {
       // Swallowed: throwing out of a capture handler would break every detector on the tick.
       log.debug("event outbox write failed: {}", e.getMessage());
     }
+  }
+
+  /**
+   * The ids to stop retrying: stored or duplicate, plus rejections no resend can fix ({@code
+   * stale} and {@code invalid}, and {@code stale_generation} for an event queued before the
+   * player removed their captured data). {@code not_applied} stays pending, since the capability
+   * flag can be turned on later.
+   */
+  static Set<String> idsToAck(List<EventAck> acks) {
+    Set<String> ids = new HashSet<>();
+    for (EventAck ack : acks) {
+      boolean terminal =
+          "rejected".equals(ack.getOutcome())
+              && ("stale".equals(ack.getReason())
+                  || "invalid".equals(ack.getReason())
+                  || "stale_generation".equals(ack.getReason()));
+      if (ack.isStored() || terminal) {
+        ids.add(ack.getId());
+      }
+    }
+    return ids;
   }
 
   static Set<String> toIdSet(Iterable<String> ids) {

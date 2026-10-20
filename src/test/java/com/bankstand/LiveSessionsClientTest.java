@@ -54,7 +54,7 @@ public class LiveSessionsClientTest {
   @Test
   public void presenceGoesToItsOwnRouteWithTheDeviceToken() throws Exception {
     Fake fake = new Fake(new HttpResponse(200, "{\"applied\":true}"));
-    PresenceResponse res = client(fake).submitPresence("https://x.test/", "tok", 5L, "active", 0L, true);
+    PresenceResponse res = client(fake).submitPresence("https://x.test/", "tok", 5L, "active", 0L, true, null);
     assertTrue(res.isApplied());
     assertEquals("https://x.test/api/plugin/v1/presence", fake.url);
     assertEquals("Bearer tok", fake.headers.get("Authorization"));
@@ -63,16 +63,16 @@ public class LiveSessionsClientTest {
   @Test
   public void presenceSendsTheLootFlagOnlyWhenGiven() throws Exception {
     Fake fake = new Fake(new HttpResponse(200, "{\"applied\":true}"));
-    client(fake).submitPresence("https://x.test", "tok", 5L, "active", 0L, false);
+    client(fake).submitPresence("https://x.test", "tok", 5L, "active", 0L, false, null);
     assertTrue(fake.body.contains("\"loot\":false"));
-    client(fake).submitPresence("https://x.test", "tok", 5L, "logout", 0L, null);
+    client(fake).submitPresence("https://x.test", "tok", 5L, "logout", 0L, null, null);
     assertFalse(fake.body.contains("loot"));
   }
 
   @Test
   public void anUnappliedPresenceIsAnAnswerNotAFailure() throws Exception {
     Fake fake = new Fake(new HttpResponse(200, "{\"applied\":false,\"reason\":\"unclaimed\"}"));
-    assertFalse(client(fake).submitPresence("https://x.test", "tok", 5L, "login", 0L, false).isApplied());
+    assertFalse(client(fake).submitPresence("https://x.test", "tok", 5L, "login", 0L, false, null).isApplied());
   }
 
   @Test
@@ -80,7 +80,7 @@ public class LiveSessionsClientTest {
     Fake fake =
         new Fake(new HttpResponse(200, "{\"acks\":[{\"id\":\"a\",\"outcome\":\"stored\"}]}"));
     SubmitLootResponse res =
-        client(fake).submitLoot("https://x.test", "tok", 5L, Collections.emptyList());
+        client(fake).submitLoot("https://x.test", "tok", 5L, Collections.emptyList(), null);
     assertEquals("https://x.test/api/plugin/v1/loot", fake.url);
     assertTrue(res.getAcks().get(0).isStored());
   }
@@ -89,7 +89,7 @@ public class LiveSessionsClientTest {
   public void a429CarriesItsRetryAfter() {
     Fake fake = new Fake(new HttpResponse(429, "", "120"));
     try {
-      client(fake).submitLoot("https://x.test", "tok", 5L, Collections.emptyList());
+      client(fake).submitLoot("https://x.test", "tok", 5L, Collections.emptyList(), null);
       fail("expected a SubmitException");
     } catch (SubmitException e) {
       assertTrue(e.isRetryable());
@@ -113,7 +113,7 @@ public class LiveSessionsClientTest {
   public void anOldServerWithoutTheRouteIsATerminalFailure() {
     Fake fake = new Fake(new HttpResponse(404, ""));
     try {
-      client(fake).submitPresence("https://x.test", "tok", 5L, "login", 0L, false);
+      client(fake).submitPresence("https://x.test", "tok", 5L, "login", 0L, false, null);
       fail("expected a SubmitException");
     } catch (SubmitException e) {
       assertFalse(e.isRetryable());
@@ -123,7 +123,7 @@ public class LiveSessionsClientTest {
   @Test
   public void eventsCarryASentAtForTheServersClockCorrection() throws Exception {
     Fake fake = new Fake(new HttpResponse(200, "{\"routed\":true,\"acks\":[]}"));
-    client(fake).submitEvents("https://x.test", "tok", 5L, Collections.emptyList());
+    client(fake).submitEvents("https://x.test", "tok", 5L, Collections.emptyList(), null);
     assertTrue(fake.body, fake.body.contains("\"sentAt\":\"2026-10-08T12:00:00Z\""));
   }
 
@@ -136,7 +136,7 @@ public class LiveSessionsClientTest {
     payload.put("source", null);
     TransientEvent pet =
         new TransientEvent("p1", TransientEvent.TYPE_PET_DROP, "2026-10-08T12:00:00Z", payload);
-    client(fake).submitEvents("https://x.test", "tok", 5L, Collections.singletonList(pet));
+    client(fake).submitEvents("https://x.test", "tok", 5L, Collections.singletonList(pet), null);
     assertTrue(fake.body, fake.body.contains("\"source\":null"));
   }
 }

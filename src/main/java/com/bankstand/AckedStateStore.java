@@ -33,7 +33,7 @@ public class AckedStateStore {
   }
 
   /** Never null. */
-  public AckedState load(long accountHash) {
+  public synchronized AckedState load(long accountHash) {
     AckedState stored = read().accounts.get(Long.toString(accountHash));
     if (stored == null) {
       return AckedState.empty();
@@ -49,13 +49,45 @@ public class AckedStateStore {
     copy.setCollectionLogAcked(stored.getCollectionLogAcked());
     copy.setLastSyncedAt(stored.getLastSyncedAt());
     copy.setDiaryTaskBits(stored.getDiaryTaskBits());
+    copy.setCaptureGeneration(stored.getCaptureGeneration());
     return copy;
   }
 
-  /** Leaves every other character's state untouched. */
-  public void save(long accountHash, AckedState state) {
+  /**
+   * Leaves every other character's state untouched. Always keeps the stored capture generation:
+   * only {@link #saveCaptureGeneration} and {@link #clearCaptureGenerations} write it, so a full
+   * save snapshotted before an ack can never put an older value back.
+   */
+  public synchronized void save(long accountHash, AckedState state) {
     Document document = read();
-    document.accounts.put(Long.toString(accountHash), state);
+    String key = Long.toString(accountHash);
+    AckedState previous = document.accounts.get(key);
+    state.setCaptureGeneration(previous == null ? null : previous.getCaptureGeneration());
+    document.accounts.put(key, state);
+    write(document);
+  }
+
+  /** Forgets every account's capture generation, keeping the rest of each state. */
+  public synchronized void clearCaptureGenerations() {
+    Document document = read();
+    for (AckedState state : document.accounts.values()) {
+      if (state != null) {
+        state.setCaptureGeneration(null);
+      }
+    }
+    write(document);
+  }
+
+  /** Records only the capture generation, for an ack that arrives for any account. */
+  public synchronized void saveCaptureGeneration(long accountHash, int generation) {
+    Document document = read();
+    String key = Long.toString(accountHash);
+    AckedState state = document.accounts.get(key);
+    if (state == null) {
+      state = AckedState.empty();
+      document.accounts.put(key, state);
+    }
+    state.setCaptureGeneration(generation);
     write(document);
   }
 

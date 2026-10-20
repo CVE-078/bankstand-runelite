@@ -39,6 +39,9 @@ public class AckedState {
    */
   private Map<Integer, Integer> diaryTaskBits;
 
+  /** The server's last acked capture generation, or null when none was seen. */
+  private Integer captureGeneration;
+
   /** The state of a character nothing is known about yet: everything resends once. */
   public static AckedState empty() {
     AckedState state = new AckedState();
@@ -132,5 +135,13 @@ public class AckedState {
 
   public void setDiaryTaskBits(Map<Integer, Integer> bits) {
     this.diaryTaskBits = new LinkedHashMap<>(bits);
+  }
+
+  public Integer getCaptureGeneration() {
+    return captureGeneration;
+  }
+
+  public void setCaptureGeneration(Integer captureGeneration) {
+    this.captureGeneration = captureGeneration;
   }
 }

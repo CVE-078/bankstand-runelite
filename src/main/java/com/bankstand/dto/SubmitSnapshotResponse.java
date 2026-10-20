@@ -10,6 +10,12 @@ public class SubmitSnapshotResponse {
   private String serverTime;
   private String nextSubmitAfter;
   private List<String> storedBlocks;
+  private Integer captureGeneration;
+
+  /** Null from an older server, or when the submission never reached the write. */
+  public Integer getCaptureGeneration() {
+    return captureGeneration;
+  }
 
   public boolean isAccepted() {
     return accepted;
