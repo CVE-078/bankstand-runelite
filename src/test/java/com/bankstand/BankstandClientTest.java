@@ -563,4 +563,54 @@ public class BankstandClientTest {
     assertTrue(client(t).unpair(BASE, " "));
     assertFalseCalled(t);
   }
+
+  private static HttpResponse redirect() {
+    return new HttpResponse(307, "");
+  }
+
+  @Test
+  public void aRedirectIsATerminalFailureThatSaysSo() throws Exception {
+    BankstandClient c = client(new FakeTransport(redirect()));
+    SubmitException[] failures = new SubmitException[4];
+    try {
+      c.submitIdentity(BASE, "bsd_tok", 1L, "Zezima");
+    } catch (SubmitException e) {
+      failures[0] = e;
+    }
+    try {
+      c.submitSnapshot(BASE, "bsd_tok", new LinkedHashMap<>());
+    } catch (SubmitException e) {
+      failures[1] = e;
+    }
+    try {
+      c.submitEvents(BASE, "bsd_tok", 1L, Collections.emptyList());
+    } catch (SubmitException e) {
+      failures[2] = e;
+    }
+    try {
+      c.submitLoot(BASE, "bsd_tok", 1L, Collections.emptyList());
+    } catch (SubmitException e) {
+      failures[3] = e;
+    }
+    for (SubmitException e : failures) {
+      assertNotNull("a redirect must fail", e);
+      assertEquals(BankstandClient.REDIRECTED, e.getMessage());
+      assertFalse("never retried", e.isRetryable());
+    }
+  }
+
+  @Test
+  public void aRedirectedPairingSaysSo() {
+    try {
+      client(new FakeTransport(redirect())).exchangePairingCode(BASE, "ABCD-EFGH");
+      fail("expected PairingException");
+    } catch (PairingException e) {
+      assertEquals(BankstandClient.REDIRECTED, e.getMessage());
+    }
+  }
+
+  @Test
+  public void aRedirectedUnpairIsNotARevoke() {
+    assertFalse(client(new FakeTransport(redirect())).unpair(BASE, "bsd_tok"));
+  }
 }

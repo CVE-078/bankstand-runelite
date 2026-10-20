@@ -58,6 +58,17 @@ public class BankstandKeysTest {
   }
 
   @Test
+  public void reducesAUrlToItsOrigin() {
+    assertEquals("https://bankstand.gg:443", BankstandKeys.originOf("https://BankStand.gg/x/?q#f"));
+    assertEquals("http://localhost:3001", BankstandKeys.originOf(" http://localhost:3001/ "));
+    assertEquals("https://my_app:3000", BankstandKeys.originOf("https://my_app:3000/x"));
+    // The host a request really goes to, not the text before an "@".
+    assertEquals("https://evil.test:443", BankstandKeys.originOf("https://bankstand.gg@evil.test"));
+    org.junit.Assert.assertNull(BankstandKeys.originOf("ftp://bankstand.gg"));
+    org.junit.Assert.assertNull(BankstandKeys.originOf(null));
+  }
+
+  @Test
   public void keepsAPortAndPathWhenUpgrading() {
     assertEquals("https://my_app:3000/x", BankstandKeys.normaliseServerUrl("http://my_app:3000/x"));
     assertEquals("http://localhost:3001/", BankstandKeys.normaliseServerUrl("http://localhost:3001/"));

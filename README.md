@@ -83,7 +83,9 @@ client: it never clicks, sends input or runs game scripts.
 
 Under **Settings > Bankstand**:
 
-- **Server URL.** Defaults to the live site. Leave it unless you run Bankstand yourself.
+- **Server URL.** Defaults to the live site. Leave it unless you run Bankstand yourself. A pairing
+  belongs to the server it was made with: point this at another server and nothing is sent until
+  you pair with that one. Redirects are never followed.
 - **Pairing code.** Paste a code to pair. It clears itself once used.
 - **Disconnect.** Tick to forget this device's token and revoke it on the server. If the server
   cannot be reached, a chat message says so; remove the device under **Account** on the website.
