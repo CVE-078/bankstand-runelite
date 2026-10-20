@@ -124,13 +124,29 @@ public class CaptureGenerationTest {
   }
 
   @Test
-  public void lootAndPresenceAreStampedWhenQueued() {
+  public void lootIsStampedWhenTheKillIsRecordedNotWhenTheWindowCloses() {
+    LootLedger ledger = new LootLedger();
+    ledger.setCaptureGenerations(generations);
     LootOutbox outbox = new LootOutbox(new File(dir, "loot.json"), new Gson());
-    outbox.setCaptureGenerations(generations);
-    generations.observe(1L, 7);
-    outbox.addAll(Collections.singletonList(loot("a")));
-    assertEquals(Integer.valueOf(7), outbox.pending().get(0).getCaptureGeneration());
+    Map<Integer, Integer> bones = Collections.singletonMap(526, 1);
+    Instant at = Instant.parse("2026-10-20T10:00:00Z");
+    generations.observe(1L, 4);
+    ledger.record(1L, 1, "Rat", bones, at);
+    // A removal is acked while the window is still open.
+    generations.observe(1L, 5);
+    outbox.addAll(ledger.record(1L, 1, "Rat", bones, at.plusSeconds(5)));
+    outbox.addAll(ledger.closeAll());
 
+    List<LootEntry> pending = new LootOutbox(new File(dir, "loot.json"), new Gson()).pending();
+    assertEquals(2, pending.size());
+    assertEquals(Integer.valueOf(4), pending.get(0).getCaptureGeneration());
+    assertEquals(1, pending.get(0).getEvent().getKills());
+    assertEquals(Integer.valueOf(5), pending.get(1).getCaptureGeneration());
+  }
+
+  @Test
+  public void presenceIsStampedWhenQueued() {
+    generations.observe(1L, 7);
     PresenceQueue queue = new PresenceQueue();
     queue.setCaptureGenerations(generations);
     queue.addTransition(new PresenceSignal(PresenceSignal.LOGIN, 1L, 0L));

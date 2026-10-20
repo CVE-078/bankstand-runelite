@@ -54,16 +54,15 @@ public class AckedStateStore {
   }
 
   /**
-   * Leaves every other character's state untouched. A state with no capture generation keeps
-   * the stored one, so a save before the first ack never forgets it.
+   * Leaves every other character's state untouched. Always keeps the stored capture generation:
+   * only {@link #saveCaptureGeneration} and {@link #clearCaptureGenerations} write it, so a full
+   * save snapshotted before an ack can never put an older value back.
    */
   public synchronized void save(long accountHash, AckedState state) {
     Document document = read();
     String key = Long.toString(accountHash);
     AckedState previous = document.accounts.get(key);
-    if (state.getCaptureGeneration() == null && previous != null) {
-      state.setCaptureGeneration(previous.getCaptureGeneration());
-    }
+    state.setCaptureGeneration(previous == null ? null : previous.getCaptureGeneration());
     document.accounts.put(key, state);
     write(document);
   }

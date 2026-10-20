@@ -39,32 +39,22 @@ public class LootOutbox {
 
   private final File file;
   private final Gson gson;
-  private volatile CaptureGenerations generations = new CaptureGenerations();
 
   public LootOutbox(File file, Gson gson) {
     this.file = file;
     this.gson = gson;
   }
 
-  /** Where {@link #addAll} reads the generation each record is stamped with. */
-  public void setCaptureGenerations(CaptureGenerations generations) {
-    this.generations = generations;
-  }
-
   /**
-   * Appends closed records, each stamped with its account's current capture generation,
-   * evicting the oldest pending ones past the cap.
+   * Appends closed records, evicting the oldest pending ones past the cap. Each keeps the
+   * capture generation {@link LootLedger} stamped when its window opened.
    */
   public synchronized void addAll(Collection<LootEntry> added) {
     if (added.isEmpty()) {
       return;
     }
     List<LootEntry> entries = read();
-    for (LootEntry entry : added) {
-      entries.add(
-          new LootEntry(
-              entry.getAccountHash(), entry.getEvent(), generations.get(entry.getAccountHash())));
-    }
+    entries.addAll(added);
     int evicted = 0;
     while (entries.size() > MAX_PENDING) {
       entries.remove(0);

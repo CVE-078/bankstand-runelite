@@ -59,13 +59,19 @@ public final class CaptureGenerations {
 
   /**
    * Forgets every generation, here and on disk: a new pairing may be another Bankstand account,
-   * so what is queued next goes unstamped until that account acks one.
+   * so what is queued next goes unstamped until that account acks one. The disk write is queued
+   * behind any pending generation write, so none of those can put an old value back.
+   *
+   * <p>shortcut: an ack still in flight when this runs can re-teach the old pairing's value;
+   * captures stamped with it are refused once and the refusal teaches the right one. Tag each
+   * request with a pairing epoch if that ever matters.
    */
   public void forget() {
     byAccount.clear();
     AckedStateStore target = store;
-    if (target != null) {
-      target.clearCaptureGenerations();
+    Executor writer = executor;
+    if (target != null && writer != null) {
+      writer.execute(target::clearCaptureGenerations);
     }
   }
 }

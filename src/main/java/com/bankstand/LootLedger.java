@@ -24,6 +24,12 @@ final class LootLedger {
   static final Duration MAX_WINDOW = Duration.ofMinutes(5);
 
   private final Map<Key, Window> open = new LinkedHashMap<>();
+  private volatile CaptureGenerations generations = new CaptureGenerations();
+
+  /** Where a window reads the capture generation it is stamped with when it opens. */
+  void setCaptureGenerations(CaptureGenerations generations) {
+    this.generations = generations;
+  }
 
   /**
    * Records one kill and returns any window it closed to make room.
@@ -40,13 +46,16 @@ final class LootLedger {
     }
     Key key = new Key(accountHash, npcId);
     Window window = open.get(key);
-    if (window != null && !window.accepts(kill, at)) {
+    // A kill after a new generation was acked never joins a window from before it.
+    Integer generation = generations.get(accountHash);
+    if (window != null
+        && (!window.accepts(kill, at) || !Objects.equals(window.generation, generation))) {
       closed.add(window.close(accountHash));
       open.remove(key);
       window = null;
     }
     if (window == null) {
-      window = new Window(npcId, name, at);
+      window = new Window(npcId, name, at, generation);
       open.put(key, window);
     }
     window.add(kill, at);
@@ -140,14 +149,17 @@ final class LootLedger {
     final int npcId;
     final String npcName;
     final Instant start;
+    // The capture generation known when the window's first kill was recorded.
+    final Integer generation;
     Instant last;
     int kills;
     final Map<Integer, Long> items = new LinkedHashMap<>();
 
-    Window(int npcId, String npcName, Instant start) {
+    Window(int npcId, String npcName, Instant start, Integer generation) {
       this.npcId = npcId;
       this.npcName = npcName;
       this.start = start;
+      this.generation = generation;
       this.last = start;
     }
 
@@ -188,7 +200,8 @@ final class LootLedger {
       return new LootEntry(
           accountHash,
           new LootEvent(
-              UuidV7.generate(), npcId, npcName, kills, start.toString(), last.toString(), list));
+              UuidV7.generate(), npcId, npcName, kills, start.toString(), last.toString(), list),
+          generation);
     }
   }
 }

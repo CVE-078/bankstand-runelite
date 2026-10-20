@@ -335,7 +335,7 @@ public class BankstandPlugin extends Plugin {
             onEmit);
     eventBus.register(slayerTaskCompletionCapture);
     lootOutbox = new LootOutbox(new File(ACKED_STATE_DIR, LOOT_FILE), gson);
-    lootOutbox.setCaptureGenerations(captureGenerations);
+    lootLedger.setCaptureGenerations(captureGenerations);
     lootCapture =
         new LootCapture(
             this::isLootCaptureEnabled,
@@ -1744,7 +1744,6 @@ public class BankstandPlugin extends Plugin {
     state.setCollectionLogItems(collectionLog.observed());
     state.setCollectionLogAcked(collectionLogBaseline.ackedCount());
     state.setLastSyncedAt(lastSyncedAt);
-    state.setCaptureGeneration(captureGenerations.get(accountHash));
     executor.submit(() -> ackedStore.save(accountHash, state));
   }
 
