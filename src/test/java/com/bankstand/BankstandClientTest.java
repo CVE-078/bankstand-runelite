@@ -34,6 +34,7 @@ public class BankstandClientTest {
     String body;
     Map<String, String> headers;
     boolean called;
+    long timeoutMillis;
     private final HttpResponse response;
     private final IOException toThrow;
 
@@ -57,6 +58,14 @@ public class BankstandClientTest {
         throw toThrow;
       }
       return response;
+    }
+
+    @Override
+    public HttpResponse post(
+        String url, String jsonBody, Map<String, String> headers, long timeoutMillis)
+        throws IOException {
+      this.timeoutMillis = timeoutMillis;
+      return post(url, jsonBody, headers);
     }
 
     @Override
@@ -505,5 +514,53 @@ public class BankstandClientTest {
     for (String key : transport.headers.keySet()) {
       assertNotEquals("Authorization", key);
     }
+  }
+
+  @Test
+  public void unpairSendsTheBearerWithNoBodyAndAShortTimeout() {
+    FakeTransport t = new FakeTransport(new HttpResponse(204, ""));
+
+    assertTrue(client(t).unpair(BASE + "/", "bsd_tok"));
+
+    assertEquals(BASE + "/api/plugin/v1/unpair", t.url);
+    assertEquals("Bearer bsd_tok", t.headers.get("Authorization"));
+    assertEquals("", t.body);
+    assertTrue("short timeout", t.timeoutMillis > 0 && t.timeoutMillis <= 10_000L);
+  }
+
+  @Test
+  public void unpairTreatsAnUnknownTokenAsAlreadyGone() {
+    FakeTransport t = new FakeTransport(new HttpResponse(401, "{\"error\":\"unauthorized\"}"));
+    assertTrue(client(t).unpair(BASE, "bsd_tok"));
+  }
+
+  @Test
+  public void unpairReportsUnreachableOnANetworkErrorARateLimitOrAServerError() {
+    assertFalse(client(new FakeTransport(null, new IOException("boom"))).unpair(BASE, "bsd_tok"));
+    assertFalse(client(new FakeTransport(new HttpResponse(429, "", "30"))).unpair(BASE, "bsd_tok"));
+    assertFalse(
+        client(new FakeTransport(new HttpResponse(500, "{\"error\":\"unpair failed\"}")))
+            .unpair(BASE, "bsd_tok"));
+  }
+
+  @Test
+  public void unpairInBackgroundReportsOnlyAnUnreachableServer() throws Exception {
+    java.util.concurrent.CountDownLatch reported = new java.util.concurrent.CountDownLatch(1);
+    client(new FakeTransport(null, new IOException("offline")))
+        .unpairInBackground(BASE, "bsd_tok", reported::countDown);
+    assertTrue(reported.await(GET_TIMEOUT_SECONDS, TimeUnit.SECONDS));
+
+    java.util.concurrent.atomic.AtomicBoolean called = new java.util.concurrent.atomic.AtomicBoolean();
+    client(new FakeTransport(new HttpResponse(204, "")))
+        .unpairInBackground(BASE, "bsd_tok", () -> called.set(true));
+    EXECUTOR.submit(() -> {}).get(GET_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+    assertFalse(called.get());
+  }
+
+  @Test
+  public void unpairWithoutATokenSendsNothing() {
+    FakeTransport t = new FakeTransport(new HttpResponse(204, ""));
+    assertTrue(client(t).unpair(BASE, " "));
+    assertFalseCalled(t);
   }
 }
