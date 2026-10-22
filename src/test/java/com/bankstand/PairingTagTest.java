@@ -39,6 +39,13 @@ public class PairingTagTest {
     return outbox;
   }
 
+  // The server already named this account's generation, so captures queue at once.
+  private static CaptureGenerations confirmed() {
+    CaptureGenerations generations = new CaptureGenerations();
+    generations.observe(ACCOUNT, 1);
+    return generations;
+  }
+
   @Test
   public void aFailedClearOnRepairNeverSendsTheOldQueueAfterARestart() throws Exception {
     File dir = folder.newFolder("bankstand");
@@ -48,7 +55,14 @@ public class PairingTagTest {
     LootOutbox loot = loot(dir, () -> pairing[0]);
     PairingQueues queues =
         new PairingQueues(
-            new PresenceQueue(), events, ledger, loot, new CaptureGenerations(), () -> pairing[0]);
+            new PresenceQueue(),
+            events,
+            ledger,
+            loot,
+            confirmed(),
+            () -> pairing[0],
+            new com.bankstand.session.AccountSession(),
+            () -> 0L);
     events.add(ACCOUNT, event("e1"));
     ledger.record(ACCOUNT, 1, "Rat", Collections.singletonMap(526, 1), Instant.now());
     loot.addAll(ledger.closeAll());

@@ -87,9 +87,9 @@ public interface BankstandConfig extends Config {
       keyName = BankstandKeys.KEY_COLLECT_SKILLS,
       name = "Skill XP",
       description =
-          "Sends your XP in each skill, your account hash and your display name while you"
-              + " are paired. This is what identifies your character to Bankstand, so"
-              + " turning it off stops the connection doing anything useful.",
+          "Sends your XP in each skill while you are paired. Quest, diary, combat achievement,"
+              + " collection log, account type and Slayer task progress ride on it. While any"
+              + " capture is on, each login also sends your account hash and display name.",
       section = progressSection,
       position = 1)
   default boolean collectSkills() {

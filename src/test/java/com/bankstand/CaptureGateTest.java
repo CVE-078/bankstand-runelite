@@ -197,6 +197,17 @@ public class CaptureGateTest {
   @Test
   public void forgetsTheLastSkillReadOnANewLoginAndOnLogout() throws Exception {
     BankstandPlugin plugin = pluginOn(EnumSet.noneOf(WorldType.class));
+    Field sessionField = BankstandPlugin.class.getDeclaredField("session");
+    sessionField.setAccessible(true);
+    Field boundary = BankstandPlugin.class.getDeclaredField("captureBoundary");
+    boundary.setAccessible(true);
+    boundary.set(
+        plugin,
+        new CaptureBoundary(
+            new Object(),
+            new CaptureGenerations(),
+            (com.bankstand.session.AccountSession) sessionField.get(plugin),
+            () -> 0L));
     setLastSkillRead(plugin);
     GameStateChanged login = new GameStateChanged();
     login.setGameState(GameState.LOGGED_IN);

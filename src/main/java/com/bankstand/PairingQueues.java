@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.function.LongSupplier;
 import java.util.function.Supplier;
 
 /**
@@ -18,6 +19,7 @@ final class PairingQueues {
   private final LootLedger ledger;
   private final LootOutbox loot;
   private final CaptureGenerations generations;
+  private final CaptureBoundary boundary;
 
   PairingQueues(
       PresenceQueue presence,
@@ -25,7 +27,9 @@ final class PairingQueues {
       LootLedger ledger,
       LootOutbox loot,
       CaptureGenerations generations,
-      Supplier<String> pairing) {
+      Supplier<String> pairing,
+      com.bankstand.session.AccountSession session,
+      LongSupplier clock) {
     events.setPairing(pairing);
     ledger.setPairing(pairing);
     loot.setPairing(pairing);
@@ -34,6 +38,16 @@ final class PairingQueues {
     this.ledger = ledger;
     this.loot = loot;
     this.generations = generations;
+    // Locks on this object, so an answer never interleaves with replace.
+    this.boundary = new CaptureBoundary(this, generations, session, clock);
+    events.setBoundary(boundary);
+    presence.setBoundary(boundary);
+    ledger.setBoundary(boundary);
+    loot.setBoundary(boundary);
+  }
+
+  CaptureBoundary boundary() {
+    return boundary;
   }
 
   /** Drops the old queues and swaps the stored pairing as one step. Returns what it dropped. */
@@ -41,17 +55,25 @@ final class PairingQueues {
     return replace(swapPairing, Collections.emptyMap());
   }
 
-  /** {@link #replace(Runnable)} that also learns the new pairing's generations, before the swap. */
+  /**
+   * {@link #replace(Runnable)} that also learns the new pairing's generations. Older answers stop
+   * counting first, so none lands between the drop and the swap.
+   */
   synchronized Dropped replace(Runnable swapPairing, Map<Long, Integer> generationsByAccount) {
+    Map<CaptureBoundary.Kind, Integer> held = boundary.replace();
     // Dropped first: a crash in between loses the queue, never sends it with the new token.
     Dropped dropped =
-        new Dropped(events.pending().size(), loot.pending().size() + ledger.closeAll().size());
+        new Dropped(
+            events.pending().size() + held.getOrDefault(CaptureBoundary.Kind.EVENT, 0),
+            loot.pending().size()
+                + ledger.closeAll().size()
+                + held.getOrDefault(CaptureBoundary.Kind.LOOT, 0));
     presence.clear();
     events.clear();
     loot.clear();
-    generations.forget();
-    generations.observeAll(generationsByAccount);
     swapPairing.run();
+    // After the swap, so each is saved under the new pairing.
+    generations.observeAll(generationsByAccount);
     return dropped;
   }
 

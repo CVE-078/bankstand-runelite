@@ -31,11 +31,11 @@ final class LootLedger {
   void setPairing(Supplier<String> pairing) {
     this.pairing = pairing;
   }
-  private volatile CaptureGenerations generations = new CaptureGenerations();
+  private volatile CaptureBoundary boundary;
 
-  /** Where a window reads the capture generation it is stamped with when it opens. */
-  void setCaptureGenerations(CaptureGenerations generations) {
-    this.generations = generations;
+  /** Where a window reads what is known about its generation when it opens. */
+  void setBoundary(CaptureBoundary boundary) {
+    this.boundary = boundary;
   }
 
   /**
@@ -43,8 +43,20 @@ final class LootLedger {
    *
    * @param items canonical item id to quantity for this kill alone
    */
-  synchronized List<LootEntry> record(
+  List<LootEntry> record(
       long accountHash, int npcId, String npcName, Map<Integer, Integer> items, Instant at) {
+    // Taken before this lock: the boundary's lock comes first, never after this one.
+    CaptureBoundary decides = boundary;
+    return record(accountHash, npcId, npcName, items, at, decides == null ? null : decides.ticket(accountHash));
+  }
+
+  private synchronized List<LootEntry> record(
+      long accountHash,
+      int npcId,
+      String npcName,
+      Map<Integer, Integer> items,
+      Instant at,
+      CaptureBoundary.Ticket ticket) {
     List<LootEntry> closed = new ArrayList<>();
     String name = cleanName(npcName);
     Map<Integer, Integer> kill = boundedKill(items);
@@ -53,16 +65,14 @@ final class LootLedger {
     }
     Key key = new Key(accountHash, npcId);
     Window window = open.get(key);
-    // A kill after a new generation was acked never joins a window from before it.
-    Integer generation = generations.stampFor(accountHash);
-    if (window != null
-        && (!window.accepts(kill, at) || !Objects.equals(window.generation, generation))) {
+    // A kill after the generation was learned or changed never joins a window from before it.
+    if (window != null && (!window.accepts(kill, at) || !sameStamp(window.ticket, ticket))) {
       closed.add(window.close(accountHash));
       open.remove(key);
       window = null;
     }
     if (window == null) {
-      window = new Window(npcId, name, at, generation, pairing.get());
+      window = new Window(npcId, name, at, ticket, pairing.get());
       open.put(key, window);
     }
     window.add(kill, at);
@@ -93,6 +103,10 @@ final class LootLedger {
   /** Forgets every open window without sending it, for when the player turns loot off. */
   synchronized void discard() {
     open.clear();
+  }
+
+  private static boolean sameStamp(CaptureBoundary.Ticket a, CaptureBoundary.Ticket b) {
+    return a == null ? b == null : b != null && a.sameStamp(b);
   }
 
   private static String cleanName(String npcName) {
@@ -157,18 +171,18 @@ final class LootLedger {
     final String npcName;
     final Instant start;
     final String pairingId;
-    // The capture generation known when the window's first kill was recorded.
-    final Integer generation;
+    // What was known when the window's first kill was recorded.
+    final CaptureBoundary.Ticket ticket;
     Instant last;
     int kills;
     final Map<Integer, Long> items = new LinkedHashMap<>();
 
-    Window(int npcId, String npcName, Instant start, Integer generation, String pairingId) {
+    Window(int npcId, String npcName, Instant start, CaptureBoundary.Ticket ticket, String pairingId) {
       this.pairingId = pairingId;
       this.npcId = npcId;
       this.npcName = npcName;
       this.start = start;
-      this.generation = generation;
+      this.ticket = ticket;
       this.last = start;
     }
 
@@ -210,8 +224,9 @@ final class LootLedger {
           accountHash,
           new LootEvent(
               UuidV7.generate(), npcId, npcName, kills, start.toString(), last.toString(), list),
-          generation,
-          pairingId);
+          ticket != null && ticket.confirmed ? ticket.stamp : null,
+          pairingId,
+          ticket);
     }
   }
 }

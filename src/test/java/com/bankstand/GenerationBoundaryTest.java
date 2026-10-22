@@ -5,214 +5,441 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
-import com.bankstand.dto.EventAck;
-import com.bankstand.dto.SubmitEventsResponse;
-import com.google.gson.Gson;
 import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
-import java.time.Instant;
-import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
-/** No capture is stamped before the server has answered for its character this login. */
+/**
+ * The capture boundary, driven end to end: login, captures, the identity check and uploads run
+ * against a fake server that applies the real capture rule, with a hand-run executor and clock.
+ */
 public class GenerationBoundaryTest {
+  private static final long A = 1L;
+  private static final long B = 2L;
 
   @Rule public TemporaryFolder folder = new TemporaryFolder();
 
   private File dir;
-  private AckedStateStore store;
+  private BoundaryRig rig;
 
   @Before
   public void setUp() throws Exception {
     dir = folder.newFolder("bankstand");
-    store = new AckedStateStore(new File(dir, "acked.json"), new Gson());
+    rig = new BoundaryRig(dir);
   }
 
-  private static TransientEvent event(String id) {
-    return new TransientEvent(
-        id, TransientEvent.TYPE_PET_DROP, "2026-10-20T10:00:00Z", new LinkedHashMap<>());
+  /** A previous run learned {@code generation} for A under this pairing; this is the restart. */
+  private void restartedKnowing(int generation) {
+    rig.server.generation.put(A, generation);
+    rig.generations.observe(A, generation);
+    rig = BoundaryRig.restart(dir, rig);
   }
 
-  private static List<EventAck> acks(String json) {
-    return new Gson().fromJson(json, SubmitEventsResponse.class).getAcks();
+  private BoundaryRig restartedRig() {
+    return BoundaryRig.restart(dir, rig);
   }
 
-  /** A run that restored generation 3 for account 1 from a previous session. */
-  private CaptureGenerations restartedWith(long account, int generation) {
-    store.saveCaptureGeneration(account, generation);
-    CaptureGenerations generations = new CaptureGenerations();
-    generations.persistTo(store, Runnable::run);
-    return generations;
+  private void captureOneOfEach(String tag) {
+    rig.event(A, "e-" + tag);
+    rig.kill(A, 7);
+    rig.loot.addAll(rig.ledger.closeAll());
+    rig.presence(A, PresenceSignal.LOGIN);
   }
 
-  private EventOutbox outbox(CaptureGenerations generations) {
-    EventOutbox outbox = new EventOutbox(new File(dir, "events.json"), new Gson());
-    outbox.setCaptureGenerations(generations);
-    return outbox;
+  // Startup
+
+  @Test
+  public void aStartupHoldsEveryCaptureUntilTheServerAnswersThenSendsThemStamped() throws Exception {
+    restartedKnowing(3);
+    rig.login(A);
+    rig.askIdentity(A);
+    captureOneOfEach("pre");
+    rig.sendAll();
+    assertTrue("nothing leaves before the answer", rig.server.accepted.isEmpty());
+    assertTrue(rig.events.pending().isEmpty());
+    assertFalse(rig.generations.isConfirmed(A));
+
+    rig.runExecutor();
+    assertEquals(Collections.singletonList(3), rig.eventStamps());
+    rig.sendAll();
+    assertEquals(3, rig.server.accepted.size());
+    assertTrue(rig.server.refused.isEmpty());
+    assertTrue(rig.lost.isEmpty());
+    assertEquals(0, rig.boundary.heldCount());
   }
 
-  private static Integer stampOf(EventOutbox outbox, String id) {
-    for (OutboxEntry entry : outbox.pending()) {
-      if (entry.getEvent().getId().equals(id)) {
-        return entry.getCaptureGeneration();
-      }
+  @Test
+  public void aStartupOfflineKeepsHoldingAndSendsOnceTheServerAnswers() throws Exception {
+    restartedKnowing(3);
+    rig.server.offline = true;
+    rig.login(A);
+    rig.askIdentity(A);
+    captureOneOfEach("pre");
+    rig.runExecutor();
+    assertFalse(rig.generations.isConfirmed(A));
+    assertEquals(3, rig.boundary.heldCount());
+
+    rig.server.offline = false;
+    rig.askIdentity(A);
+    rig.runExecutor();
+    rig.sendAll();
+    assertEquals(3, rig.server.accepted.size());
+    assertTrue(rig.lost.isEmpty());
+  }
+
+  @Test
+  public void aServerThatNeverAnswersDropsTheHoldAfterItsTimeLimitCountedAndSaid() {
+    rig.server.offline = true;
+    rig.login(A);
+    rig.askIdentity(A);
+    captureOneOfEach("pre");
+    rig.runExecutor();
+    rig.clock.addAndGet(CaptureBoundary.MAX_HELD_MS);
+    rig.boundary.expire();
+    assertEquals("not yet past the limit", 3, rig.boundary.heldCount());
+    rig.clock.addAndGet(1);
+    rig.boundary.expire();
+    assertEquals(0, rig.boundary.heldCount());
+    assertEquals(1, rig.boundary.timedOut(CaptureBoundary.Kind.EVENT));
+    assertEquals(1, rig.boundary.timedOut(CaptureBoundary.Kind.LOOT));
+    assertEquals(1, rig.boundary.timedOut(CaptureBoundary.Kind.PRESENCE));
+    assertEquals(
+        Collections.singletonList(
+            "1 event, 1 loot record, 1 session mark not saved, no answer from Bankstand in time"),
+        rig.lost);
+  }
+
+  @Test
+  public void aFullHoldDropsTheOldestCountedAndSaid() {
+    rig.login(A);
+    for (int i = 0; i < CaptureBoundary.MAX_HELD + 2; i++) {
+      rig.event(A, "e" + i);
     }
-    throw new AssertionError("not queued: " + id);
+    assertEquals(CaptureBoundary.MAX_HELD, rig.boundary.heldCount());
+    assertEquals(2, rig.boundary.timedOut(CaptureBoundary.Kind.EVENT));
+    assertEquals(2, rig.lost.size());
+  }
+
+  // Identity answers
+
+  @Test
+  public void aCurrentAnswerConfirmsAndLaterCapturesGoStraightOutStamped() throws Exception {
+    rig.login(A);
+    rig.askIdentity(A);
+    rig.runExecutor();
+    assertTrue(rig.generations.isConfirmed(A));
+    rig.event(A, "e");
+    assertEquals(Collections.singletonList(1), rig.eventStamps());
+    rig.sendEvents();
+    assertEquals(Collections.singletonList("e"), rig.server.accepted);
   }
 
   @Test
-  public void aSlowIdentityCheckLeavesEveryCaptureUnstampedUntilItAnswers() {
-    CaptureGenerations generations = restartedWith(1L, 3);
-    generations.startSession(1L);
-    EventOutbox outbox = outbox(generations);
-    PresenceQueue presence = new PresenceQueue();
-    presence.setCaptureGenerations(generations);
-    LootLedger ledger = new LootLedger();
-    ledger.setCaptureGenerations(generations);
-    Map<Integer, Integer> bones = Collections.singletonMap(526, 1);
-
-    // Restored from disk, but not confirmed this login: never used as a stamp.
-    assertEquals(Integer.valueOf(3), generations.get(1L));
-    assertFalse(generations.isConfirmed(1L));
-    assertNull(generations.stampFor(1L));
-    outbox.add(1L, event("early"));
-    presence.addTransition(new PresenceSignal(PresenceSignal.LOGIN, 1L, 0L));
-    ledger.record(1L, 3, "Rat", bones, Instant.parse("2026-10-20T10:00:00Z"));
-    assertNull(stampOf(outbox, "early"));
-    assertNull(presence.peek().getCaptureGeneration());
-    Map<String, Object> envelope = new LinkedHashMap<>();
-    generations.stamp(envelope, 1L);
-    assertFalse(envelope.containsKey("captureGeneration"));
-
-    // The identity check answers.
-    generations.observe(1L, 3);
-    assertTrue(generations.isConfirmed(1L));
-    outbox.add(1L, event("late"));
-    assertEquals(Integer.valueOf(3), stampOf(outbox, "late"));
-    // What was queued before stays as it was: never relabelled.
-    assertNull(stampOf(outbox, "early"));
-    List<LootEntry> closed = ledger.closeAll();
-    assertNull(closed.get(0).getCaptureGeneration());
+  public void anAnswerForAReplacedPairingChangesNothing() throws Exception {
+    rig.server.generation.put(A, 2);
+    rig.login(A);
+    rig.askIdentity(A);
+    rig.repair("pairing-2", Collections.emptyMap());
+    rig.event(A, "new");
+    rig.runExecutor();
+    assertFalse(rig.generations.isConfirmed(A));
+    assertNull(rig.generations.get(A));
+    assertEquals("still held for the new pairing's own answer", 1, rig.boundary.heldCount());
   }
 
   @Test
-  public void anIdentityCheckThatTimesOutConfirmsNothing() {
-    CaptureGenerations generations = restartedWith(1L, 3);
-    generations.startSession(1L);
-    // A failed identity call never reaches observe or confirm: nothing to apply.
-    assertFalse(generations.isConfirmed(1L));
-    assertNull(generations.stampFor(1L));
+  public void anAnswerForAnEarlierLoginNeverConfirmsOrReleasesTheNextOne() throws Exception {
+    rig.server.generation.put(A, 2);
+    rig.generations.observe(A, 2);
+    rig.login(A);
+    rig.askIdentity(A);
+    rig.event(A, "first-login");
+    rig.logout();
+    rig.login(A);
+    rig.event(A, "second-login");
+    rig.runExecutor();
+    assertFalse("the second login waits for its own answer", rig.generations.isConfirmed(A));
+    assertEquals(Collections.singletonList(2), rig.eventStamps());
+    assertEquals("the second login's capture is still held", 1, rig.boundary.heldCount());
+
+    rig.askIdentity(A);
+    rig.runExecutor();
+    assertTrue(rig.generations.isConfirmed(A));
+    assertEquals(Arrays.asList(2, 2), rig.eventStamps());
   }
 
   @Test
-  public void anOfflineStartQueuesUnstampedAndNeverRelabelsOnceOnline() {
-    CaptureGenerations generations = restartedWith(1L, 2);
-    generations.startSession(1L);
-    EventOutbox outbox = outbox(generations);
-    outbox.add(1L, event("offline"));
-
-    // Back online: the server is at 3 after a removal made while offline.
-    generations.observe(1L, 3);
-    outbox.add(1L, event("online"));
-    assertNull(stampOf(outbox, "offline"));
-    assertEquals(Integer.valueOf(3), stampOf(outbox, "online"));
-
-    // The server refuses the unstamped one for a cleared character; it is dropped, not resent.
-    String refused =
-        "{\"acks\":[{\"id\":\"offline\",\"outcome\":\"rejected\",\"reason\":\"stale_generation\"},"
-            + "{\"id\":\"online\",\"outcome\":\"stored\"}]}";
-    outbox.ack(EventOutbox.idsToAck(acks(refused)));
-    assertTrue(outbox.pending().isEmpty());
+  public void anAnswerArrivingAfterLogoutStillSettlesThatLoginsCaptures() throws Exception {
+    rig.login(A);
+    rig.askIdentity(A);
+    rig.presence(A, PresenceSignal.LOGIN);
+    rig.presence(A, PresenceSignal.LOGOUT);
+    rig.logout();
+    rig.runExecutor();
+    rig.sendPresence();
+    assertEquals(Arrays.asList(PresenceSignal.LOGIN, PresenceSignal.LOGOUT), rig.server.accepted);
+    assertFalse("a logged-out answer confirms nothing", rig.generations.isConfirmed(A));
   }
 
   @Test
-  public void aSwitchedCharacterNeverUsesTheOtherCharactersGeneration() {
-    CaptureGenerations generations = new CaptureGenerations();
-    generations.startSession(1L);
-    generations.observe(1L, 4);
-    assertEquals(Integer.valueOf(4), generations.stampFor(1L));
-
-    generations.startSession(2L);
-    assertFalse(generations.isConfirmed(2L));
-    assertNull(generations.stampFor(2L));
-    generations.observe(2L, 1);
-    assertEquals(Integer.valueOf(1), generations.stampFor(2L));
-    assertEquals(Integer.valueOf(4), generations.stampFor(1L));
-
-    // Back to the first character: a new login waits for a fresh answer.
-    generations.startSession(1L);
-    assertNull(generations.stampFor(1L));
-    generations.observe(1L, 4);
-    assertEquals(Integer.valueOf(4), generations.stampFor(1L));
+  public void anAnswerWithoutAGenerationSendsUnstampedAndTheServerDecides() throws Exception {
+    rig.server.older = true;
+    rig.generations.observe(A, 3);
+    rig.login(A);
+    rig.askIdentity(A);
+    rig.event(A, "e");
+    rig.runExecutor();
+    assertTrue(rig.generations.isConfirmed(A));
+    assertNull("a remembered value is never a stamp", rig.generations.stampFor(A));
+    assertEquals(Collections.singletonList((Integer) null), rig.eventStamps());
   }
 
   @Test
-  public void aServerAnswerWithoutAGenerationOpensCaptureUnstamped() {
-    // An older server, or a character this user does not route. A remembered value is no stamp.
-    CaptureGenerations generations = restartedWith(1L, 3);
-    generations.startSession(1L);
-    generations.confirm(1L);
-    assertTrue(generations.isConfirmed(1L));
-    assertNull(generations.stampFor(1L));
+  public void eachCharacterWaitsForItsOwnAnswer() throws Exception {
+    rig.login(A);
+    rig.askIdentity(A);
+    rig.runExecutor();
+    rig.logout();
+    rig.login(B);
+    rig.event(B, "b");
+    assertTrue(rig.events.pending().isEmpty());
+    assertEquals(1, rig.boundary.heldCount());
+  }
+
+  // Pairing replacement mid-flight
+
+  @Test
+  public void aRePairWhileAnIdentityCheckIsInFlightIgnoresItsAnswer() throws Exception {
+    rig.server.generation.put(A, 5);
+    rig.login(A);
+    rig.askIdentity(A);
+    rig.event(A, "old-pairing");
+    rig.server.beforeRead = () -> rig.repair("pairing-2", Collections.emptyMap());
+    rig.runExecutor();
+    assertFalse(rig.generations.isConfirmed(A));
+    assertNull(rig.generations.get(A));
+    assertTrue(rig.events.pending().isEmpty());
+    assertTrue(rig.server.accepted.isEmpty());
+    assertNull("nothing saved for the new pairing", restartedRig().generations.get(A));
   }
 
   @Test
-  public void aRemovalDuringCaptureRefusesWhatWasInFlightAndSaysHowMany() {
-    CaptureGenerations generations = new CaptureGenerations();
-    List<String> activity = new ArrayList<>();
-    List<String> notices = new ArrayList<>();
-    generations.onStaleRefusal(notices::add, () -> true);
-    generations.onRefused(activity::add);
-    generations.startSession(1L);
-    generations.observe(1L, 2);
-    EventOutbox outbox = outbox(generations);
-    outbox.add(1L, event("a"));
-    outbox.add(1L, event("b"));
-
-    // Removed on the site while both were in flight.
-    String refused =
-        "{\"captureGeneration\":3,\"acks\":["
-            + "{\"id\":\"a\",\"outcome\":\"rejected\",\"reason\":\"stale_generation\"},"
-            + "{\"id\":\"b\",\"outcome\":\"rejected\",\"reason\":\"stale_generation\"}]}";
-    generations.observe(1L, 3, 2, acks(refused));
-    outbox.ack(EventOutbox.idsToAck(acks(refused)));
-
-    assertTrue("refused, not retried", outbox.pending().isEmpty());
-    assertEquals(Integer.valueOf(3), generations.stampFor(1L));
-    assertEquals(Collections.singletonList(CaptureGenerations.STALE_NOTICE), notices);
-    assertEquals(Collections.singletonList("2 captures not saved: data was removed"), activity);
-
-    // A refused snapshot is re-captured, so it is not counted as lost.
-    generations.observe(1L, 4, 3, "stale_generation");
-    assertEquals(1, activity.size());
-    outbox.add(1L, event("c"));
-    assertEquals(Integer.valueOf(4), stampOf(outbox, "c"));
+  public void aRePairWhileAnUploadIsInFlightIgnoresItsAck() throws Exception {
+    rig.login(A);
+    rig.askIdentity(A);
+    rig.runExecutor();
+    rig.event(A, "e");
+    rig.server.remove(A);
+    rig.server.beforeRead = () -> rig.repair("pairing-2", Collections.emptyMap());
+    rig.sendEvents();
+    assertFalse(rig.generations.isConfirmed(A));
+    assertNull(rig.generations.get(A));
+    assertTrue("the old pairing's refusal is not this pairing's loss", rig.lost.isEmpty());
+    assertTrue(rig.notices.isEmpty());
   }
 
   @Test
-  public void aRefusedCaptureIsCountedOnce() {
-    assertNull(CaptureGenerations.refusedActivity(0));
-    assertEquals("1 capture not saved: data was removed", CaptureGenerations.refusedActivity(1));
-    assertTrue(CaptureGenerations.refusedActivity(200).length() <= 45);
+  public void aCaptureTakenUnderAReplacedPairingIsNeverSent() throws Exception {
+    rig.login(A);
+    rig.askIdentity(A);
+    rig.runExecutor();
+    CaptureBoundary.Ticket before = rig.boundary.ticket(A);
+    rig.repair("pairing-2", Collections.emptyMap());
+    boolean[] sent = {false};
+    rig.boundary.queue(before, CaptureBoundary.Kind.LOOT, stamp -> sent[0] = true);
+    assertFalse(sent[0]);
+  }
+
+  // Every capture path discovers the generation on its own
+
+  @Test
+  public void eventsLootAndPresenceNeedOnlyTheIdentityCheckNotASnapshot() throws Exception {
+    rig.server.generation.put(A, 4);
+    rig.generations.observe(A, 4);
+    rig.login(A);
+    captureOneOfEach("x");
+    rig.askIdentity(A);
+    rig.runExecutor();
+    rig.sendAll();
+    assertEquals(1, rig.server.identityCalls);
+    assertEquals(3, rig.server.accepted.size());
+  }
+
+  // Supplementary: the tick needs a live client.
+  @Test
+  public void theTickAsksForEveryEnabledCaptureNotOnlySkillXp() throws Exception {
+    String tick = body(plugin(), "public void onGameTick(");
+    assertTrue(tick.contains("if (enabledCapabilitySet().isEmpty())"));
+    assertFalse(tick.contains("isSkillCaptureEnabled()"));
+  }
+
+  // Removal mid-flight
+
+  @Test
+  public void aRemovalAfterCaptureRefusesItCountsItAndSaysSoOnce() throws Exception {
+    rig.login(A);
+    rig.askIdentity(A);
+    rig.runExecutor();
+    captureOneOfEach("before");
+    rig.server.remove(A);
+    rig.sendAll();
+    assertTrue(rig.server.accepted.isEmpty());
+    assertEquals(1, rig.boundary.discarded(CaptureBoundary.Kind.EVENT));
+    assertEquals(1, rig.boundary.discarded(CaptureBoundary.Kind.LOOT));
+    assertEquals(1, rig.boundary.discarded(CaptureBoundary.Kind.PRESENCE));
+    assertEquals(Collections.singletonList(CaptureGenerations.STALE_NOTICE), rig.notices);
+    assertEquals("1 event not saved, data was removed", rig.lost.get(0));
+
+    rig.event(A, "after");
+    rig.sendEvents();
+    assertEquals(Collections.singletonList("after"), rig.server.accepted);
   }
 
   @Test
-  public void rePairingForgetsConfirmationsAndLearnsTheListedOnes() {
-    CaptureGenerations generations = new CaptureGenerations();
-    generations.startSession(1L);
-    generations.observe(1L, 2);
-    generations.forget();
-    assertFalse(generations.isConfirmed(1L));
-    generations.observeAll(Collections.singletonMap(1L, 5));
-    assertEquals(Integer.valueOf(5), generations.stampFor(1L));
+  public void aRemovalAfterTheServerReadItsAnswerStillNeverLetsAnOlderCaptureIn() throws Exception {
+    rig.login(A);
+    rig.askIdentity(A);
+    rig.event(A, "pre");
+    rig.server.afterRead = () -> rig.server.remove(A);
+    rig.runExecutor();
+    rig.server.afterRead = () -> {};
+    assertEquals("released under the value read before", Collections.singletonList(1), rig.eventStamps());
+    rig.sendEvents();
+    assertTrue(rig.server.accepted.isEmpty());
+    assertEquals(1, rig.boundary.discarded(CaptureBoundary.Kind.EVENT));
+  }
+
+  // The removal boundary: same login, same pairing, a capture made before the removal
+
+  @Test
+  public void aCaptureMadeBeforeARemovalIsNeverStampedWithTheNewGeneration() throws Exception {
+    restartedKnowing(3);
+    rig.login(A);
+    rig.askIdentity(A);
+    captureOneOfEach("pre-removal");
+    rig.server.remove(A);
+    rig.runExecutor();
+
+    assertTrue("never queued under 4", rig.events.pending().isEmpty());
+    assertTrue(rig.loot.pending().isEmpty());
+    assertNull(rig.presence.peek());
+    rig.sendAll();
+    assertTrue(rig.server.accepted.isEmpty());
+    assertEquals(1, rig.boundary.discarded(CaptureBoundary.Kind.EVENT));
+    assertEquals(1, rig.boundary.discarded(CaptureBoundary.Kind.LOOT));
+    assertEquals(1, rig.boundary.discarded(CaptureBoundary.Kind.PRESENCE));
+    assertEquals(
+        Collections.singletonList("1 event, 1 loot record, 1 session mark not saved, data was removed"),
+        rig.lost);
+    assertEquals(Collections.singletonList(CaptureGenerations.STALE_NOTICE), rig.notices);
+
+    rig.event(A, "post-removal");
+    rig.sendEvents();
+    assertEquals(Collections.singletonList("post-removal"), rig.server.accepted);
+  }
+
+  @Test
+  public void withNothingKnownACapturedClearedCharacterIsDiscardedNotGuessed() throws Exception {
+    rig.server.generation.put(A, 2);
+    rig.login(A);
+    rig.askIdentity(A);
+    rig.event(A, "unknown-interval");
+    rig.runExecutor();
+    assertTrue(rig.events.pending().isEmpty());
+    assertEquals(1, rig.boundary.discarded(CaptureBoundary.Kind.EVENT));
+  }
+
+  @Test
+  public void withNothingKnownANeverClearedCharacterLosesNothing() throws Exception {
+    rig.login(A);
+    rig.askIdentity(A);
+    rig.event(A, "e");
+    rig.runExecutor();
+    assertEquals(Collections.singletonList(1), rig.eventStamps());
+  }
+
+  @Test
+  public void provenOnlyWhenTheAnswerCannotBeNewerThanTheCapture() {
+    assertTrue(CaptureBoundary.proven(3, 3));
+    assertFalse(CaptureBoundary.proven(3, 4));
+    assertFalse(CaptureBoundary.proven(3, 1));
+    assertTrue(CaptureBoundary.proven(null, 1));
+    assertFalse(CaptureBoundary.proven(null, 2));
+    assertTrue("the server decides", CaptureBoundary.proven(3, null));
+  }
+
+  @Test
+  public void aLootRecordStartedBeforeTheAnswerIsSettledWhenItCloses() throws Exception {
+    restartedKnowing(3);
+    rig.login(A);
+    rig.askIdentity(A);
+    rig.kill(A, 7);
+    rig.runExecutor();
+    rig.kill(A, 7);
+    rig.sendLoot();
+    assertEquals(2, rig.server.accepted.size());
+    assertTrue(rig.lost.isEmpty());
+  }
+
+  @Test(timeout = 20_000)
+  public void captureAndRePairOnTwoThreadsNeverDeadlock() throws Exception {
+    rig.login(A);
+    Thread pairing =
+        new Thread(
+            () -> {
+              for (int i = 0; i < 200; i++) {
+                rig.repair("p" + i, Collections.emptyMap());
+              }
+            });
+    pairing.start();
+    for (int i = 0; i < 200; i++) {
+      rig.kill(A, i);
+      rig.event(A, "e" + i);
+      rig.presence(A, PresenceSignal.LOGIN);
+    }
+    pairing.join();
+  }
+
+  @Test
+  public void aHeartbeatIsNeverHeld() {
+    rig.login(A);
+    rig.presence.offerHeartbeat(new PresenceSignal(PresenceSignal.ACTIVE, A, 0L));
+    assertNull(rig.presence.peek());
+    assertEquals(0, rig.boundary.heldCount());
+  }
+
+  // Re-pair
+
+  @Test
+  public void aRePairDropsWhatWasHeldCountsItAndLearnsTheListedGenerations() throws Exception {
+    rig.login(A);
+    rig.event(A, "held");
+    rig.kill(A, 7);
+    rig.loot.addAll(rig.ledger.closeAll());
+    PairingQueues.Dropped dropped = rig.repair("pairing-2", Collections.singletonMap(A, 6));
+    assertEquals(1, dropped.events);
+    assertEquals(1, dropped.loot);
+    assertEquals(0, rig.boundary.heldCount());
+    assertTrue(rig.generations.isConfirmed(A));
+    rig.server.generation.put(A, 6);
+    rig.event(A, "new");
+    rig.sendEvents();
+    assertEquals(Collections.singletonList("new"), rig.server.accepted);
+    assertEquals("saved under the new pairing", Integer.valueOf(6), restartedRig().generations.get(A));
+  }
+
+  @Test
+  public void aGenerationLearnedUnderAnotherPairingIsNeverRestored() {
+    rig.generations.observe(A, 3);
+    // A crash after the swap, before the old values were cleared from disk.
+    rig.pairing = "pairing-2";
+    assertNull(restartedRig().generations.get(A));
   }
 
   @Test
@@ -228,14 +455,14 @@ public class GenerationBoundaryTest {
     state.setDiaryTaskBits(Collections.singletonMap(1, 3));
     state.setLastSyncedAt(Collections.singletonMap("skills", 5L));
     state.setBaselineGeneration(2);
-    store.save(1L, state);
-    store.save(7L, state);
-    store.saveCaptureGeneration(1L, 2);
+    rig.store.save(1L, state);
+    rig.store.save(7L, state);
+    rig.store.saveCaptureGeneration(1L, 2, "pairing-1");
 
-    store.clearBaselines();
+    rig.store.clearBaselines();
 
     for (long account : new long[] {1L, 7L}) {
-      AckedState cleared = store.load(account);
+      AckedState cleared = rig.store.load(account);
       assertNull(cleared.getSkills());
       assertNull(cleared.getQuests());
       assertNull(cleared.getDiaries());
@@ -247,7 +474,7 @@ public class GenerationBoundaryTest {
       assertEquals(Collections.singletonMap(1, 3), cleared.getDiaryTaskBits());
       assertEquals(Collections.singleton(4151), cleared.getCollectionLogItems());
     }
-    assertEquals(Integer.valueOf(2), store.load(1L).getCaptureGeneration());
+    assertEquals(Integer.valueOf(2), rig.store.load(1L).getCaptureGeneration());
   }
 
   private static String plugin() throws Exception {
@@ -263,25 +490,26 @@ public class GenerationBoundaryTest {
     return source.substring(start, source.indexOf("\n  }\n", start));
   }
 
-  // The plugin needs a live client to run, so its wiring is pinned on the source.
+  // Supplementary: the plugin needs a live client to run, so its wiring is pinned on the source.
   @Test
   public void theWiringHoldsTheBoundary() throws Exception {
     String source = plugin();
-    assertTrue(
-        "a login waits for a fresh answer",
-        body(source, "public void onGameStateChanged(")
-            .contains("captureGenerations.startSession(client.getAccountHash());"));
-    String capture = body(source, "private void onSkillsCaptured(");
+    String login = body(source, "public void onGameStateChanged(");
+    assertTrue("a login waits for a fresh answer", login.contains("captureBoundary.startLogin("));
+    assertTrue(login.contains("captureBoundary.endLogin();"));
     assertTrue(
         "no snapshot before the server answered",
-        capture.contains("if (!captureGenerations.isConfirmed(accountHash))"));
+        body(source, "private void onSkillsCaptured(")
+            .contains("if (!captureGenerations.isConfirmed(accountHash))"));
     String identity = body(source, "private void submitIdentity(");
-    assertTrue("any identity answer confirms", identity.contains("captureGenerations.confirm(accountHash);"));
-    int guard =
-        identity.indexOf("if (!session.isCurrent(accountHash, generation) || isReplaced(url, token))");
     assertTrue(
-        "only for the login and pairing that asked",
-        guard >= 0 && guard < identity.indexOf("captureGenerations.confirm(accountHash);"));
+        "the ask is pinned to this login and pairing before it leaves",
+        identity.indexOf("captureBoundary.ticket(accountHash)") < identity.indexOf("executor.submit("));
+    assertTrue(identity.contains(".discover("));
+    for (String kind : Arrays.asList("EVENT", "LOOT", "PRESENCE", "SNAPSHOT")) {
+      assertTrue(kind + " acks go through the boundary", source.contains("CaptureBoundary.Kind." + kind + ","));
+    }
+    assertFalse("no answer bypasses the boundary", source.contains("captureGenerations.observe("));
     String store = body(source, "private void storeToken(");
     assertTrue("a re-pair resends every snapshot block", store.contains("ackedStore.clearBaselines();"));
     assertTrue(store.contains("resetSnapshotBaselines("));
@@ -292,6 +520,7 @@ public class GenerationBoundaryTest {
     assertTrue(
         "an ack under a replaced pairing never advances a baseline",
         body(source, "private void submitSnapshot(").contains("&& !isReplaced(url, token)"));
-    assertTrue(source.contains("captureGenerations.onRefused("));
+    assertTrue(source.contains("captureBoundary.onLost("));
+    assertTrue(body(source, "public void drainEventOutbox(").contains("captureBoundary.expire();"));
   }
 }

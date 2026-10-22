@@ -42,17 +42,41 @@ public class LootOutbox {
   private final File file;
   private final Gson gson;
   private volatile Supplier<String> pairing = () -> null;
+  private volatile CaptureBoundary boundary;
 
   public LootOutbox(File file, Gson gson) {
     this.file = file;
     this.gson = gson;
   }
 
+  /** Settles each record's stamp from what was known when its window opened. */
+  void setBoundary(CaptureBoundary boundary) {
+    this.boundary = boundary;
+  }
+
   /**
-   * Appends closed records, evicting the oldest pending ones past the cap. Each keeps the
-   * capture generation {@link LootLedger} stamped when its window opened.
+   * Queues closed records, each stamped as {@link CaptureBoundary} settles it from what was known
+   * when its window opened (held first if need be). Not synchronized: the boundary's lock is taken
+   * before this one, never after.
    */
-  public synchronized void addAll(Collection<LootEntry> added) {
+  public void addAll(Collection<LootEntry> added) {
+    CaptureBoundary decides = boundary;
+    List<LootEntry> now = new ArrayList<>();
+    for (LootEntry entry : added) {
+      if (decides == null || entry.getTicket() == null) {
+        now.add(entry);
+      } else {
+        decides.queue(
+            entry.getTicket(),
+            CaptureBoundary.Kind.LOOT,
+            stamp -> append(java.util.Collections.singletonList(entry.stamped(stamp))));
+      }
+    }
+    append(now);
+  }
+
+  /** Appends stamped records, evicting the oldest pending ones past the cap. */
+  synchronized void append(Collection<LootEntry> added) {
     if (added.isEmpty()) {
       return;
     }

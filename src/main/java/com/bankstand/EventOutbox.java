@@ -42,7 +42,7 @@ public class EventOutbox {
   private final File file;
   private final Gson gson;
   private volatile Supplier<String> pairing = () -> null;
-  private volatile CaptureGenerations generations = new CaptureGenerations();
+  private volatile CaptureBoundary boundary;
 
   public EventOutbox(File file, Gson gson) {
     this.file = file;
@@ -50,18 +50,28 @@ public class EventOutbox {
     this.gson = gson.newBuilder().serializeNulls().create();
   }
 
-  /** Where {@link #add} reads the generation each event is stamped with. */
-  public void setCaptureGenerations(CaptureGenerations generations) {
-    this.generations = generations;
+  /** Decides each event's stamp, holding it until the server has named its generation. */
+  void setBoundary(CaptureBoundary boundary) {
+    this.boundary = boundary;
   }
 
   /**
-   * Appends one event, stamped with its account's current capture generation, evicting the
-   * oldest pending entry (logged) if this overflows the cap.
+   * Queues one event, stamped as {@link CaptureBoundary} decides (held first if need be). Not
+   * synchronized: the boundary's lock is taken before this one, never after.
    */
-  public synchronized void add(long accountHash, TransientEvent event) {
+  public void add(long accountHash, TransientEvent event) {
+    CaptureBoundary decides = boundary;
+    if (decides == null) {
+      append(accountHash, event, null);
+    } else {
+      decides.queue(accountHash, CaptureBoundary.Kind.EVENT, stamp -> append(accountHash, event, stamp));
+    }
+  }
+
+  /** Appends one stamped event, evicting the oldest pending entry (logged) past the cap. */
+  synchronized void append(long accountHash, TransientEvent event, Integer stamp) {
     List<OutboxEntry> entries = current();
-    entries.add(new OutboxEntry(accountHash, event, generations.stampFor(accountHash), pairing.get()));
+    entries.add(new OutboxEntry(accountHash, event, stamp, pairing.get()));
     while (entries.size() > MAX_PENDING) {
       OutboxEntry dropped = entries.remove(0);
       log.warn(

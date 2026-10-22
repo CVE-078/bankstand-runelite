@@ -51,6 +51,7 @@ public class AckedStateStore {
     copy.setLastSyncedAt(stored.getLastSyncedAt());
     copy.setDiaryTaskBits(stored.getDiaryTaskBits());
     copy.setCaptureGeneration(stored.getCaptureGeneration());
+    copy.setCaptureGenerationPairing(stored.getCaptureGenerationPairing());
     copy.setBaselineGeneration(stored.getBaselineGeneration());
     return copy;
   }
@@ -65,16 +66,20 @@ public class AckedStateStore {
     String key = Long.toString(accountHash);
     AckedState previous = document.accounts.get(key);
     state.setCaptureGeneration(previous == null ? null : previous.getCaptureGeneration());
+    state.setCaptureGenerationPairing(
+        previous == null ? null : previous.getCaptureGenerationPairing());
     document.accounts.put(key, state);
     write(document);
   }
 
-  /** Every stored capture generation, by account. */
-  public synchronized Map<Long, Integer> captureGenerations() {
+  /** Every capture generation stored under {@code pairing}, by account. */
+  public synchronized Map<Long, Integer> captureGenerations(String pairing) {
     Map<Long, Integer> generations = new LinkedHashMap<>();
     for (Map.Entry<String, AckedState> e : read().accounts.entrySet()) {
-      Integer generation = e.getValue() == null ? null : e.getValue().getCaptureGeneration();
-      if (generation != null) {
+      AckedState state = e.getValue();
+      Integer generation = state == null ? null : state.getCaptureGeneration();
+      if (generation != null
+          && java.util.Objects.equals(pairing, state.getCaptureGenerationPairing())) {
         try {
           generations.put(Long.parseLong(e.getKey()), generation);
         } catch (NumberFormatException ignored) {
@@ -91,6 +96,7 @@ public class AckedStateStore {
     for (AckedState state : document.accounts.values()) {
       if (state != null) {
         state.setCaptureGeneration(null);
+        state.setCaptureGenerationPairing(null);
       }
     }
     write(document);
@@ -116,8 +122,8 @@ public class AckedStateStore {
     write(document);
   }
 
-  /** Records only the capture generation, for an ack that arrives for any account. */
-  public synchronized void saveCaptureGeneration(long accountHash, int generation) {
+  /** Records only the capture generation and its pairing, for an answer for any account. */
+  public synchronized void saveCaptureGeneration(long accountHash, int generation, String pairing) {
     Document document = read();
     String key = Long.toString(accountHash);
     AckedState state = document.accounts.get(key);
@@ -126,6 +132,7 @@ public class AckedStateStore {
       document.accounts.put(key, state);
     }
     state.setCaptureGeneration(generation);
+    state.setCaptureGenerationPairing(pairing);
     write(document);
   }
 

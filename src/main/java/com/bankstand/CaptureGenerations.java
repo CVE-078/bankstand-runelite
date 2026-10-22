@@ -1,7 +1,5 @@
 package com.bankstand;
 
-import com.bankstand.dto.EventAck;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -9,6 +7,7 @@ import java.util.concurrent.Executor;
 import java.util.function.BiConsumer;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 
 /**
  * The capture generation the server last acked, per account. The server bumps it when the
@@ -20,9 +19,10 @@ public final class CaptureGenerations {
   /** Said once per removal. Never claims the removal is final while capture can refill it. */
   static final String STALE_NOTICE =
       "Captured data for one of your characters was removed on the Bankstand website. Its history"
-          + " stays deleted, and captures made before this plugin learned of the removal were not"
-          + " saved. While this plugin stays connected with capture on, its current progress syncs"
-          + " again. Turn capture off or disconnect to stop that.";
+          + " stays deleted. Drops, loot and session marks captured before this plugin learned of"
+          + " the removal were discarded and will not be sent. While this plugin stays connected"
+          + " with capture on, its current progress syncs again. Turn capture off or disconnect to"
+          + " stop that.";
 
   /** The same, short enough for a panel row. */
   static final String STALE_ACTIVITY = "Data removed on the site: progress resyncs";
@@ -31,21 +31,23 @@ public final class CaptureGenerations {
   private final Map<Long, Integer> staleNoticeAt = new ConcurrentHashMap<>();
   // Accounts the server answered for since their login: only their generation is a stamp.
   private final Set<Long> confirmed = ConcurrentHashMap.newKeySet();
-  private volatile Consumer<String> refused = line -> {};
   private volatile Consumer<String> staleNotice = message -> {};
   private volatile BiConsumer<Long, Integer> changed = (account, generation) -> {};
   private volatile BooleanSupplier canNotify = () -> true;
   private volatile AckedStateStore store;
   private volatile Executor executor;
+  private volatile Supplier<String> pairing = () -> null;
 
   /**
-   * Persists every change to {@code store}, written on {@code executor}, after restoring what it
-   * holds. Read here, at start-up, so nothing queued after a restart goes out unstamped.
+   * Persists every change to {@code store}, written on {@code executor} and tagged with the
+   * pairing it was learned under, after restoring what that pairing stored. Another pairing's
+   * values are never restored: they may belong to another Bankstand account.
    */
-  public void persistTo(AckedStateStore store, Executor executor) {
-    store.captureGenerations().forEach(this::restore);
+  public void persistTo(AckedStateStore store, Executor executor, Supplier<String> pairing) {
+    store.captureGenerations(pairing.get()).forEach(this::restore);
     this.store = store;
     this.executor = executor;
+    this.pairing = pairing;
   }
 
   /** The last acked generation, or null when none is known (the capture goes unstamped). */
@@ -67,8 +69,11 @@ public final class CaptureGenerations {
     return confirmed.contains(accountHash);
   }
 
-  /** A new login: a remembered generation may be stale until the server answers again. */
-  public void startSession(long accountHash) {
+  /**
+   * A new login: a remembered generation may be stale until the server answers again. Called
+   * through {@link CaptureBoundary#startLogin}, so no answer interleaves.
+   */
+  void startSession(long accountHash) {
     confirmed.remove(accountHash);
   }
 
@@ -94,7 +99,7 @@ public final class CaptureGenerations {
    * so is a lower value: generations only rise, so a lower one is a late ack from before a removal.
    */
   public boolean observe(long accountHash, Integer generation) {
-    return apply(accountHash, generation, null, false);
+    return apply(accountHash, generation, null, false, true);
   }
 
   /** Every generation the server named when pairing, learned before anything is queued. */
@@ -107,14 +112,20 @@ public final class CaptureGenerations {
     this.changed = listener;
   }
 
-  // A lower value is taken only when the server refused the value we hold: then it really went back.
-  // Synchronized: acks arrive on several executor threads, and a check-then-put could go backwards.
-  private synchronized boolean apply(
-      long accountHash, Integer generation, Integer sentWith, boolean staleRefusal) {
+  /**
+   * Records a generation the server named. {@code confirm}: it answered a request from this
+   * login, so captures may now be stamped with it. A lower value is taken only when the server
+   * refused the value held: then it really went back. Synchronized: answers arrive on several
+   * threads, and a check-then-put could go backwards.
+   */
+  synchronized boolean apply(
+      long accountHash, Integer generation, Integer sentWith, boolean staleRefusal, boolean confirm) {
     if (generation == null) {
       return false;
     }
-    confirmed.add(accountHash);
+    if (confirm) {
+      confirmed.add(accountHash);
+    }
     Integer previous = byAccount.get(accountHash);
     boolean mayLower = staleRefusal && sentWith != null && sentWith.equals(previous);
     if (previous != null && generation < previous && !mayLower) {
@@ -126,7 +137,8 @@ public final class CaptureGenerations {
     Executor writer = executor;
     if (changed && target != null && writer != null) {
       int value = generation;
-      writer.execute(() -> target.saveCaptureGeneration(accountHash, value));
+      String tag = pairing.get();
+      writer.execute(() -> target.saveCaptureGeneration(accountHash, value, tag));
     }
     if (changed) {
       this.changed.accept(accountHash, generation);
@@ -156,51 +168,11 @@ public final class CaptureGenerations {
     this.canNotify = canNotify;
   }
 
-  /** Where a panel line goes for each answer that refused events or loot as stale. */
-  public void onRefused(Consumer<String> activity) {
-    this.refused = activity;
-  }
-
-  /**
-   * {@link #observe(long, Integer)} for a snapshot or presence ack, sent stamped {@code sentWith},
-   * that may be stale. Not counted as lost: a snapshot is re-captured, presence is not an event.
-   */
-  public void observe(long accountHash, Integer generation, Integer sentWith, String reason) {
-    observeAck(accountHash, generation, sentWith, EventOutbox.STALE_GENERATION.equals(reason) ? 0 : -1);
-  }
-
-  /** {@link #observe(long, Integer)} for per-item acks, any of which may be stale. */
-  public void observe(
-      long accountHash, Integer generation, Integer sentWith, List<EventAck> acks) {
-    int stale = EventOutbox.countStaleGeneration(acks);
-    observeAck(accountHash, generation, sentWith, stale > 0 ? stale : -1);
-  }
-
-  // staleItems: -1 when nothing was refused as stale, else how many events or loot were.
-  private void observeAck(long accountHash, Integer generation, Integer sentWith, int staleItems) {
-    apply(accountHash, generation, sentWith, staleItems >= 0);
-    if (staleItems >= 0) {
-      staleRefused(accountHash);
-    }
-    String line = refusedActivity(staleItems);
-    if (line != null) {
-      refused.accept(line);
-    }
-  }
-
-  /** The panel line for refused events or loot, never restamped and so lost; null for none. */
-  static String refusedActivity(int count) {
-    if (count <= 0) {
-      return null;
-    }
-    return count + (count == 1 ? " capture" : " captures") + " not saved: data was removed";
-  }
-
   /**
    * Captures made under an older generation were refused and dropped, never restamped, so data the
    * player removed is not uploaded again. Said once per removal, not once per request.
    */
-  private void staleRefused(long accountHash) {
+  void staleRefused(long accountHash) {
     if (canNotify.getAsBoolean() && firstStaleRefusal(accountHash)) {
       staleNotice.accept(STALE_NOTICE);
     }
@@ -223,15 +195,10 @@ public final class CaptureGenerations {
   }
 
   /**
-   * Forgets every generation, here and on disk: a new pairing may be another Bankstand account,
-   * so what is queued next goes unstamped until that account acks one. The disk write is queued
-   * behind any pending generation write, so none of those can put an old value back.
-   *
-   * <p>shortcut: an ack still in flight when this runs can re-teach the old pairing's value;
-   * captures stamped with it are refused once and the refusal teaches the right one. Tag each
-   * request with a pairing epoch if that ever matters.
+   * Forgets every generation, here and on disk: a new pairing may be another Bankstand account.
+   * Called through {@link CaptureBoundary#replace}, which stops older answers from counting.
    */
-  public synchronized void forget() {
+  synchronized void forget() {
     byAccount.clear();
     staleNoticeAt.clear();
     confirmed.clear();

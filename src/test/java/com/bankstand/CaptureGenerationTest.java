@@ -40,7 +40,7 @@ public class CaptureGenerationTest {
     dir = folder.newFolder("bankstand");
     store = new AckedStateStore(new File(dir, "acked.json"), new Gson());
     generations = new CaptureGenerations();
-    generations.persistTo(store, Runnable::run);
+    generations.persistTo(store, Runnable::run, () -> null);
   }
 
   private static TransientEvent event(String id) {
@@ -98,18 +98,15 @@ public class CaptureGenerationTest {
   @Test
   public void eachCaptureIsStampedWhenQueuedNotWhenSent() {
     File events = new File(dir, "events.json");
-    EventOutbox outbox = new EventOutbox(events, new Gson());
-    outbox.setCaptureGenerations(generations);
-    outbox.add(1L, event("unstamped"));
-    generations.observe(1L, 1);
-    outbox.add(1L, event("first"));
-    generations.observe(1L, 2);
-    outbox.add(1L, event("second"));
+    BoundaryRig rig = new BoundaryRig(dir);
+    rig.generations.observe(1L, 1);
+    rig.event(1L, "first");
+    rig.generations.observe(1L, 2);
+    rig.event(1L, "second");
 
-    List<OutboxEntry> pending = new EventOutbox(events, new Gson()).pending();
-    assertNull(pending.get(0).getCaptureGeneration());
-    assertEquals(Integer.valueOf(1), pending.get(1).getCaptureGeneration());
-    assertEquals(Integer.valueOf(2), pending.get(2).getCaptureGeneration());
+    List<OutboxEntry> pending = rig.events.pending();
+    assertEquals(Integer.valueOf(1), pending.get(0).getCaptureGeneration());
+    assertEquals(Integer.valueOf(2), pending.get(1).getCaptureGeneration());
   }
 
   @Test
@@ -125,9 +122,10 @@ public class CaptureGenerationTest {
 
   @Test
   public void lootIsStampedWhenTheKillIsRecordedNotWhenTheWindowCloses() {
-    LootLedger ledger = new LootLedger();
-    ledger.setCaptureGenerations(generations);
-    LootOutbox outbox = new LootOutbox(new File(dir, "loot.json"), new Gson());
+    BoundaryRig rig = new BoundaryRig(dir);
+    CaptureGenerations generations = rig.generations;
+    LootLedger ledger = rig.ledger;
+    LootOutbox outbox = rig.loot;
     Map<Integer, Integer> bones = Collections.singletonMap(526, 1);
     Instant at = Instant.parse("2026-10-20T10:00:00Z");
     generations.observe(1L, 4);
@@ -137,7 +135,7 @@ public class CaptureGenerationTest {
     outbox.addAll(ledger.record(1L, 1, "Rat", bones, at.plusSeconds(5)));
     outbox.addAll(ledger.closeAll());
 
-    List<LootEntry> pending = new LootOutbox(new File(dir, "loot.json"), new Gson()).pending();
+    List<LootEntry> pending = rig.loot.pending();
     assertEquals(2, pending.size());
     assertEquals(Integer.valueOf(4), pending.get(0).getCaptureGeneration());
     assertEquals(1, pending.get(0).getEvent().getKills());
@@ -146,9 +144,9 @@ public class CaptureGenerationTest {
 
   @Test
   public void presenceIsStampedWhenQueued() {
-    generations.observe(1L, 7);
-    PresenceQueue queue = new PresenceQueue();
-    queue.setCaptureGenerations(generations);
+    BoundaryRig rig = new BoundaryRig(dir);
+    rig.generations.observe(1L, 7);
+    PresenceQueue queue = rig.presence;
     queue.addTransition(new PresenceSignal(PresenceSignal.LOGIN, 1L, 0L));
     assertEquals(Integer.valueOf(7), queue.peek().getCaptureGeneration());
     queue.onAnswered(queue.peek());
@@ -276,22 +274,15 @@ public class CaptureGenerationTest {
     File events = new File(dir, "events.json");
     File lootFile = new File(dir, "loot.json");
     EventOutbox outbox = new EventOutbox(events, new Gson());
-    outbox.setCaptureGenerations(generations);
     outbox.add(1L, event("unstamped"));
-    generations.observe(1L, 1);
-    outbox.add(1L, event("old"));
+    outbox.append(1L, event("old"), 1);
     LootOutbox lootOutbox = new LootOutbox(lootFile, new Gson());
     lootOutbox.addAll(
         Collections.singletonList(new LootEntry(1L, loot("l").getEvent(), 1, null)));
 
-    // Restart: a fresh run knows the newer generation the removal produced.
-    CaptureGenerations restarted = new CaptureGenerations();
-    restarted.restore(1L, 2);
-    // The server answers for the character this login before "new" is captured.
-    restarted.observe(1L, 2);
+    // Restart: the server answered 2 for this login before "new" was captured.
     EventOutbox reloaded = new EventOutbox(events, new Gson());
-    reloaded.setCaptureGenerations(restarted);
-    reloaded.add(1L, event("new"));
+    reloaded.append(1L, event("new"), 2);
     Map<SendGroup, List<TransientEvent>> groups =
         SendGroup.of(
             reloaded.pending(),
@@ -330,20 +321,25 @@ public class CaptureGenerationTest {
 
     List<String> notices = new java.util.ArrayList<>();
     boolean[] loggedIn = {false};
-    CaptureGenerations fresh = new CaptureGenerations();
-    fresh.onStaleRefusal(notices::add, () -> loggedIn[0]);
-    fresh.observe(1L, 2, 1, "stale_generation");
+    BoundaryRig rig = new BoundaryRig(dir);
+    rig.generations.onStaleRefusal(notices::add, () -> loggedIn[0]);
+    CaptureBoundary.Ticket asked = rig.boundary.ticket(1L);
+    rig.boundary.acked(asked, CaptureBoundary.Kind.SNAPSHOT, 2, 1, 1);
     assertEquals(0, notices.size());
     loggedIn[0] = true;
-    fresh.observe(1L, 2, 1, "stale_generation");
-    fresh.observe(1L, 2, 1, acks("{\"acks\":[{\"id\":\"a\",\"outcome\":\"rejected\",\"reason\":\"stale_generation\"}]}"));
-    fresh.observe(1L, 2, 2, "not_applied");
+    rig.boundary.acked(asked, CaptureBoundary.Kind.SNAPSHOT, 2, 1, 1);
+    rig.boundary.acked(asked, CaptureBoundary.Kind.EVENT, 2, 1, 1);
+    rig.boundary.acked(asked, CaptureBoundary.Kind.SNAPSHOT, 2, 2, 0);
     assertEquals(1, notices.size());
-    fresh.observe(1L, 3, 2, "stale_generation");
+    rig.boundary.acked(asked, CaptureBoundary.Kind.SNAPSHOT, 3, 2, 1);
     assertEquals(2, notices.size());
-    fresh.forget();
-    fresh.observe(1L, 3, 2, "stale_generation");
+    rig.repair("pairing-2", Collections.emptyMap());
+    rig.boundary.acked(rig.boundary.ticket(1L), CaptureBoundary.Kind.SNAPSHOT, 3, 2, 1);
     assertEquals(3, notices.size());
+    assertEquals(
+        "a refused snapshot is recaptured, not lost",
+        0,
+        rig.boundary.discarded(CaptureBoundary.Kind.SNAPSHOT));
   }
 
   @Test
@@ -351,17 +347,10 @@ public class CaptureGenerationTest {
     generations.observe(1L, 2);
     generations.observe(5L, 4);
     CaptureGenerations restarted = new CaptureGenerations();
-    restarted.persistTo(store, Runnable::run);
+    restarted.persistTo(store, Runnable::run, () -> null);
     assertEquals(Integer.valueOf(2), restarted.get(1L));
     assertEquals(Integer.valueOf(4), restarted.get(5L));
-    PresenceQueue queue = new PresenceQueue();
-    queue.setCaptureGenerations(restarted);
-    queue.addTransition(new PresenceSignal(PresenceSignal.LOGIN, 1L, 0L));
-    assertNull(queue.peek().getCaptureGeneration());
-    restarted.observe(1L, 2);
-    queue.addTransition(new PresenceSignal(PresenceSignal.LOGOUT, 1L, 1L));
-    queue.onAnswered(queue.peek());
-    assertEquals(Integer.valueOf(2), queue.peek().getCaptureGeneration());
+    assertNull(restarted.stampFor(1L));
   }
 
   @Test
@@ -379,10 +368,10 @@ public class CaptureGenerationTest {
     generations.observe(1L, 3);
     assertFalse(generations.observe(1L, 2));
     // A refusal of a request stamped with an older value says nothing about now.
-    generations.observe(1L, 2, 1, "stale_generation");
+    generations.apply(1L, 2, 1, true, true);
     assertEquals(Integer.valueOf(3), generations.get(1L));
     // A refusal of the current stamp is the server saying the value went back.
-    generations.observe(1L, 1, 3, "stale_generation");
+    generations.apply(1L, 1, 3, true, true);
     assertEquals(Integer.valueOf(1), generations.get(1L));
     assertEquals(Integer.valueOf(1), store.load(1L).getCaptureGeneration());
   }
@@ -394,7 +383,7 @@ public class CaptureGenerationTest {
     generations.restore(9L, 4);
     generations.observe(1L, 1);
     generations.observe(1L, 1);
-    generations.observe(1L, 2, 1, "stale_generation");
+    generations.apply(1L, 2, 1, true, true);
     Map<Long, Integer> paired = new LinkedHashMap<>();
     paired.put(5L, 2);
     paired.put(1L, 2);
@@ -448,7 +437,6 @@ public class CaptureGenerationTest {
 
     generations.observe(-9223372036854775807L, 1);
     PresenceQueue presence = new PresenceQueue();
-    presence.setCaptureGenerations(generations);
     PairingQueues queues =
         new PairingQueues(
             presence,
@@ -456,10 +444,10 @@ public class CaptureGenerationTest {
             new LootLedger(),
             new LootOutbox(new File(dir, "loot.json"), new Gson()),
             generations,
-            () -> null);
+            () -> null, new com.bankstand.session.AccountSession(), () -> 0L);
     Integer[] atSwap = {null};
     queues.replace(() -> atSwap[0] = generations.get(-9223372036854775807L), learned);
-    assertEquals("known before the new pairing can queue anything", Integer.valueOf(3), atSwap[0]);
+    assertNull("the old pairing's value is gone before the swap", atSwap[0]);
     presence.addTransition(new PresenceSignal(PresenceSignal.LOGIN, -9223372036854775807L, 0L));
     assertEquals(Integer.valueOf(3), presence.peek().getCaptureGeneration());
   }
@@ -508,7 +496,6 @@ public class CaptureGenerationTest {
         loadBody.indexOf("CaptureGenerations.baselinesHold(")
             < loadBody.indexOf("skillBaseline.restore("));
     assertTrue(source.contains("state.setBaselineGeneration(baselineCaptureGeneration);"));
-    assertTrue(source.contains("captureGenerations.observe(accountHash, res.getCaptureGeneration());"));
   }
 
   @Test

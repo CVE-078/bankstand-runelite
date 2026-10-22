@@ -196,6 +196,8 @@ public class BankstandPlugin extends Plugin {
   private final AtomicBoolean lootSending = new AtomicBoolean();
   private LootOutbox lootOutbox;
   private PairingQueues pairingQueues;
+  // Decides every event, loot and presence stamp; locks on pairingQueues.
+  private CaptureBoundary captureBoundary;
   private LootCapture lootCapture;
 
   private final PresenceTracker presenceTracker = new PresenceTracker();
@@ -263,24 +265,15 @@ public class BankstandPlugin extends Plugin {
     LegacyCredentials.migrate(configManager, deviceStore);
 
     eventOutbox = new EventOutbox(new File(ACKED_STATE_DIR, EVENTS_FILE), gson);
-    captureGenerations.persistTo(ackedStore, executor);
+    captureGenerations.persistTo(ackedStore, executor, () -> deviceStore.load().getPairingId());
     captureGenerations.onStaleRefusal(
         message -> {
           notice(message);
           clientThread.invoke(() -> recentActivityLog.record(CaptureGenerations.STALE_ACTIVITY));
         },
         () -> client.getGameState() == GameState.LOGGED_IN);
-    captureGenerations.onRefused(
-        line ->
-            clientThread.invoke(
-                () -> {
-                  recentActivityLog.record(line);
-                  refreshPanel();
-                }));
     captureGenerations.onChange(
         (account, value) -> clientThread.invoke(() -> onNewGeneration(account, value)));
-    eventOutbox.setCaptureGenerations(captureGenerations);
-    presenceQueue.setCaptureGenerations(captureGenerations);
     slayerTaskStart =
         new SlayerTaskStart(
             new File(ACKED_STATE_DIR, "slayer-task-start.json"), gson, executor, client, session);
@@ -352,7 +345,6 @@ public class BankstandPlugin extends Plugin {
             onEmit);
     eventBus.register(slayerTaskCompletionCapture);
     lootOutbox = new LootOutbox(new File(ACKED_STATE_DIR, LOOT_FILE), gson);
-    lootLedger.setCaptureGenerations(captureGenerations);
     pairingQueues =
         new PairingQueues(
             presenceQueue,
@@ -360,7 +352,14 @@ public class BankstandPlugin extends Plugin {
             lootLedger,
             lootOutbox,
             captureGenerations,
-            () -> deviceStore.load().getPairingId());
+            () -> deviceStore.load().getPairingId(),
+            session,
+            System::currentTimeMillis);
+    captureBoundary = pairingQueues.boundary();
+    captureBoundary.onLost(line -> clientThread.invoke(() -> {
+      recentActivityLog.record(line);
+      refreshPanel();
+    }));
     lootCapture =
         new LootCapture(
             this::isLootCaptureEnabled,
@@ -543,6 +542,7 @@ public class BankstandPlugin extends Plugin {
    */
   @Schedule(period = EVENT_DRAIN_INTERVAL_SECONDS, unit = ChronoUnit.SECONDS)
   public void drainEventOutbox() {
+    captureBoundary.expire();
     pulsePresence();
     retryQueuedPresence();
     if (lootOutbox != null) {
@@ -574,6 +574,7 @@ public class BankstandPlugin extends Plugin {
         () -> {
           for (Map.Entry<SendGroup, List<TransientEvent>> group : byAccount.entrySet()) {
             long accountHash = group.getKey().accountHash;
+            CaptureBoundary.Ticket asked = captureBoundary.ticket(accountHash);
             for (List<TransientEvent> chunk : SendGroup.chunk(group.getValue(), MAX_EVENTS_PER_SUBMIT)) {
               // Chunks retry independently; the retry is a scheduled task, never a blocked thread.
               api
@@ -593,9 +594,8 @@ public class BankstandPlugin extends Plugin {
                               failure.getMessage());
                           return;
                         }
-                        Integer sentWith = group.getKey().captureGeneration;
-                        captureGenerations.observe(
-                            accountHash, response.getCaptureGeneration(), sentWith, response.getAcks());
+                        captureBoundary.acked(asked, CaptureBoundary.Kind.EVENT,
+                            response.getCaptureGeneration(), group.getKey().captureGeneration, response.getAcks());
                         if (!response.isRouted()) {
                           // Unclaimed: leave every entry pending, like a network failure.
                           return;
@@ -689,6 +689,7 @@ public class BankstandPlugin extends Plugin {
         presenceSending.set(false);
         return;
       }
+      CaptureBoundary.Ticket asked = captureBoundary.ticket(next.getAccountHash());
       try {
         PresenceResponse res =
             client.submitPresence(
@@ -700,8 +701,8 @@ public class BankstandPlugin extends Plugin {
                 next.getLoot(),
                 next.getCaptureGeneration());
         presenceQueue.onAnswered(next);
-        captureGenerations.observe(
-            next.getAccountHash(), res.getCaptureGeneration(), next.getCaptureGeneration(), res.getReason());
+        captureBoundary.acked(asked, CaptureBoundary.Kind.PRESENCE,
+            res.getCaptureGeneration(), next.getCaptureGeneration(), res.getReason());
         if (res.isApplied()) {
           lastSyncedAt.put(Capability.SESSIONS.key, System.currentTimeMillis());
           if (PresenceSignal.LOGIN.equals(next.getState())) {
@@ -785,11 +786,12 @@ public class BankstandPlugin extends Plugin {
         if (client == null) {
           return;
         }
+        CaptureBoundary.Ticket asked = captureBoundary.ticket(accountHash);
         try {
           SubmitLootResponse res =
               client.submitLoot(url, token, accountHash, chunk, group.getKey().captureGeneration);
-          captureGenerations.observe(
-              accountHash, res.getCaptureGeneration(), group.getKey().captureGeneration, res.getAcks());
+          captureBoundary.acked(asked, CaptureBoundary.Kind.LOOT,
+              res.getCaptureGeneration(), group.getKey().captureGeneration, res.getAcks());
           lootOutbox.ack(LootOutbox.idsToAck(res.getAcks()));
           if (res.getAcks().stream().anyMatch(EventAck::isStored)) {
             lastSyncedAt.put(Capability.LOOT.key, System.currentTimeMillis());
@@ -856,8 +858,8 @@ public class BankstandPlugin extends Plugin {
       notice("Log in first, then run ::bstand link.");
       return;
     }
-    if (!isSkillCaptureEnabled()) {
-      notice("Turn on skill capture first: it carries the name and hash that link a character.");
+    if (enabledCapabilitySet().isEmpty()) {
+      notice("Turn on a capture first: linking sends the name and hash of the character.");
       return;
     }
     if (!isCaptureReady()) {
@@ -1392,9 +1394,8 @@ public class BankstandPlugin extends Plugin {
       presenceTracker.onHopping();
     } else if (state == GameState.LOGGED_IN) {
       // Adopts the account only if it changed; the -1 logged-out sentinel is ignored.
-      if (session.onLogin(client.getAccountHash())) {
+      if (captureBoundary.startLogin(client.getAccountHash())) {
         lastSkillRead = null;
-        captureGenerations.startSession(client.getAccountHash());
       }
       ticksSinceLoggedIn = 0;
       cancelHopTimer();
@@ -1421,7 +1422,7 @@ public class BankstandPlugin extends Plugin {
       if (slayerTaskCompletionCapture != null) {
         slayerTaskCompletionCapture.reset();
       }
-      session.onLogout();
+      captureBoundary.endLogin();
       // A read belongs to the character that started it; abandon it silently.
       collectionLogSync.reset();
       hideSyncInfoBox();
@@ -1482,8 +1483,8 @@ public class BankstandPlugin extends Plugin {
         || submitGate.isHalted()) {
       return;
     }
-    // Identity sends the account hash and name, so it shares the skill capture opt-in.
-    if (!isSkillCaptureEnabled()) {
+    // Every enabled capture needs it: it routes the character and names its generation.
+    if (enabledCapabilitySet().isEmpty()) {
       return;
     }
     Player local = client.getLocalPlayer();
@@ -1738,7 +1739,6 @@ public class BankstandPlugin extends Plugin {
     executor.submit(
         () -> {
           AckedState state = ackedStore.load(accountHash);
-          captureGenerations.restore(accountHash, state.getCaptureGeneration());
           clientThread.invoke(
               () -> {
                 if (!session.isCurrent(accountHash, generation)) {
@@ -2082,6 +2082,7 @@ public class BankstandPlugin extends Plugin {
     BankstandClient api = pairingClient;
     executor.submit(
         () -> {
+          CaptureBoundary.Ticket asked = captureBoundary.ticket(accountHash);
           api
               .submitSnapshotWithRetry(url, token, body, MAX_SUBMIT_ATTEMPTS, SUBMIT_RETRY_BASE_DELAY_MS)
               .whenComplete(
@@ -2114,9 +2115,8 @@ public class BankstandPlugin extends Plugin {
                       }
                       return;
                     }
-                    Integer sentWith = (Integer) body.get("captureGeneration");
-                    captureGenerations.observe(
-                        accountHash, res.getCaptureGeneration(), sentWith, res.getReason());
+                    captureBoundary.acked(asked, CaptureBoundary.Kind.SNAPSHOT,
+                        res.getCaptureGeneration(), (Integer) body.get("captureGeneration"), res.getReason());
                     // Advance each baseline only for a block the server wrote, on the client
                     // thread, and only if this login is still current.
                     clientThread.invoke(
@@ -2298,11 +2298,13 @@ public class BankstandPlugin extends Plugin {
     }
     String url = savedServerUrl();
     String token = deviceStore.load().tokenFor(url);
+    // Taken now, on the client thread: the answer counts only for this login and pairing.
+    CaptureBoundary.Ticket asked = captureBoundary.ticket(accountHash);
     executor.submit(
         () -> {
-          api
-              .submitIdentityWithRetry(
-                  url, token, accountHash, displayName, MAX_SUBMIT_ATTEMPTS, SUBMIT_RETRY_BASE_DELAY_MS)
+          captureBoundary
+              .discover(asked, () -> api.submitIdentityWithRetry(
+                  url, token, accountHash, displayName, MAX_SUBMIT_ATTEMPTS, SUBMIT_RETRY_BASE_DELAY_MS))
               .whenComplete(
                   (res, failure) -> {
                     if (failure != null) {
@@ -2321,20 +2323,6 @@ public class BankstandPlugin extends Plugin {
                       }
                       return;
                     }
-                    // Opens capture for this login only. On the client thread, where a login
-                    // starts, so a late answer from an earlier login or pairing confirms nothing.
-                    clientThread.invoke(
-                        () -> {
-                          if (!session.isCurrent(accountHash, generation) || isReplaced(url, token)) {
-                            return;
-                          }
-                          if (res.getCaptureGeneration() == null) {
-                            // An older server, or a character not routed: captures go unstamped.
-                            captureGenerations.confirm(accountHash);
-                          } else {
-                            captureGenerations.observe(accountHash, res.getCaptureGeneration());
-                          }
-                        });
                     // Drop the result unless this login instance is still current: the retry
                     // backoff can span a relog.
                     if (session.isCurrent(accountHash, generation)) {

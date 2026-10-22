@@ -16,31 +16,55 @@ final class PresenceQueue {
 
   private final Deque<PresenceSignal> transitions = new ArrayDeque<>();
   private PresenceSignal heartbeat;
-  private volatile CaptureGenerations generations = new CaptureGenerations();
+  private volatile CaptureBoundary boundary;
 
-  /** Where a queued value reads the capture generation it is stamped with. */
-  void setCaptureGenerations(CaptureGenerations generations) {
-    this.generations = generations;
+  /** Decides each value's stamp, holding a transition until the server named its generation. */
+  void setBoundary(CaptureBoundary boundary) {
+    this.boundary = boundary;
   }
 
-  synchronized void addTransition(PresenceSignal signal) {
+  // Not synchronized: the boundary's lock is taken before this one, never after.
+  void addTransition(PresenceSignal signal) {
+    CaptureBoundary decides = boundary;
+    if (decides == null) {
+      appendTransition(signal);
+    } else {
+      decides.queue(
+          signal.getAccountHash(),
+          CaptureBoundary.Kind.PRESENCE,
+          stamp -> appendTransition(stamped(signal, stamp)));
+    }
+  }
+
+  private synchronized void appendTransition(PresenceSignal signal) {
     if (transitions.size() == MAX_TRANSITIONS) {
       transitions.removeFirst();
       log.debug("presence queue full: dropped the oldest transition");
     }
-    transitions.addLast(stamped(signal));
+    transitions.addLast(signal);
     heartbeat = null;
   }
 
-  /** Ignored while a transition waits, so a heartbeat can never follow a queued logout. */
-  synchronized void offerHeartbeat(PresenceSignal signal) {
+  /**
+   * Ignored while a transition waits, so a heartbeat can never follow a queued logout, and before
+   * the server named the generation: a heartbeat is never held, the next minute brings another.
+   */
+  void offerHeartbeat(PresenceSignal signal) {
+    CaptureBoundary decides = boundary;
+    if (decides == null) {
+      setHeartbeat(signal);
+      return;
+    }
+    decides.queueIfConfirmed(signal.getAccountHash(), stamp -> setHeartbeat(stamped(signal, stamp)));
+  }
+
+  private synchronized void setHeartbeat(PresenceSignal signal) {
     if (transitions.isEmpty()) {
-      heartbeat = stamped(signal);
+      heartbeat = signal;
     }
   }
 
-  private PresenceSignal stamped(PresenceSignal signal) {
-    Integer generation = generations.stampFor(signal.getAccountHash());
+  private static PresenceSignal stamped(PresenceSignal signal, Integer generation) {
     return generation == null ? signal : signal.withCaptureGeneration(generation);
   }
 

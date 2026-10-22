@@ -27,9 +27,9 @@ button.
 
 Each capability has its own toggle and its own section under **Settings > Bankstand**.
 
-- **Skill XP** (on by default). Your XP per skill, your account hash and your display name. Checked
-  every 60 seconds and sent only when something changed. This toggle gates all the others: with it
-  off, nothing is sent.
+- **Skill XP** (on by default). Your XP per skill. Checked every 60 seconds and sent only when
+  something changed. Quest, diary, combat achievement, collection log, account type and Slayer task
+  progress ride on it: with it off, none of those is sent.
 - **Quest progress** (opt-in). Each quest's state: not started, started or finished. For a quest
   too new for RuneLite's quest list, the quest name from the quest-complete scroll.
 - **Diary progress** (opt-in). A completed task count per diary tier, whether the tier reads
@@ -59,6 +59,11 @@ Each capability has its own toggle and its own section under **Settings > Bankst
 
 It also takes one last capture when you log out. A cleared client reads as zeroes, and that read is
 dropped rather than sent.
+
+While any toggle is on, each login also sends your account hash and display name once. That links
+the character to your Bankstand account and says whether its captured data was removed. Until the
+answer arrives, drops, loot and session marks wait in memory: at most 200, for at most 10 minutes.
+Past that they are dropped, and the sidebar says how many.
 
 Nothing is read or sent on Leagues, Deadman, tournament, PvP Arena, beta, no-save or quest
 speedrunning worlds, or before the welcome screen is closed after login. Fresh Start worlds count as
@@ -98,8 +103,9 @@ config sync never uploads it.
 ### Removing captured data
 
 Removing a character's captured data on the website deletes its stored history (drops, pets,
-unlocks, sessions, loot, dates) for good. Captures this plugin made before it learned of the
-removal are not saved, never resent; the sidebar says how many. If the plugin stays connected with capture on, the character's current
+unlocks, sessions, loot, dates) for good. Drops, pets, unlocks, loot and session marks this plugin
+captured before it learned of the removal are discarded, never resent: chat says so once and the
+sidebar says how many. If the plugin stays connected with capture on, the character's current
 progress (skills, quests, diaries, collection log, combat achievements) syncs again on the next
 capture, as a fresh starting point with no history. Turn capture off or disconnect first to keep
 it from coming back. Older plugin versions are disconnected by a removal: update and pair again.

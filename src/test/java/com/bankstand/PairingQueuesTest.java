@@ -36,7 +36,6 @@ public class PairingQueuesTest {
         new TransientEvent(
             "e1", TransientEvent.TYPE_NOTABLE_DROP, "2026-10-22T10:00:00Z", Collections.emptyMap()));
     LootLedger ledger = new LootLedger();
-    ledger.setCaptureGenerations(generations);
     ledger.record(ACCOUNT, 1, "Rat", Collections.singletonMap(526, 1), Instant.now());
     LootOutbox loot = new LootOutbox(new File(dir, "loot.json"), gson);
     loot.addAll(ledger.closeAll());
@@ -44,7 +43,7 @@ public class PairingQueuesTest {
     assertEquals(1, loot.pending().size());
 
     PairingQueues queues =
-        new PairingQueues(presence, events, ledger, loot, generations, () -> null);
+        new PairingQueues(presence, events, ledger, loot, generations, () -> null, new com.bankstand.session.AccountSession(), () -> 0L);
     boolean[] droppedFirst = {false};
     PairingQueues.Dropped dropped =
         queues.replace(() -> droppedFirst[0] = events.pending().isEmpty());
@@ -94,7 +93,7 @@ public class PairingQueuesTest {
             new LootLedger(),
             new LootOutbox(new File(folder.getRoot(), "q/loot.json"), new Gson()),
             new CaptureGenerations(),
-            () -> null);
+            () -> null, new com.bankstand.session.AccountSession(), () -> 0L);
     java.util.concurrent.CountDownLatch swapped = new java.util.concurrent.CountDownLatch(1);
     Thread pairing;
     synchronized (queues) {

@@ -42,6 +42,9 @@ public class AckedState {
   /** The server's last acked capture generation, or null when none was seen. */
   private Integer captureGeneration;
 
+  /** The pairing that generation was learned under: only that pairing restores it. */
+  private String captureGenerationPairing;
+
   /** The capture generation the baselines above were acked under, or null when saved before any. */
   private Integer baselineGeneration;
 
@@ -146,6 +149,14 @@ public class AckedState {
 
   public void setCaptureGeneration(Integer captureGeneration) {
     this.captureGeneration = captureGeneration;
+  }
+
+  public String getCaptureGenerationPairing() {
+    return captureGenerationPairing;
+  }
+
+  public void setCaptureGenerationPairing(String pairing) {
+    this.captureGenerationPairing = pairing;
   }
 
   public Integer getBaselineGeneration() {
