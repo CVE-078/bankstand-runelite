@@ -331,7 +331,13 @@ public class BankstandPlugin extends Plugin {
             onEmit);
     eventBus.register(slayerTaskCompletionCapture);
     lootOutbox = new LootOutbox(new File(ACKED_STATE_DIR, LOOT_FILE), gson);
-    pairingQueues = new PairingQueues(presenceQueue, eventOutbox, lootLedger, lootOutbox);
+    pairingQueues =
+        new PairingQueues(
+            presenceQueue,
+            eventOutbox,
+            lootLedger,
+            lootOutbox,
+            () -> deviceStore.load().getPairingId());
     lootCapture =
         new LootCapture(
             this::isLootCaptureEnabled,
@@ -559,7 +565,7 @@ public class BankstandPlugin extends Plugin {
                           // Unclaimed: leave every entry pending, like a network failure.
                           return;
                         }
-                        eventOutbox.ack(idsToAck(response.getAcks()));
+                        eventOutbox.ack(EventOutbox.idsToAck(response.getAcks()));
                       });
             }
           }
@@ -770,27 +776,6 @@ public class BankstandPlugin extends Plugin {
     return chunk(events, maxSize);
   }
 
-  /**
-   * The ids the outbox should stop retrying: stored or duplicate, plus {@code "stale"}
-   * rejections, which only get truer with time. {@code "not_applied"} stays pending, since the
-   * capability flag can be turned on later.
-   */
-  static Set<String> idsToAck(List<EventAck> acks) {
-    Set<String> ids = new HashSet<>();
-    for (EventAck ack : acks) {
-      if (ack.isStored() || isPermanentlyRejected(ack)) {
-        ids.add(ack.getId());
-      }
-    }
-    return ids;
-  }
-
-  private static boolean isPermanentlyRejected(EventAck ack) {
-    // An invalid event fails the same check on every resend.
-    return "rejected".equals(ack.getOutcome())
-        && ("stale".equals(ack.getReason()) || "invalid".equals(ack.getReason()));
-  }
-
   private java.util.List<String> statusLines() {
     Player local = client.getLocalPlayer();
     String name = session.isActive() && local != null ? local.getName() : null;
@@ -798,7 +783,7 @@ public class BankstandPlugin extends Plugin {
         isPaired(),
         savedServerUrl(),
         name == null || name.isEmpty() ? null : name,
-        lastSubmitAtMs == 0L ? null : describeAge(System.currentTimeMillis() - lastSubmitAtMs),
+        lastSubmitAtMs == 0L ? null : StatusReport.describeAge(System.currentTimeMillis() - lastSubmitAtMs),
         submitGate.isHalted() ? "authentication failed, so submission is paused. Re-pair to resume." : null,
         enabledCapabilities(),
         collectionLog.isEmpty() ? -1 : collectionLog.size(),
@@ -807,22 +792,6 @@ public class BankstandPlugin extends Plugin {
             ? null
             : AccountTypes.describe(client.getVarbitValue(AccountTypes.ACCOUNT_TYPE_VARBIT)),
         "Server accepts: " + manifest.describe() + ".");
-  }
-
-  /** Coarse on purpose: more precision would imply more than we know. */
-  private static String describeAge(long millis) {
-    long minutes = millis / 60_000L;
-    if (minutes < 1) {
-      return "less than a minute ago";
-    }
-    if (minutes == 1) {
-      return "1 minute ago";
-    }
-    if (minutes < 60) {
-      return minutes + " minutes ago";
-    }
-    long hours = minutes / 60;
-    return hours == 1 ? "1 hour ago" : hours + " hours ago";
   }
 
   /**
