@@ -51,6 +51,20 @@ public class BankstandKeysTest {
   }
 
   @Test
+  public void judgesLocalhostByTheHostTheRequestGoesTo() {
+    // Each of these goes to evil.test, whatever text sits before or after an "@".
+    assertEquals(
+        "https://localhost:80@evil.test", BankstandKeys.normaliseServerUrl("http://localhost:80@evil.test"));
+    assertEquals(
+        "https://evil.test?@localhost", BankstandKeys.normaliseServerUrl("http://evil.test?@localhost"));
+    assertEquals(
+        "https://evil.test#@localhost", BankstandKeys.normaliseServerUrl("http://evil.test#@localhost"));
+    assertEquals(
+        "https://evil.test\\@localhost", BankstandKeys.normaliseServerUrl("http://evil.test\\@localhost"));
+    assertEquals("http://user@localhost:3001", BankstandKeys.normaliseServerUrl("http://user@localhost:3001"));
+  }
+
+  @Test
   public void fallsBackToTheDefaultForAnUnusableUrl() {
     assertEquals(BankstandKeys.DEFAULT_SERVER_URL, BankstandKeys.normaliseServerUrl("ftp://example.com"));
     assertEquals(BankstandKeys.DEFAULT_SERVER_URL, BankstandKeys.normaliseServerUrl("bankstand.gg"));
