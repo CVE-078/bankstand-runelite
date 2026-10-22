@@ -34,6 +34,9 @@ public class BankstandClient {
   private static final String MANIFEST_PATH = "/api/plugin/v1/manifest";
   private static final String PRESENCE_PATH = "/api/plugin/v1/presence";
   private static final String LOOT_PATH = "/api/plugin/v1/loot";
+  private static final String UNPAIR_PATH = "/api/plugin/v1/unpair";
+  // Disconnect never waits on the server, so a slow one only delays the "could not reach" notice.
+  private static final long UNPAIR_TIMEOUT_MILLIS = 5_000L;
   private static final String USER_AGENT = "Bankstand-RuneLite";
   private static final String GENERIC_FAILURE = "Pairing failed. Check the code and try again.";
 
@@ -106,49 +109,13 @@ public class BankstandClient {
   public SubmitResponse submitIdentity(
       String baseUrl, String deviceToken, long accountHash, String displayName)
       throws SubmitException {
-    if (isBlank(deviceToken)) {
-      throw new SubmitException("Not paired.");
-    }
-    String url = trimTrailingSlash(baseUrl) + SUBMIT_PATH;
-    Map<String, String> body = new LinkedHashMap<>();
+    Map<String, Object> body = new LinkedHashMap<>();
     // Sent as a decimal string: a 64-bit account hash does not fit a JSON number safely.
     body.put("accountHash", Long.toString(accountHash));
     if (!isBlank(displayName)) {
       body.put("displayName", displayName);
     }
-    Map<String, String> headers = new LinkedHashMap<>();
-    headers.put("Content-Type", "application/json");
-    headers.put("Accept", "application/json");
-    headers.put("User-Agent", USER_AGENT);
-    headers.put("Authorization", "Bearer " + deviceToken);
-
-    HttpResponse response;
-    try {
-      response = transport.post(url, wire.toJson(body), headers);
-    } catch (IOException e) {
-      throw new SubmitException("Could not reach Bankstand.", true);
-    }
-    int status = response.getStatus();
-    if (status != 200) {
-      if (status == 401 || status == 403) {
-        // Token invalid or revoked: terminal, point the user at re-pairing.
-        throw new SubmitException(
-            "Bankstand rejected the device token. Re-pair in Account > Connect RuneLite.", false, true);
-      }
-      if (status == 429 || status >= 500) {
-        throw new SubmitException("Bankstand is busy.", true);
-      }
-      throw new SubmitException("Bankstand rejected the update.", false);
-    }
-    try {
-      SubmitResponse parsed = gson.fromJson(response.getBody(), SubmitResponse.class);
-      if (parsed == null) {
-        throw new SubmitException("Unexpected response from Bankstand.");
-      }
-      return parsed;
-    } catch (JsonSyntaxException e) {
-      throw new SubmitException("Unexpected response from Bankstand.");
-    }
+    return parse(authorizedPost(baseUrl, SUBMIT_PATH, deviceToken, body), SubmitResponse.class);
   }
 
   /** Retries network, 429 and 5xx failures with backoff; other failures fail fast. */
@@ -168,43 +135,9 @@ public class BankstandClient {
   public SubmitSnapshotResponse submitSnapshot(
       String baseUrl, String deviceToken, Map<String, Object> envelopeBody)
       throws SubmitException {
-    if (isBlank(deviceToken)) {
-      throw new SubmitException("Not paired.");
-    }
-    String url = trimTrailingSlash(baseUrl) + SUBMIT_PATH;
-    Map<String, String> headers = new LinkedHashMap<>();
-    headers.put("Content-Type", "application/json");
-    headers.put("Accept", "application/json");
-    headers.put("User-Agent", USER_AGENT);
-    headers.put("Authorization", "Bearer " + deviceToken);
-
-    HttpResponse response;
-    try {
-      response = transport.post(url, wire.toJson(envelopeBody), headers);
-    } catch (IOException e) {
-      throw new SubmitException("Could not reach Bankstand.", true);
-    }
-    int status = response.getStatus();
-    if (status != 200) {
-      if (status == 401 || status == 403) {
-        throw new SubmitException(
-            "Bankstand rejected the device token. Re-pair in Account > Connect RuneLite.", false, true);
-      }
-      if (status == 429 || status >= 500) {
-        throw new SubmitException("Bankstand is busy.", true);
-      }
-      throw new SubmitException("Bankstand rejected the update.", false);
-    }
-    try {
-      SubmitSnapshotResponse parsed =
-          gson.fromJson(response.getBody(), SubmitSnapshotResponse.class);
-      if (parsed == null) {
-        throw new SubmitException("Unexpected response from Bankstand.");
-      }
-      return parsed;
-    } catch (JsonSyntaxException e) {
-      throw new SubmitException("Unexpected response from Bankstand.");
-    }
+    return parse(
+        authorizedPost(baseUrl, SUBMIT_PATH, deviceToken, envelopeBody),
+        SubmitSnapshotResponse.class);
   }
 
   public CompletableFuture<SubmitSnapshotResponse> submitSnapshotWithRetry(
@@ -354,6 +287,39 @@ public class BankstandClient {
       throw new SubmitException("Bankstand is busy.", true);
     }
     throw new SubmitException("Bankstand rejected the update.", false);
+  }
+
+  /**
+   * Revokes this device on the server, single attempt. True when the server confirms the token
+   * is gone: 204, or 401 for a token it already does not know. False when it could not say.
+   */
+  public boolean unpair(String baseUrl, String deviceToken) {
+    if (isBlank(deviceToken)) {
+      return true;
+    }
+    Map<String, String> headers = new LinkedHashMap<>();
+    headers.put("Accept", "application/json");
+    headers.put("User-Agent", USER_AGENT);
+    headers.put("Authorization", "Bearer " + deviceToken);
+    try {
+      int status =
+          transport
+              .post(trimTrailingSlash(baseUrl) + UNPAIR_PATH, "", headers, UNPAIR_TIMEOUT_MILLIS)
+              .getStatus();
+      return status == 204 || status == 401;
+    } catch (IOException e) {
+      return false;
+    }
+  }
+
+  /** {@link #unpair} on the executor; runs {@code onUnreachable} when the server could not say. */
+  public void unpairInBackground(String baseUrl, String deviceToken, Runnable onUnreachable) {
+    executor.submit(
+        () -> {
+          if (!unpair(baseUrl, deviceToken)) {
+            onUnreachable.run();
+          }
+        });
   }
 
   private <T> T parse(HttpResponse response, Class<T> type) throws SubmitException {
