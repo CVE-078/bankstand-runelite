@@ -2321,10 +2321,20 @@ public class BankstandPlugin extends Plugin {
                       }
                       return;
                     }
-                    // Learned before most captures of this login are queued. Any answer opens
-                    // capture: without a generation, the server decides on unstamped captures.
-                    captureGenerations.confirm(accountHash);
-                    captureGenerations.observe(accountHash, res.getCaptureGeneration());
+                    // Opens capture for this login only. On the client thread, where a login
+                    // starts, so a late answer from an earlier login or pairing confirms nothing.
+                    clientThread.invoke(
+                        () -> {
+                          if (!session.isCurrent(accountHash, generation) || isReplaced(url, token)) {
+                            return;
+                          }
+                          if (res.getCaptureGeneration() == null) {
+                            // An older server, or a character not routed: captures go unstamped.
+                            captureGenerations.confirm(accountHash);
+                          } else {
+                            captureGenerations.observe(accountHash, res.getCaptureGeneration());
+                          }
+                        });
                     // Drop the result unless this login instance is still current: the retry
                     // backoff can span a relog.
                     if (session.isCurrent(accountHash, generation)) {

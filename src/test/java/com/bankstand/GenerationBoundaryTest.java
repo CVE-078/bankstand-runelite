@@ -156,8 +156,8 @@ public class GenerationBoundaryTest {
 
   @Test
   public void aServerAnswerWithoutAGenerationOpensCaptureUnstamped() {
-    // An older server, or a character this user does not route.
-    CaptureGenerations generations = new CaptureGenerations();
+    // An older server, or a character this user does not route. A remembered value is no stamp.
+    CaptureGenerations generations = restartedWith(1L, 3);
     generations.startSession(1L);
     generations.confirm(1L);
     assertTrue(generations.isConfirmed(1L));
@@ -275,10 +275,13 @@ public class GenerationBoundaryTest {
     assertTrue(
         "no snapshot before the server answered",
         capture.contains("if (!captureGenerations.isConfirmed(accountHash))"));
+    String identity = body(source, "private void submitIdentity(");
+    assertTrue("any identity answer confirms", identity.contains("captureGenerations.confirm(accountHash);"));
+    int guard =
+        identity.indexOf("if (!session.isCurrent(accountHash, generation) || isReplaced(url, token))");
     assertTrue(
-        "any identity answer confirms",
-        body(source, "private void submitIdentity(")
-            .contains("captureGenerations.confirm(accountHash);"));
+        "only for the login and pairing that asked",
+        guard >= 0 && guard < identity.indexOf("captureGenerations.confirm(accountHash);"));
     String store = body(source, "private void storeToken(");
     assertTrue("a re-pair resends every snapshot block", store.contains("ackedStore.clearBaselines();"));
     assertTrue(store.contains("resetSnapshotBaselines("));

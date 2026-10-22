@@ -72,8 +72,12 @@ public final class CaptureGenerations {
     confirmed.remove(accountHash);
   }
 
-  /** The server answered without a generation (an older server, or a character not routed). */
-  public void confirm(long accountHash) {
+  /**
+   * The server answered without a generation (an older server, or a character not routed), so a
+   * remembered one is not a stamp: captures go unstamped and the server decides.
+   */
+  public synchronized void confirm(long accountHash) {
+    byAccount.remove(accountHash);
     confirmed.add(accountHash);
   }
 
