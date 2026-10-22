@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
+import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 
 /**
@@ -17,11 +18,16 @@ public final class CaptureGenerations {
   private final Map<Long, Integer> byAccount = new ConcurrentHashMap<>();
   private final Map<Long, Integer> staleNoticeAt = new ConcurrentHashMap<>();
   private volatile Consumer<String> staleNotice = message -> {};
+  private volatile BooleanSupplier canNotify = () -> true;
   private volatile AckedStateStore store;
   private volatile Executor executor;
 
-  /** Persists every change to {@code store}, written on {@code executor}. */
+  /**
+   * Persists every change to {@code store}, written on {@code executor}, after restoring what it
+   * holds. Read here, at start-up, so nothing queued after a restart goes out unstamped.
+   */
   public void persistTo(AckedStateStore store, Executor executor) {
+    store.captureGenerations().forEach(this::restore);
     this.store = store;
     this.executor = executor;
   }
@@ -55,9 +61,13 @@ public final class CaptureGenerations {
     return changed;
   }
 
-  /** Where the once-per-removal message about dropped captures goes. */
-  public void onStaleRefusal(Consumer<String> notice) {
+  /**
+   * Where the once-per-removal message about refused captures goes. While {@code canNotify} is
+   * false (logged out, so the line would be lost) the next refusal tries again.
+   */
+  public void onStaleRefusal(Consumer<String> notice, BooleanSupplier canNotify) {
     this.staleNotice = notice;
+    this.canNotify = canNotify;
   }
 
   /** {@link #observe(long, Integer)} for an ack whose refusal reason may be stale. */
@@ -77,14 +87,14 @@ public final class CaptureGenerations {
   }
 
   /**
-   * Captures queued under an older generation were refused and dropped, never restamped, so data
-   * the player removed is not uploaded again. Said once per removal, not once per request.
+   * Captures made under an older generation were refused and dropped, never restamped, so data the
+   * player removed is not uploaded again. Said once per removal, not once per request.
    */
   private void staleRefused(long accountHash) {
-    if (firstStaleRefusal(accountHash)) {
+    if (canNotify.getAsBoolean() && firstStaleRefusal(accountHash)) {
       staleNotice.accept(
-          "Bankstand discarded some queued captures for this character because its data was"
-              + " removed. New captures sync as normal.");
+          "Bankstand refused some captures for a character whose data was removed."
+              + " New captures sync as normal.");
     }
   }
 
@@ -115,6 +125,7 @@ public final class CaptureGenerations {
    */
   public void forget() {
     byAccount.clear();
+    staleNoticeAt.clear();
     AckedStateStore target = store;
     Executor writer = executor;
     if (target != null && writer != null) {

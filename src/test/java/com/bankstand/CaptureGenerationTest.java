@@ -327,14 +327,35 @@ public class CaptureGenerationTest {
     assertFalse(generations.firstStaleRefusal(2L));
 
     List<String> notices = new java.util.ArrayList<>();
+    boolean[] loggedIn = {false};
     CaptureGenerations fresh = new CaptureGenerations();
-    fresh.onStaleRefusal(notices::add);
+    fresh.onStaleRefusal(notices::add, () -> loggedIn[0]);
+    fresh.observe(1L, 2, "stale_generation");
+    assertEquals(0, notices.size());
+    loggedIn[0] = true;
     fresh.observe(1L, 2, "stale_generation");
     fresh.observe(1L, 2, acks("{\"acks\":[{\"id\":\"a\",\"outcome\":\"rejected\",\"reason\":\"stale_generation\"}]}"));
     fresh.observe(1L, 2, "not_applied");
     assertEquals(1, notices.size());
     fresh.observe(1L, 3, "stale_generation");
     assertEquals(2, notices.size());
+    fresh.forget();
+    fresh.observe(1L, 3, "stale_generation");
+    assertEquals(3, notices.size());
+  }
+
+  @Test
+  public void aRestartRestoresEveryStoredGenerationBeforeAnythingIsQueued() {
+    generations.observe(1L, 2);
+    generations.observe(5L, 4);
+    CaptureGenerations restarted = new CaptureGenerations();
+    restarted.persistTo(store, Runnable::run);
+    assertEquals(Integer.valueOf(2), restarted.get(1L));
+    assertEquals(Integer.valueOf(4), restarted.get(5L));
+    PresenceQueue queue = new PresenceQueue();
+    queue.setCaptureGenerations(restarted);
+    queue.addTransition(new PresenceSignal(PresenceSignal.LOGIN, 1L, 0L));
+    assertEquals(Integer.valueOf(2), queue.peek().getCaptureGeneration());
   }
 
   @Test

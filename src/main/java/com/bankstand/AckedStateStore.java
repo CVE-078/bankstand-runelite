@@ -11,6 +11,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
@@ -65,6 +66,22 @@ public class AckedStateStore {
     state.setCaptureGeneration(previous == null ? null : previous.getCaptureGeneration());
     document.accounts.put(key, state);
     write(document);
+  }
+
+  /** Every stored capture generation, by account. */
+  public synchronized Map<Long, Integer> captureGenerations() {
+    Map<Long, Integer> generations = new LinkedHashMap<>();
+    for (Map.Entry<String, AckedState> e : read().accounts.entrySet()) {
+      Integer generation = e.getValue() == null ? null : e.getValue().getCaptureGeneration();
+      if (generation != null) {
+        try {
+          generations.put(Long.parseLong(e.getKey()), generation);
+        } catch (NumberFormatException ignored) {
+          // A hand-edited key: skip it rather than fail start-up.
+        }
+      }
+    }
+    return generations;
   }
 
   /** Forgets every account's capture generation, keeping the rest of each state. */

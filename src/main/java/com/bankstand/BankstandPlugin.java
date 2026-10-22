@@ -262,7 +262,8 @@ public class BankstandPlugin extends Plugin {
 
     eventOutbox = new EventOutbox(new File(ACKED_STATE_DIR, EVENTS_FILE), gson);
     captureGenerations.persistTo(ackedStore, executor);
-    captureGenerations.onStaleRefusal(this::notice);
+    captureGenerations.onStaleRefusal(
+        this::notice, () -> client.getGameState() == GameState.LOGGED_IN);
     eventOutbox.setCaptureGenerations(captureGenerations);
     presenceQueue.setCaptureGenerations(captureGenerations);
     slayerTaskStart =
@@ -2311,7 +2312,6 @@ public class BankstandPlugin extends Plugin {
   private void clearPairingCode() {
     configManager.setConfiguration(BankstandKeys.GROUP, BankstandKeys.KEY_PAIRING_CODE, "");
   }
-
 
   /**
    * Writes a line to the chat box. Logged out, the message is dropped, not queued: an outcome is
