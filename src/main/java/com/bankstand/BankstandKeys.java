@@ -1,6 +1,7 @@
 package com.bankstand;
 
 import java.util.Locale;
+import okhttp3.HttpUrl;
 
 /**
  * Storage keys and defaults. Config keys must match {@link BankstandConfig}, since the plugin
@@ -72,6 +73,15 @@ public final class BankstandKeys {
     }
     String rest = url.substring("http://".length());
     return isLocalhost(hostOf(rest)) ? url : "https://" + rest;
+  }
+
+  /**
+   * "scheme://host:port" of a URL, or null if unusable. Parsed by OkHttp, the same parser that
+   * picks the host a request actually goes to.
+   */
+  public static String originOf(String url) {
+    HttpUrl parsed = url == null ? null : HttpUrl.parse(url.trim());
+    return parsed == null ? null : parsed.scheme() + "://" + parsed.host() + ":" + parsed.port();
   }
 
   // Host of "host[:port][/path]", brackets kept for IPv6.

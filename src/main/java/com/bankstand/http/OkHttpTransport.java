@@ -20,7 +20,15 @@ public class OkHttpTransport implements HttpTransport {
 
   @Inject
   public OkHttpTransport(OkHttpClient client) {
-    this.client = client;
+    this.client = noRedirects(client);
+  }
+
+  /**
+   * A 3xx comes back as a response instead of being followed, so a bearer token or capture body
+   * is never re-sent to wherever a server points it. Shares the shared client's pool.
+   */
+  static OkHttpClient noRedirects(OkHttpClient client) {
+    return client.newBuilder().followRedirects(false).followSslRedirects(false).build();
   }
 
   @Override

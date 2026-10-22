@@ -530,7 +530,7 @@ public class BankstandPlugin extends Plugin {
       byAccount.computeIfAbsent(entry.getAccountHash(), key -> new ArrayList<>()).add(entry.getEvent());
     }
     String url = savedServerUrl();
-    String token = deviceStore.load().getToken();
+    String token = deviceStore.load().tokenFor(url);
     BankstandClient api = pairingClient;
     executor.submit(
         () -> {
@@ -613,7 +613,7 @@ public class BankstandPlugin extends Plugin {
       return;
     }
     String url = savedServerUrl();
-    String token = deviceStore.load().getToken();
+    String token = deviceStore.load().tokenFor(url);
     executor.submit(() -> runPresenceSends(url, token));
   }
 
@@ -693,7 +693,7 @@ public class BankstandPlugin extends Plugin {
       return;
     }
     String url = savedServerUrl();
-    String token = deviceStore.load().getToken();
+    String token = deviceStore.load().tokenFor(url);
     executor.submit(
         () -> {
           try {
@@ -1067,6 +1067,10 @@ public class BankstandPlugin extends Plugin {
     } else if (BankstandKeys.KEY_DISCONNECT.equals(event.getKey())
         && Boolean.parseBoolean(event.getNewValue())) {
       disconnect();
+    } else if (BankstandKeys.KEY_SERVER_URL.equals(event.getKey())) {
+      if (deviceStore.load().isPaired() && !isPaired()) {
+        notice("Paired with another server. Paste a pairing code to pair with " + savedServerUrl() + ".");
+      }
     } else if (BankstandKeys.KEY_COLLECT_SESSIONS.equals(event.getKey())) {
       onSessionsToggled(Boolean.parseBoolean(event.getNewValue()));
     } else if (BankstandKeys.KEY_COLLECT_LOOT.equals(event.getKey())) {
@@ -1076,10 +1080,7 @@ public class BankstandPlugin extends Plugin {
       // Tell the server now, not at the next minute's mark.
       pulsePresence();
     }
-    if (BankstandKeys.KEY_COLLECT_SESSIONS.equals(event.getKey())
-        || BankstandKeys.KEY_COLLECT_LOOT.equals(event.getKey())) {
-      refreshPanel();
-    }
+    refreshPanel();
   }
 
   /** Off ends an open session with {@code off}; on, in game, starts one now. */
@@ -1988,7 +1989,7 @@ public class BankstandPlugin extends Plugin {
       SlayerTask slayerTask,
       Map<String, Object> retryBody) {
     String url = savedServerUrl();
-    String token = deviceStore.load().getToken();
+    String token = deviceStore.load().tokenFor(url);
     String version = getClass().getPackage().getImplementationVersion();
     String pluginVersion = version != null ? version : "dev";
     // A retry re-sends the original envelope: a cooldown is not recorded, so its id is unused.
@@ -2164,8 +2165,9 @@ public class BankstandPlugin extends Plugin {
         });
   }
 
+  // Paired for the server now configured; a pairing for another origin counts as unpaired here.
   private boolean isPaired() {
-    return deviceStore.load().isPaired();
+    return deviceStore.load().tokenFor(savedServerUrl()) != null;
   }
 
   // Each gate is consent AND manifest. Config is the player's consent and the only thing that
@@ -2214,7 +2216,7 @@ public class BankstandPlugin extends Plugin {
       return;
     }
     String url = savedServerUrl();
-    String token = deviceStore.load().getToken();
+    String token = deviceStore.load().tokenFor(url);
     executor.submit(
         () -> {
           api
@@ -2255,7 +2257,7 @@ public class BankstandPlugin extends Plugin {
         () -> {
           try {
             PairResponse res = api.exchangePairingCode(url, rawCode);
-            storeToken(res);
+            storeToken(res, url);
             // A fresh pairing resets failure notices, and is the only thing that lifts an
             // auth halt.
             noticeGate.onSuccess();
@@ -2272,7 +2274,7 @@ public class BankstandPlugin extends Plugin {
   }
 
   private void disconnect() {
-    String token = deviceStore.load().getToken();
+    DeviceCredentials paired = deviceStore.load();
     deviceStore.clear();
     // Queued presence belongs to this pairing; never send it under the next one.
     presenceQueue.clear();
@@ -2282,7 +2284,9 @@ public class BankstandPlugin extends Plugin {
     configManager.setConfiguration(
         BankstandKeys.GROUP, BankstandKeys.KEY_DISCONNECT, Boolean.FALSE.toString());
     notice("Disconnected. Nothing will be sent until you pair again.");
-    pairingClient.unpairInBackground(savedServerUrl(), token, () -> notice(UNPAIR_UNREACHABLE));
+    // Revoked where it was paired, the one server that knows the token, whatever the URL is now.
+    pairingClient.unpairInBackground(
+        paired.pairedServerUrl(), paired.getToken(), () -> notice(UNPAIR_UNREACHABLE));
   }
 
   private void clearPairingCode() {
@@ -2346,12 +2350,8 @@ public class BankstandPlugin extends Plugin {
     configManager.unsetConfiguration(BankstandKeys.GROUP, BankstandKeys.KEY_TOKEN_EXPIRES_AT);
   }
 
-  private void storeToken(PairResponse res) {
-    DeviceCredentials credentials = new DeviceCredentials();
-    credentials.setToken(res.getDeviceToken());
-    credentials.setDeviceId(res.getDeviceId());
-    credentials.setExpiresAt(res.getExpiresAt());
-    deviceStore.save(credentials);
+  private void storeToken(PairResponse res, String url) {
+    deviceStore.save(DeviceCredentials.of(res, url));
     presenceQueue.clear();
   }
 
