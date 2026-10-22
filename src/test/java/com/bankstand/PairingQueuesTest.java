@@ -1,6 +1,7 @@
 package com.bankstand;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import com.google.gson.Gson;
@@ -41,7 +42,13 @@ public class PairingQueuesTest {
 
     PairingQueues queues = new PairingQueues(presence, events, ledger, loot);
     boolean[] swappedFirst = {false};
-    queues.replace(() -> swappedFirst[0] = !events.pending().isEmpty());
+    PairingQueues.Dropped dropped =
+        queues.replace(() -> swappedFirst[0] = !events.pending().isEmpty());
+    assertEquals(1, dropped.events);
+    assertEquals("one queued and one still open", 2, dropped.loot);
+    assertEquals(
+        "Re-paired: 1 queued event and 2 loot drops from the previous pairing were discarded.",
+        dropped.repairNotice());
     assertTrue("the pairing is swapped before the queues are dropped", swappedFirst[0]);
 
     assertEquals(0, presence.size());
@@ -93,5 +100,32 @@ public class PairingQueuesTest {
     }
     assertTrue(swapped.await(5, java.util.concurrent.TimeUnit.SECONDS));
     pairing.join();
+  }
+
+  @Test
+  public void theRepairNoticeCountsWhatWasDroppedAndIsSilentWhenNothingWas() {
+    assertNull(new PairingQueues.Dropped(0, 0).repairNotice());
+    assertEquals(
+        "Re-paired: 12 queued events and 3 loot drops from the previous pairing were discarded.",
+        new PairingQueues.Dropped(12, 3).repairNotice());
+    assertEquals(
+        "Re-paired: 1 loot drop from the previous pairing was discarded.",
+        new PairingQueues.Dropped(0, 1).repairNotice());
+    assertEquals(
+        "Re-paired: 2 queued events from the previous pairing were discarded.",
+        new PairingQueues.Dropped(2, 0).repairNotice());
+  }
+
+  @Test
+  public void aNewPairingTellsThePlayerWhatItDiscarded() throws IOException {
+    String source =
+        new String(
+            Files.readAllBytes(
+                Paths.get("src", "main", "java", "com", "bankstand", "BankstandPlugin.java")),
+            StandardCharsets.UTF_8);
+    int start = source.indexOf("private void storeToken(");
+    String body = source.substring(start, source.indexOf("\n  }\n", start));
+    assertTrue(body.contains(".repairNotice();"));
+    assertTrue(body.contains("notice(discarded);"));
   }
 }

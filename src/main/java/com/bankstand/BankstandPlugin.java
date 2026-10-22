@@ -2353,7 +2353,12 @@ public class BankstandPlugin extends Plugin {
 
   private void storeToken(PairResponse res, String url) {
     DeviceCredentials previous = deviceStore.load();
-    pairingQueues.replace(() -> deviceStore.save(DeviceCredentials.of(res, url)));
+    PairingQueues.Dropped dropped =
+        pairingQueues.replace(() -> deviceStore.save(DeviceCredentials.of(res, url)));
+    String discarded = dropped.repairNotice();
+    if (discarded != null) {
+      notice(discarded);
+    }
     // The old token may belong to another account or server: revoke it where it was paired.
     pairingClient.unpairInBackground(
         previous.pairedServerUrl(), previous.getToken(), () -> notice(UNPAIR_UNREACHABLE));

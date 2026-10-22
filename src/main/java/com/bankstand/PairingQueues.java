@@ -1,5 +1,8 @@
 package com.bankstand;
 
+import java.util.ArrayList;
+import java.util.List;
+
 /**
  * Everything queued under one pairing. A new pairing can be another Bankstand account or another
  * server, and the plugin cannot tell, so on a new pairing or a disconnect it is all dropped, never
@@ -19,16 +22,44 @@ final class PairingQueues {
     this.loot = loot;
   }
 
-  /** Swaps the stored pairing and drops the old queues as one step. */
-  synchronized void replace(Runnable swapPairing) {
+  /** Swaps the stored pairing and drops the old queues as one step. Returns what it dropped. */
+  synchronized Dropped replace(Runnable swapPairing) {
     swapPairing.run();
-    drop();
-  }
-
-  private void drop() {
+    Dropped dropped =
+        new Dropped(events.pending().size(), loot.pending().size() + ledger.closeAll().size());
     presence.clear();
     events.clear();
-    ledger.discard();
     loot.clear();
+    return dropped;
+  }
+
+  /** Counts only, so the notice can never carry a token, device id, server URL or account. */
+  static final class Dropped {
+    final int events;
+    final int loot;
+
+    Dropped(int events, int loot) {
+      this.events = events;
+      this.loot = loot;
+    }
+
+    /** The chat line for a re-pair, or null when nothing was dropped. */
+    String repairNotice() {
+      List<String> parts = new ArrayList<>();
+      if (events > 0) {
+        parts.add(events + (events == 1 ? " queued event" : " queued events"));
+      }
+      if (loot > 0) {
+        parts.add(loot + (loot == 1 ? " loot drop" : " loot drops"));
+      }
+      if (parts.isEmpty()) {
+        return null;
+      }
+      return "Re-paired: "
+          + String.join(" and ", parts)
+          + " from the previous pairing "
+          + (events + loot == 1 ? "was" : "were")
+          + " discarded.";
+    }
   }
 }
