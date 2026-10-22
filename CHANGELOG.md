@@ -2,6 +2,17 @@
 
 Every notable change to the Bankstand RuneLite plugin. Internal-only changes (refactors, test changes, dependency bumps) are not listed here.
 
+## v0.4.0
+
+- Your device token is only sent to the server you paired with. Point the Server URL somewhere else and nothing is sent until you pair with that server; switch back and syncing resumes.
+- Redirects are never followed, so a token or capture is never re-sent to another address.
+- A plain http Server URL is only kept for your own machine, judged by the address the request really goes to. Any other address is upgraded to https.
+- Disconnect now also revokes the device on the server. If the server can't be reached, a chat line says so.
+- Pairing again drops anything still waiting to be sent from the old pairing and revokes the old device, so nothing reaches another account or server. A chat line says how many events and loot drops were discarded.
+- With Slayer tracker on, your slayer master, all three streaks and when you got the task are sent with your task.
+- The account type is remembered across restarts, so it is not sent again after every restart.
+- If you paired with a self-hosted or test server before this version, pair again.
+
 ## v0.3.0
 
 - Play sessions: when you log in and out, with XP, kills and loot per session. Off by default, under Play tracking.
