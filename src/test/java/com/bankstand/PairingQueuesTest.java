@@ -26,6 +26,8 @@ public class PairingQueuesTest {
   public void dropLeavesNothingFromTheOldPairingToSendUnderTheNextOne() throws IOException {
     File dir = folder.newFolder("bankstand");
     Gson gson = new Gson();
+    CaptureGenerations generations = new CaptureGenerations();
+    generations.observe(ACCOUNT, 3);
     PresenceQueue presence = new PresenceQueue();
     presence.addTransition(new PresenceSignal(PresenceSignal.LOGIN, ACCOUNT, 1L));
     EventOutbox events = new EventOutbox(new File(dir, "events.json"), gson);
@@ -34,13 +36,15 @@ public class PairingQueuesTest {
         new TransientEvent(
             "e1", TransientEvent.TYPE_NOTABLE_DROP, "2026-10-22T10:00:00Z", Collections.emptyMap()));
     LootLedger ledger = new LootLedger();
+    ledger.setCaptureGenerations(generations);
     ledger.record(ACCOUNT, 1, "Rat", Collections.singletonMap(526, 1), Instant.now());
     LootOutbox loot = new LootOutbox(new File(dir, "loot.json"), gson);
     loot.addAll(ledger.closeAll());
     ledger.record(ACCOUNT, 2, "Goblin", Collections.singletonMap(526, 1), Instant.now());
     assertEquals(1, loot.pending().size());
 
-    PairingQueues queues = new PairingQueues(presence, events, ledger, loot, () -> null);
+    PairingQueues queues =
+        new PairingQueues(presence, events, ledger, loot, generations, () -> null);
     boolean[] droppedFirst = {false};
     PairingQueues.Dropped dropped =
         queues.replace(() -> droppedFirst[0] = events.pending().isEmpty());
@@ -55,6 +59,7 @@ public class PairingQueuesTest {
     assertTrue(events.pending().isEmpty());
     assertTrue("an open loot window is not closed into the next pairing", ledger.closeAll().isEmpty());
     assertTrue(loot.pending().isEmpty());
+    assertNull(generations.get(ACCOUNT));
     // On disk too, so a restart does not bring them back.
     assertTrue(new EventOutbox(new File(dir, "events.json"), gson).pending().isEmpty());
     assertTrue(new LootOutbox(new File(dir, "loot.json"), gson).pending().isEmpty());
@@ -89,6 +94,7 @@ public class PairingQueuesTest {
             new EventOutbox(new File(folder.newFolder("q"), "events.json"), new Gson()),
             new LootLedger(),
             new LootOutbox(new File(folder.getRoot(), "q/loot.json"), new Gson()),
+            new CaptureGenerations(),
             () -> null);
     java.util.concurrent.CountDownLatch swapped = new java.util.concurrent.CountDownLatch(1);
     Thread pairing;

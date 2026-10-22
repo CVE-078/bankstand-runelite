@@ -18,7 +18,6 @@ import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.Collections;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -175,6 +174,8 @@ public class BankstandPlugin extends Plugin {
   private final CollectionLogSync collectionLogSync = new CollectionLogSync();
   private CollectionLogSyncInfoBox syncInfoBox;
   private AckedStateStore ackedStore;
+  // The last acked capture generation per account; every queued capture is stamped with it.
+  private final CaptureGenerations captureGenerations = new CaptureGenerations();
   private ManifestStore manifestStore;
   private EventOutbox eventOutbox;
   private NotableDropCapture notableDropCapture;
@@ -260,6 +261,9 @@ public class BankstandPlugin extends Plugin {
     LegacyCredentials.migrate(configManager, deviceStore);
 
     eventOutbox = new EventOutbox(new File(ACKED_STATE_DIR, EVENTS_FILE), gson);
+    captureGenerations.persistTo(ackedStore, executor);
+    eventOutbox.setCaptureGenerations(captureGenerations);
+    presenceQueue.setCaptureGenerations(captureGenerations);
     slayerTaskStart =
         new SlayerTaskStart(
             new File(ACKED_STATE_DIR, "slayer-task-start.json"), gson, executor, client, session);
@@ -331,12 +335,14 @@ public class BankstandPlugin extends Plugin {
             onEmit);
     eventBus.register(slayerTaskCompletionCapture);
     lootOutbox = new LootOutbox(new File(ACKED_STATE_DIR, LOOT_FILE), gson);
+    lootLedger.setCaptureGenerations(captureGenerations);
     pairingQueues =
         new PairingQueues(
             presenceQueue,
             eventOutbox,
             lootLedger,
             lootOutbox,
+            captureGenerations,
             () -> deviceStore.load().getPairingId());
     lootCapture =
         new LootCapture(
@@ -540,19 +546,28 @@ public class BankstandPlugin extends Plugin {
     if (token == null || pending.isEmpty()) {
       return;
     }
-    Map<Long, List<TransientEvent>> byAccount = new LinkedHashMap<>();
-    for (OutboxEntry entry : pending) {
-      byAccount.computeIfAbsent(entry.getAccountHash(), key -> new ArrayList<>()).add(entry.getEvent());
-    }
+    Map<SendGroup, List<TransientEvent>> byAccount =
+        SendGroup.of(
+            pending,
+            OutboxEntry::getAccountHash,
+            OutboxEntry::getCaptureGeneration,
+            OutboxEntry::getEvent);
     BankstandClient api = pairingClient;
     executor.submit(
         () -> {
-          for (Map.Entry<Long, List<TransientEvent>> group : byAccount.entrySet()) {
-            for (List<TransientEvent> chunk : chunkEvents(group.getValue(), MAX_EVENTS_PER_SUBMIT)) {
+          for (Map.Entry<SendGroup, List<TransientEvent>> group : byAccount.entrySet()) {
+            long accountHash = group.getKey().accountHash;
+            for (List<TransientEvent> chunk : SendGroup.chunk(group.getValue(), MAX_EVENTS_PER_SUBMIT)) {
               // Chunks retry independently; the retry is a scheduled task, never a blocked thread.
               api
                   .submitEventsWithRetry(
-                      url, token, group.getKey(), chunk, MAX_SUBMIT_ATTEMPTS, SUBMIT_RETRY_BASE_DELAY_MS)
+                      url,
+                      token,
+                      accountHash,
+                      chunk,
+                      group.getKey().captureGeneration,
+                      MAX_SUBMIT_ATTEMPTS,
+                      SUBMIT_RETRY_BASE_DELAY_MS)
                   .whenComplete(
                       (response, failure) -> {
                         if (failure != null) {
@@ -561,6 +576,7 @@ public class BankstandPlugin extends Plugin {
                               failure.getMessage());
                           return;
                         }
+                        captureGenerations.observe(accountHash, response.getCaptureGeneration());
                         if (!response.isRouted()) {
                           // Unclaimed: leave every entry pending, like a network failure.
                           return;
@@ -662,8 +678,10 @@ public class BankstandPlugin extends Plugin {
                 next.getAccountHash(),
                 next.getState(),
                 next.elapsedMillis(System.nanoTime()),
-                next.getLoot());
+                next.getLoot(),
+                next.getCaptureGeneration());
         presenceQueue.onAnswered(next);
+        captureGenerations.observe(next.getAccountHash(), res.getCaptureGeneration());
         if (res.isApplied()) {
           lastSyncedAt.put(Capability.SESSIONS.key, System.currentTimeMillis());
           if (PresenceSignal.LOGIN.equals(next.getState())) {
@@ -734,18 +752,23 @@ public class BankstandPlugin extends Plugin {
     if (token == null) {
       return;
     }
-    Map<Long, List<LootEvent>> byAccount = new LinkedHashMap<>();
-    for (LootEntry entry : pending) {
-      byAccount.computeIfAbsent(entry.getAccountHash(), key -> new ArrayList<>()).add(entry.getEvent());
-    }
-    for (Map.Entry<Long, List<LootEvent>> group : byAccount.entrySet()) {
-      for (List<LootEvent> chunk : chunk(group.getValue(), MAX_EVENTS_PER_SUBMIT)) {
+    Map<SendGroup, List<LootEvent>> byAccount =
+        SendGroup.of(
+            pending,
+            LootEntry::getAccountHash,
+            LootEntry::getCaptureGeneration,
+            LootEntry::getEvent);
+    for (Map.Entry<SendGroup, List<LootEvent>> group : byAccount.entrySet()) {
+      long accountHash = group.getKey().accountHash;
+      for (List<LootEvent> chunk : SendGroup.chunk(group.getValue(), MAX_EVENTS_PER_SUBMIT)) {
         BankstandClient client = pairingClient;
         if (client == null) {
           return;
         }
         try {
-          SubmitLootResponse res = client.submitLoot(url, token, group.getKey(), chunk);
+          SubmitLootResponse res =
+              client.submitLoot(url, token, accountHash, chunk, group.getKey().captureGeneration);
+          captureGenerations.observe(accountHash, res.getCaptureGeneration());
           lootOutbox.ack(LootOutbox.idsToAck(res.getAcks()));
           if (res.getAcks().stream().anyMatch(EventAck::isStored)) {
             lastSyncedAt.put(Capability.LOOT.key, System.currentTimeMillis());
@@ -760,20 +783,6 @@ public class BankstandPlugin extends Plugin {
         }
       }
     }
-  }
-
-  /** {@link #chunkEvents} for any element type. */
-  static <T> List<List<T>> chunk(List<T> items, int maxSize) {
-    List<List<T>> chunks = new ArrayList<>();
-    for (int start = 0; start < items.size(); start += maxSize) {
-      chunks.add(new ArrayList<>(items.subList(start, Math.min(start + maxSize, items.size()))));
-    }
-    return chunks;
-  }
-
-  /** Splits into batches of at most {@code maxSize}, oldest first. */
-  static List<List<TransientEvent>> chunkEvents(List<TransientEvent> events, int maxSize) {
-    return chunk(events, maxSize);
   }
 
   private java.util.List<String> statusLines() {
@@ -1709,6 +1718,7 @@ public class BankstandPlugin extends Plugin {
     executor.submit(
         () -> {
           AckedState state = ackedStore.load(accountHash);
+          captureGenerations.restore(accountHash, state.getCaptureGeneration());
           clientThread.invoke(
               () -> {
                 if (!session.isCurrent(accountHash, generation)) {
@@ -2006,6 +2016,9 @@ public class BankstandPlugin extends Plugin {
                 fullEnumeration,
                 combatAchievementBossCounts,
                 slayerTask == null ? null : slayerTask.toWire());
+    if (retryBody == null) {
+      captureGenerations.stamp(body, accountHash);
+    }
     BankstandClient api = pairingClient;
     executor.submit(
         () -> {
@@ -2041,6 +2054,7 @@ public class BankstandPlugin extends Plugin {
                       }
                       return;
                     }
+                    captureGenerations.observe(accountHash, res.getCaptureGeneration());
                     // Advance each baseline only for a block the server wrote, on the client
                     // thread, and only if this login is still current.
                     clientThread.invoke(

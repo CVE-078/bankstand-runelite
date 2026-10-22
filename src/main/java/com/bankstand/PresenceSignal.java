@@ -16,16 +16,28 @@ final class PresenceSignal {
   private final long createdAtNanos;
   // Whether full loot was on. Null on logout and off, which do not carry it.
   private final Boolean loot;
+  // The capture generation known when this was queued. Null when none was.
+  private final Integer captureGeneration;
 
   PresenceSignal(String state, long accountHash, long createdAtNanos) {
-    this(state, accountHash, createdAtNanos, null);
+    this(state, accountHash, createdAtNanos, null, null);
   }
 
   PresenceSignal(String state, long accountHash, long createdAtNanos, Boolean loot) {
+    this(state, accountHash, createdAtNanos, loot, null);
+  }
+
+  private PresenceSignal(
+      String state,
+      long accountHash,
+      long createdAtNanos,
+      Boolean loot,
+      Integer captureGeneration) {
     this.state = state;
     this.accountHash = accountHash;
     this.createdAtNanos = createdAtNanos;
     this.loot = loot;
+    this.captureGeneration = captureGeneration;
   }
 
   /** A copy carrying the loot flag, for {@code login} and {@code active} only. */
@@ -33,7 +45,16 @@ final class PresenceSignal {
     if (!LOGIN.equals(state) && !ACTIVE.equals(state)) {
       return this;
     }
-    return new PresenceSignal(state, accountHash, createdAtNanos, lootOn);
+    return new PresenceSignal(state, accountHash, createdAtNanos, lootOn, captureGeneration);
+  }
+
+  /** A copy stamped with the capture generation known as it is queued. */
+  PresenceSignal withCaptureGeneration(Integer generation) {
+    return new PresenceSignal(state, accountHash, createdAtNanos, loot, generation);
+  }
+
+  Integer getCaptureGeneration() {
+    return captureGeneration;
   }
 
   String getState() {

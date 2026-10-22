@@ -345,7 +345,7 @@ public class BankstandPluginTest {
 
   @Test
   public void chunkEventsKeepsAGroupAtExactlyTheCapInOneChunk() {
-    List<List<TransientEvent>> chunks = BankstandPlugin.chunkEvents(events(50), 50);
+    List<List<TransientEvent>> chunks = SendGroup.chunk(events(50), 50);
 
     assertEquals(1, chunks.size());
     assertEquals(50, chunks.get(0).size());
@@ -354,7 +354,7 @@ public class BankstandPluginTest {
   @Test
   public void chunkEventsSplitsAGroupOverTheCapIntoTwoChunks() {
     // Over the server's per-request cap, the whole request is rejected every time.
-    List<List<TransientEvent>> chunks = BankstandPlugin.chunkEvents(events(51), 50);
+    List<List<TransientEvent>> chunks = SendGroup.chunk(events(51), 50);
 
     assertEquals(2, chunks.size());
     assertEquals(50, chunks.get(0).size());
@@ -363,7 +363,7 @@ public class BankstandPluginTest {
 
   @Test
   public void chunkEventsPreservesOrderWithinAndAcrossChunks() {
-    List<List<TransientEvent>> chunks = BankstandPlugin.chunkEvents(events(120), 50);
+    List<List<TransientEvent>> chunks = SendGroup.chunk(events(120), 50);
 
     assertEquals(3, chunks.size());
     assertEquals("id-0", chunks.get(0).get(0).getId());

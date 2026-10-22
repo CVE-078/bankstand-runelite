@@ -35,7 +35,7 @@ public class LootOutbox {
   /** Rejections that resending the same record can never fix, so it is dropped. A {@code quota}
    *  rejection stays pending: the daily quota resets at UTC midnight. */
   private static final Set<String> TERMINAL_REJECTIONS =
-      new HashSet<>(Arrays.asList("invalid", "stale"));
+      new HashSet<>(Arrays.asList("invalid", "stale", "stale_generation"));
 
   private static final Type LIST_TYPE = new TypeToken<ArrayList<LootEntry>>() {}.getType();
 
@@ -48,7 +48,10 @@ public class LootOutbox {
     this.gson = gson;
   }
 
-  /** Appends closed records, evicting the oldest pending ones past the cap. */
+  /**
+   * Appends closed records, evicting the oldest pending ones past the cap. Each keeps the
+   * capture generation {@link LootLedger} stamped when its window opened.
+   */
   public synchronized void addAll(Collection<LootEntry> added) {
     if (added.isEmpty()) {
       return;

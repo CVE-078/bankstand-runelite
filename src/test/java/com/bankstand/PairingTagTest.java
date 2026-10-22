@@ -46,7 +46,9 @@ public class PairingTagTest {
     EventOutbox events = events(dir, () -> pairing[0]);
     LootLedger ledger = new LootLedger();
     LootOutbox loot = loot(dir, () -> pairing[0]);
-    PairingQueues queues = new PairingQueues(new PresenceQueue(), events, ledger, loot, () -> pairing[0]);
+    PairingQueues queues =
+        new PairingQueues(
+            new PresenceQueue(), events, ledger, loot, new CaptureGenerations(), () -> pairing[0]);
     events.add(ACCOUNT, event("e1"));
     ledger.record(ACCOUNT, 1, "Rat", Collections.singletonMap(526, 1), Instant.now());
     loot.addAll(ledger.closeAll());

@@ -15,12 +15,14 @@ final class PairingQueues {
   private final EventOutbox events;
   private final LootLedger ledger;
   private final LootOutbox loot;
+  private final CaptureGenerations generations;
 
   PairingQueues(
       PresenceQueue presence,
       EventOutbox events,
       LootLedger ledger,
       LootOutbox loot,
+      CaptureGenerations generations,
       Supplier<String> pairing) {
     events.setPairing(pairing);
     ledger.setPairing(pairing);
@@ -29,6 +31,7 @@ final class PairingQueues {
     this.events = events;
     this.ledger = ledger;
     this.loot = loot;
+    this.generations = generations;
   }
 
   /** Drops the old queues and swaps the stored pairing as one step. Returns what it dropped. */
@@ -39,6 +42,7 @@ final class PairingQueues {
     presence.clear();
     events.clear();
     loot.clear();
+    generations.forget();
     swapPairing.run();
     return dropped;
   }

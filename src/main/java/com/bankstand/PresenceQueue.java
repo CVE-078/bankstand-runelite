@@ -16,21 +16,32 @@ final class PresenceQueue {
 
   private final Deque<PresenceSignal> transitions = new ArrayDeque<>();
   private PresenceSignal heartbeat;
+  private volatile CaptureGenerations generations = new CaptureGenerations();
+
+  /** Where a queued value reads the capture generation it is stamped with. */
+  void setCaptureGenerations(CaptureGenerations generations) {
+    this.generations = generations;
+  }
 
   synchronized void addTransition(PresenceSignal signal) {
     if (transitions.size() == MAX_TRANSITIONS) {
       transitions.removeFirst();
       log.debug("presence queue full: dropped the oldest transition");
     }
-    transitions.addLast(signal);
+    transitions.addLast(stamped(signal));
     heartbeat = null;
   }
 
   /** Ignored while a transition waits, so a heartbeat can never follow a queued logout. */
   synchronized void offerHeartbeat(PresenceSignal signal) {
     if (transitions.isEmpty()) {
-      heartbeat = signal;
+      heartbeat = stamped(signal);
     }
+  }
+
+  private PresenceSignal stamped(PresenceSignal signal) {
+    Integer generation = generations.get(signal.getAccountHash());
+    return generation == null ? signal : signal.withCaptureGeneration(generation);
   }
 
   /** The next value to send, or null when there is nothing. Does not remove it. */
