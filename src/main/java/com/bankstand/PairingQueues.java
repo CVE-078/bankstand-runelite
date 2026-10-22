@@ -22,14 +22,15 @@ final class PairingQueues {
     this.loot = loot;
   }
 
-  /** Swaps the stored pairing and drops the old queues as one step. Returns what it dropped. */
+  /** Drops the old queues and swaps the stored pairing as one step. Returns what it dropped. */
   synchronized Dropped replace(Runnable swapPairing) {
-    swapPairing.run();
+    // Dropped before the swap: a crash in between loses the queue, never sends it under a new token.
     Dropped dropped =
         new Dropped(events.pending().size(), loot.pending().size() + ledger.closeAll().size());
     presence.clear();
     events.clear();
     loot.clear();
+    swapPairing.run();
     return dropped;
   }
 
