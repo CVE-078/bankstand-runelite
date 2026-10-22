@@ -8,6 +8,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.function.Supplier;
 
 /**
  * Aggregates loot per NPC into windows closed on each drain. A window closes before a kill
@@ -24,6 +25,12 @@ final class LootLedger {
   static final Duration MAX_WINDOW = Duration.ofMinutes(5);
 
   private final Map<Key, Window> open = new LinkedHashMap<>();
+  private volatile Supplier<String> pairing = () -> null;
+
+  /** Where a new window reads the pairing its record is tagged with. */
+  void setPairing(Supplier<String> pairing) {
+    this.pairing = pairing;
+  }
 
   /**
    * Records one kill and returns any window it closed to make room.
@@ -46,7 +53,7 @@ final class LootLedger {
       window = null;
     }
     if (window == null) {
-      window = new Window(npcId, name, at);
+      window = new Window(npcId, name, at, pairing.get());
       open.put(key, window);
     }
     window.add(kill, at);
@@ -140,11 +147,13 @@ final class LootLedger {
     final int npcId;
     final String npcName;
     final Instant start;
+    final String pairingId;
     Instant last;
     int kills;
     final Map<Integer, Long> items = new LinkedHashMap<>();
 
-    Window(int npcId, String npcName, Instant start) {
+    Window(int npcId, String npcName, Instant start, String pairingId) {
+      this.pairingId = pairingId;
       this.npcId = npcId;
       this.npcName = npcName;
       this.start = start;
@@ -188,7 +197,8 @@ final class LootLedger {
       return new LootEntry(
           accountHash,
           new LootEvent(
-              UuidV7.generate(), npcId, npcName, kills, start.toString(), last.toString(), list));
+              UuidV7.generate(), npcId, npcName, kills, start.toString(), last.toString(), list),
+          pairingId);
     }
   }
 }
