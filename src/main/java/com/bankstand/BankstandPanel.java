@@ -212,6 +212,9 @@ class BankstandPanel extends PluginPanel {
     section.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
 
     section.add(leftAligned(sectionTitle("Recent activity")));
+    for (String line : model.captureLosses) {
+      section.add(leftAligned(mutedLabel(line)));
+    }
 
     List<PanelModel.ActivityRow> recent = model.recentActivity;
     if (recent.isEmpty()) {

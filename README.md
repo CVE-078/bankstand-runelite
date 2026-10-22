@@ -63,7 +63,8 @@ dropped rather than sent.
 While any toggle is on, each login also sends your account hash and display name once. That links
 the character to your Bankstand account and says whether its captured data was removed. Until the
 answer arrives, drops, loot and session marks wait in memory: at most 200, for at most 10 minutes.
-Past that they are dropped, and the sidebar says how many.
+Past that they are dropped, and the sidebar says how many. Closing RuneLite before the answer
+loses what was waiting.
 
 Nothing is read or sent on Leagues, Deadman, tournament, PvP Arena, beta, no-save or quest
 speedrunning worlds, or before the welcome screen is closed after login. Fresh Start worlds count as
@@ -121,7 +122,9 @@ Click the Bankstand icon in the sidebar.
   sent yet.
 - **Capabilities.** When each enabled capability last sent something. A dash means nothing new to
   send yet.
-- **Recent activity.** Unlocks, achievements, diary tasks, drops and pets sent this session.
+- **Recent activity.** Unlocks, achievements, diary tasks, drops and pets sent this session. Above
+  them, since RuneLite started: progress snapshots that were held back or refused and read again
+  from the game (nothing lost), and drops, loot and session marks that were not saved, with why.
 - **Also turn on the Session log?** Shown while the Loot log is on and the Session log is off.
   Nothing changes unless you press its button.
 - **Sync now** sends immediately. **Open Bankstand** opens the site.

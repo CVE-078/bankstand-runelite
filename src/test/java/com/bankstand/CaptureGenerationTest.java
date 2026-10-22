@@ -339,7 +339,7 @@ public class CaptureGenerationTest {
     assertEquals(
         "a refused snapshot is recaptured, not lost",
         0,
-        rig.boundary.discarded(CaptureBoundary.Kind.SNAPSHOT));
+        rig.boundary.losses().discarded(CaptureBoundary.Kind.SNAPSHOT));
   }
 
   @Test

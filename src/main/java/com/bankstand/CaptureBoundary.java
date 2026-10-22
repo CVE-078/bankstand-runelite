@@ -4,6 +4,7 @@ import com.bankstand.dto.EventAck;
 import com.bankstand.session.AccountSession;
 import java.util.ArrayList;
 import java.util.EnumMap;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -11,6 +12,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 import java.util.function.LongSupplier;
 import java.util.function.Supplier;
+import java.util.function.ToLongFunction;
 
 /**
  * Decides which capture generation each event, loot record and presence mark carries.
@@ -99,8 +101,9 @@ final class CaptureBoundary {
   private final AccountSession session;
   private final LongSupplier clock;
   private final List<Held> held = new ArrayList<>();
-  private final Map<Kind, Integer> discarded = new EnumMap<>(Kind.class);
-  private final Map<Kind, Integer> timedOut = new EnumMap<>(Kind.class);
+  private final CaptureLosses losses = new CaptureLosses();
+  private long waitingAccount;
+  private int waitingLogin = NO_LOGIN;
   private int epoch;
   private volatile Consumer<String> lost = line -> {};
 
@@ -161,6 +164,37 @@ final class CaptureBoundary {
     }
   }
 
+  /**
+   * Reads the token, then the queue, then a ticket per account in it, as one step: a re-pair
+   * waits, so an answer to this request can never be taken for the next pairing's.
+   */
+  <T> CaptureSend<T> send(Supplier<String> token, Supplier<List<T>> pending, ToLongFunction<T> account) {
+    synchronized (lock) {
+      String t = token.get();
+      List<T> items = pending.get();
+      Map<Long, Ticket> asked = new HashMap<>();
+      for (T item : items) {
+        asked.computeIfAbsent(account.applyAsLong(item), this::ticket);
+      }
+      return new CaptureSend<>(t, items, asked);
+    }
+  }
+
+  /**
+   * A snapshot was not read because the server has not answered for this login yet. It is read
+   * once it has, so it counts as recovered, once per login.
+   */
+  void snapshotWaiting(long accountHash) {
+    synchronized (lock) {
+      int login = ticket(accountHash).login;
+      if (login != NO_LOGIN && (accountHash != waitingAccount || login != waitingLogin)) {
+        waitingAccount = accountHash;
+        waitingLogin = login;
+        losses.recovered(1);
+      }
+    }
+  }
+
   /** Queues a capture made now. */
   void queue(long accountHash, Kind kind, Sink sink) {
     synchronized (lock) {
@@ -174,6 +208,7 @@ final class CaptureBoundary {
       expire();
       if (ticket.epoch != epoch) {
         // Made under a pairing since replaced; that pairing's queues were already dropped.
+        report(CaptureLosses.Reason.REPAIRED, CaptureLosses.single(kind, 1));
         return;
       }
       if (ticket.confirmed) {
@@ -189,7 +224,7 @@ final class CaptureBoundary {
         while (held.size() > MAX_HELD) {
           over.merge(held.remove(0).kind, 1, Integer::sum);
         }
-        reportTimedOut(over);
+        report(CaptureLosses.Reason.FULL, over);
       }
     }
   }
@@ -252,7 +287,10 @@ final class CaptureBoundary {
       generations.apply(asked.account, generation, sentWith, stale > 0, current);
       if (stale > 0) {
         Map<Kind, Integer> refused = new EnumMap<>(Kind.class);
-        if (kind != Kind.SNAPSHOT) {
+        if (kind == Kind.SNAPSHOT) {
+          // Read again from the game under the new generation.
+          losses.recovered(stale);
+        } else {
           refused.put(kind, stale);
         }
         generations.staleRefused(asked.account);
@@ -307,7 +345,7 @@ final class CaptureBoundary {
           old.merge(h.kind, 1, Integer::sum);
         }
       }
-      reportTimedOut(old);
+      report(CaptureLosses.Reason.NO_ANSWER, old);
     }
   }
 
@@ -336,48 +374,23 @@ final class CaptureBoundary {
     }
   }
 
-  /** Discarded since start-up as captured before a removal (or not provably after one). */
-  int discarded(Kind kind) {
-    synchronized (lock) {
-      return discarded.getOrDefault(kind, 0);
-    }
-  }
-
-  /** Discarded since start-up because the server did not answer in time, or the hold was full. */
-  int timedOut(Kind kind) {
-    synchronized (lock) {
-      return timedOut.getOrDefault(kind, 0);
-    }
+  /** Recovered and lost captures since start-up. */
+  CaptureLosses losses() {
+    return losses;
   }
 
   private void reportStale(long accountHash, Map<Kind, Integer> counts) {
     if (!counts.isEmpty()) {
       generations.staleRefused(accountHash);
     }
-    counts.forEach((kind, n) -> discarded.merge(kind, n, Integer::sum));
-    String line = line(counts, "not saved, data was removed");
+    report(CaptureLosses.Reason.REMOVED, counts);
+  }
+
+  private void report(CaptureLosses.Reason reason, Map<Kind, Integer> counts) {
+    String line = losses.add(reason, counts);
     if (line != null) {
       lost.accept(line);
     }
   }
 
-  private void reportTimedOut(Map<Kind, Integer> counts) {
-    counts.forEach((kind, n) -> timedOut.merge(kind, n, Integer::sum));
-    String line = line(counts, "not saved, no answer from Bankstand in time");
-    if (line != null) {
-      lost.accept(line);
-    }
-  }
-
-  /** "2 events, 1 loot record not saved, ..." or null for none. */
-  static String line(Map<Kind, Integer> counts, String why) {
-    List<String> parts = new ArrayList<>();
-    for (Map.Entry<Kind, Integer> e : counts.entrySet()) {
-      int n = e.getValue();
-      if (n > 0) {
-        parts.add(n + " " + (n == 1 ? e.getKey().one : e.getKey().many));
-      }
-    }
-    return parts.isEmpty() ? null : String.join(", ", parts) + " " + why;
-  }
 }

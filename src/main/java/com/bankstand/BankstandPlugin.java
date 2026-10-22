@@ -553,13 +553,12 @@ public class BankstandPlugin extends Plugin {
       return;
     }
     String url = savedServerUrl();
-    String token;
-    List<OutboxEntry> pending;
-    // One step, so the token and the queue always belong to the same pairing.
-    synchronized (pairingQueues) {
-      token = deviceStore.load().tokenFor(url);
-      pending = eventOutbox.pending();
-    }
+    // One step, so the token, the queue and each answer's ticket belong to the same pairing.
+    CaptureSend<OutboxEntry> sending =
+        captureBoundary.send(
+            () -> deviceStore.load().tokenFor(url), eventOutbox::pending, OutboxEntry::getAccountHash);
+    String token = sending.token;
+    List<OutboxEntry> pending = sending.pending;
     if (token == null || pending.isEmpty()) {
       return;
     }
@@ -574,7 +573,7 @@ public class BankstandPlugin extends Plugin {
         () -> {
           for (Map.Entry<SendGroup, List<TransientEvent>> group : byAccount.entrySet()) {
             long accountHash = group.getKey().accountHash;
-            CaptureBoundary.Ticket asked = captureBoundary.ticket(accountHash);
+            CaptureBoundary.Ticket asked = sending.asked(accountHash);
             for (List<TransientEvent> chunk : SendGroup.chunk(group.getValue(), MAX_EVENTS_PER_SUBMIT)) {
               // Chunks retry independently; the retry is a scheduled task, never a blocked thread.
               api
@@ -665,13 +664,17 @@ public class BankstandPlugin extends Plugin {
 
   private void runPresenceSends() {
     while (true) {
-      PresenceSignal next;
       String url = savedServerUrl();
-      String token;
-      synchronized (pairingQueues) {
-        next = presenceQueue.peek();
-        token = deviceStore.load().tokenFor(url);
-      }
+      CaptureSend<PresenceSignal> sending =
+          captureBoundary.send(
+              () -> deviceStore.load().tokenFor(url),
+              () -> {
+                PresenceSignal head = presenceQueue.peek();
+                return head == null ? Collections.emptyList() : Collections.singletonList(head);
+              },
+              PresenceSignal::getAccountHash);
+      PresenceSignal next = sending.pending.isEmpty() ? null : sending.pending.get(0);
+      String token = sending.token;
       if (token == null) {
         presenceSending.set(false);
         return;
@@ -689,7 +692,7 @@ public class BankstandPlugin extends Plugin {
         presenceSending.set(false);
         return;
       }
-      CaptureBoundary.Ticket asked = captureBoundary.ticket(next.getAccountHash());
+      CaptureBoundary.Ticket asked = sending.asked(next.getAccountHash());
       try {
         PresenceResponse res =
             client.submitPresence(
@@ -764,12 +767,11 @@ public class BankstandPlugin extends Plugin {
 
   private void sendLoot() {
     String url = savedServerUrl();
-    String token;
-    List<LootEntry> pending;
-    synchronized (pairingQueues) {
-      token = deviceStore.load().tokenFor(url);
-      pending = lootOutbox.pending();
-    }
+    CaptureSend<LootEntry> sending =
+        captureBoundary.send(
+            () -> deviceStore.load().tokenFor(url), lootOutbox::pending, LootEntry::getAccountHash);
+    String token = sending.token;
+    List<LootEntry> pending = sending.pending;
     if (token == null) {
       return;
     }
@@ -786,7 +788,7 @@ public class BankstandPlugin extends Plugin {
         if (client == null) {
           return;
         }
-        CaptureBoundary.Ticket asked = captureBoundary.ticket(accountHash);
+        CaptureBoundary.Ticket asked = sending.asked(accountHash);
         try {
           SubmitLootResponse res =
               client.submitLoot(url, token, accountHash, chunk, group.getKey().captureGeneration);
@@ -1309,6 +1311,7 @@ public class BankstandPlugin extends Plugin {
         dot,
         rows,
         recentActivityLog.recent(),
+        captureBoundary.losses().summary(),
         lastFailureReason,
         savedServerUrl(),
         PanelModel.shouldOfferSessions(config.collectLoot(), config.collectSessions()));
@@ -1667,6 +1670,7 @@ public class BankstandPlugin extends Plugin {
     }
     // Not until the server answered for this character this login: re-captured once it has.
     if (!captureGenerations.isConfirmed(accountHash)) {
+      captureBoundary.snapshotWaiting(accountHash);
       return;
     }
     // An opt-in is not retroactive to items observed before it.
@@ -2051,7 +2055,6 @@ public class BankstandPlugin extends Plugin {
       SlayerTask slayerTask,
       Map<String, Object> retryBody) {
     String url = savedServerUrl();
-    String token = deviceStore.load().tokenFor(url);
     String version = getClass().getPackage().getImplementationVersion();
     String pluginVersion = version != null ? version : "dev";
     // A retry re-sends the original envelope: a cooldown is not recorded, so its id is unused.
@@ -2076,13 +2079,22 @@ public class BankstandPlugin extends Plugin {
                 fullEnumeration,
                 combatAchievementBossCounts,
                 slayerTask == null ? null : slayerTask.toWire());
-    if (retryBody == null) {
-      captureGenerations.stamp(body, accountHash);
-    }
+    // The stamp, token and ticket in one step, so all belong to one pairing.
+    CaptureSend<Long> sending =
+        captureBoundary.send(
+            () -> {
+              if (retryBody == null) {
+                captureGenerations.stamp(body, accountHash);
+              }
+              return deviceStore.load().tokenFor(url);
+            },
+            () -> Collections.singletonList(accountHash),
+            a -> a);
+    String token = sending.token;
+    CaptureBoundary.Ticket asked = sending.asked(accountHash);
     BankstandClient api = pairingClient;
     executor.submit(
         () -> {
-          CaptureBoundary.Ticket asked = captureBoundary.ticket(accountHash);
           api
               .submitSnapshotWithRetry(url, token, body, MAX_SUBMIT_ATTEMPTS, SUBMIT_RETRY_BASE_DELAY_MS)
               .whenComplete(
@@ -2297,9 +2309,12 @@ public class BankstandPlugin extends Plugin {
       return;
     }
     String url = savedServerUrl();
-    String token = deviceStore.load().tokenFor(url);
-    // Taken now, on the client thread: the answer counts only for this login and pairing.
-    CaptureBoundary.Ticket asked = captureBoundary.ticket(accountHash);
+    // Taken now with the token: the answer counts only for this login and pairing.
+    CaptureSend<Long> sending =
+        captureBoundary.send(
+            () -> deviceStore.load().tokenFor(url), () -> Collections.singletonList(accountHash), a -> a);
+    String token = sending.token;
+    CaptureBoundary.Ticket asked = sending.asked(accountHash);
     executor.submit(
         () -> {
           captureBoundary

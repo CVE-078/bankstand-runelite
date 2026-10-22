@@ -106,9 +106,9 @@ public class GenerationBoundaryTest {
     rig.clock.addAndGet(1);
     rig.boundary.expire();
     assertEquals(0, rig.boundary.heldCount());
-    assertEquals(1, rig.boundary.timedOut(CaptureBoundary.Kind.EVENT));
-    assertEquals(1, rig.boundary.timedOut(CaptureBoundary.Kind.LOOT));
-    assertEquals(1, rig.boundary.timedOut(CaptureBoundary.Kind.PRESENCE));
+    assertEquals(1, rig.boundary.losses().timedOut(CaptureBoundary.Kind.EVENT));
+    assertEquals(1, rig.boundary.losses().timedOut(CaptureBoundary.Kind.LOOT));
+    assertEquals(1, rig.boundary.losses().timedOut(CaptureBoundary.Kind.PRESENCE));
     assertEquals(
         Collections.singletonList(
             "1 event, 1 loot record, 1 session mark not saved, no answer from Bankstand in time"),
@@ -122,8 +122,13 @@ public class GenerationBoundaryTest {
       rig.event(A, "e" + i);
     }
     assertEquals(CaptureBoundary.MAX_HELD, rig.boundary.heldCount());
-    assertEquals(2, rig.boundary.timedOut(CaptureBoundary.Kind.EVENT));
-    assertEquals(2, rig.lost.size());
+    assertEquals(2, rig.boundary.losses().count(CaptureLosses.Reason.FULL, CaptureBoundary.Kind.EVENT));
+    assertEquals("a full hold is not a late answer", 0, rig.boundary.losses().timedOut(CaptureBoundary.Kind.EVENT));
+    assertEquals(
+        Arrays.asList(
+            "1 event not saved, too many were waiting for Bankstand",
+            "1 event not saved, too many were waiting for Bankstand"),
+        rig.lost);
   }
 
   // Identity answers
@@ -254,6 +259,69 @@ public class GenerationBoundaryTest {
     boolean[] sent = {false};
     rig.boundary.queue(before, CaptureBoundary.Kind.LOOT, stamp -> sent[0] = true);
     assertFalse(sent[0]);
+    assertEquals(1, rig.boundary.losses().count(CaptureLosses.Reason.REPAIRED, CaptureBoundary.Kind.LOOT));
+  }
+
+  @Test
+  public void aRePairWhileTheTokenIsReadWaitsSoTheOldAnswerNeverCounts() throws Exception {
+    rig.server.generation.put(A, 2);
+    rig.login(A);
+    Thread[] repairer = new Thread[1];
+    CaptureSend<Long> send =
+        rig.boundary.send(
+            () -> {
+              String old = rig.token;
+              repairer[0] = new Thread(() -> rig.repair("pairing-2", Collections.emptyMap()));
+              repairer[0].start();
+              waitUntilBlocked(repairer[0]);
+              return old;
+            },
+            () -> Collections.singletonList(A),
+            a -> a);
+    repairer[0].join();
+    assertEquals("tok-1", send.token);
+    rig.boundary.identityAnswered(send.asked(A), 2);
+    assertFalse("the old pairing's answer never confirms the new one", rig.generations.isConfirmed(A));
+  }
+
+  private static void waitUntilBlocked(Thread t) {
+    long until = System.nanoTime() + 2_000_000_000L;
+    while (t.isAlive() && t.getState() != Thread.State.BLOCKED && System.nanoTime() < until) {
+      Thread.yield();
+    }
+  }
+
+  // What the panel says was lost or recovered
+
+  @Test
+  public void aRefusedSnapshotIsCountedAsRecoverableApartFromLostCaptures() {
+    rig.login(A);
+    CaptureBoundary.Ticket asked = rig.boundary.ticket(A);
+    rig.boundary.acked(asked, CaptureBoundary.Kind.SNAPSHOT, 2, 1, 1);
+    rig.boundary.acked(asked, CaptureBoundary.Kind.EVENT, 2, 1, 2);
+    assertEquals(1, rig.boundary.losses().recovered());
+    assertEquals(0, rig.boundary.losses().discarded(CaptureBoundary.Kind.SNAPSHOT));
+    assertEquals(2, rig.boundary.losses().discarded(CaptureBoundary.Kind.EVENT));
+    java.util.List<String> summary =
+        Arrays.asList(
+            "Since start-up: 1 snapshot re-read from the game, nothing lost",
+            "Since start-up: 2 events not saved, data was removed");
+    assertEquals(summary, rig.boundary.losses().summary());
+    rig.logout();
+    rig.login(B);
+    assertEquals("the counts outlive a login", summary, rig.boundary.losses().summary());
+  }
+
+  @Test
+  public void aSnapshotWaitingForTheAnswerCountsOncePerLogin() {
+    rig.login(A);
+    rig.boundary.snapshotWaiting(A);
+    rig.boundary.snapshotWaiting(A);
+    assertEquals(1, rig.boundary.losses().recovered());
+    rig.logout();
+    rig.login(A);
+    rig.boundary.snapshotWaiting(A);
+    assertEquals(2, rig.boundary.losses().recovered());
   }
 
   // Every capture path discovers the generation on its own
@@ -290,9 +358,9 @@ public class GenerationBoundaryTest {
     rig.server.remove(A);
     rig.sendAll();
     assertTrue(rig.server.accepted.isEmpty());
-    assertEquals(1, rig.boundary.discarded(CaptureBoundary.Kind.EVENT));
-    assertEquals(1, rig.boundary.discarded(CaptureBoundary.Kind.LOOT));
-    assertEquals(1, rig.boundary.discarded(CaptureBoundary.Kind.PRESENCE));
+    assertEquals(1, rig.boundary.losses().discarded(CaptureBoundary.Kind.EVENT));
+    assertEquals(1, rig.boundary.losses().discarded(CaptureBoundary.Kind.LOOT));
+    assertEquals(1, rig.boundary.losses().discarded(CaptureBoundary.Kind.PRESENCE));
     assertEquals(Collections.singletonList(CaptureGenerations.STALE_NOTICE), rig.notices);
     assertEquals("1 event not saved, data was removed", rig.lost.get(0));
 
@@ -312,7 +380,7 @@ public class GenerationBoundaryTest {
     assertEquals("released under the value read before", Collections.singletonList(1), rig.eventStamps());
     rig.sendEvents();
     assertTrue(rig.server.accepted.isEmpty());
-    assertEquals(1, rig.boundary.discarded(CaptureBoundary.Kind.EVENT));
+    assertEquals(1, rig.boundary.losses().discarded(CaptureBoundary.Kind.EVENT));
   }
 
   // The removal boundary: same login, same pairing, a capture made before the removal
@@ -331,9 +399,9 @@ public class GenerationBoundaryTest {
     assertNull(rig.presence.peek());
     rig.sendAll();
     assertTrue(rig.server.accepted.isEmpty());
-    assertEquals(1, rig.boundary.discarded(CaptureBoundary.Kind.EVENT));
-    assertEquals(1, rig.boundary.discarded(CaptureBoundary.Kind.LOOT));
-    assertEquals(1, rig.boundary.discarded(CaptureBoundary.Kind.PRESENCE));
+    assertEquals(1, rig.boundary.losses().discarded(CaptureBoundary.Kind.EVENT));
+    assertEquals(1, rig.boundary.losses().discarded(CaptureBoundary.Kind.LOOT));
+    assertEquals(1, rig.boundary.losses().discarded(CaptureBoundary.Kind.PRESENCE));
     assertEquals(
         Collections.singletonList("1 event, 1 loot record, 1 session mark not saved, data was removed"),
         rig.lost);
@@ -352,7 +420,7 @@ public class GenerationBoundaryTest {
     rig.event(A, "unknown-interval");
     rig.runExecutor();
     assertTrue(rig.events.pending().isEmpty());
-    assertEquals(1, rig.boundary.discarded(CaptureBoundary.Kind.EVENT));
+    assertEquals(1, rig.boundary.losses().discarded(CaptureBoundary.Kind.EVENT));
   }
 
   @Test
@@ -504,7 +572,19 @@ public class GenerationBoundaryTest {
     String identity = body(source, "private void submitIdentity(");
     assertTrue(
         "the ask is pinned to this login and pairing before it leaves",
-        identity.indexOf("captureBoundary.ticket(accountHash)") < identity.indexOf("executor.submit("));
+        identity.indexOf("captureBoundary.send(") < identity.indexOf("executor.submit("));
+    assertFalse("a ticket is only taken with its token", source.contains("captureBoundary.ticket("));
+    for (String sender :
+        Arrays.asList(
+            "public void drainEventOutbox(",
+            "private void sendLoot(",
+            "private void submitSnapshot(",
+            "private void submitIdentity(")) {
+      assertTrue(sender, body(source, sender).contains("captureBoundary.send("));
+    }
+    assertTrue(body(source, "private void runPresenceSends(").contains("captureBoundary.send("));
+    assertTrue(body(source, "private PanelModel buildPanelModel(").contains("captureBoundary.losses().summary()"));
+    assertTrue(body(source, "private void onSkillsCaptured(").contains("captureBoundary.snapshotWaiting(accountHash);"));
     assertTrue(identity.contains(".discover("));
     for (String kind : Arrays.asList("EVENT", "LOOT", "PRESENCE", "SNAPSHOT")) {
       assertTrue(kind + " acks go through the boundary", source.contains("CaptureBoundary.Kind." + kind + ","));
