@@ -71,8 +71,10 @@ public final class BankstandKeys {
     if (!lower.startsWith("http://")) {
       return DEFAULT_SERVER_URL;
     }
-    String rest = url.substring("http://".length());
-    return isLocalhost(hostOf(rest)) ? url : "https://" + rest;
+    // OkHttp picks the host, so text around an "@" cannot pass for localhost.
+    HttpUrl parsed = HttpUrl.parse(url);
+    boolean local = parsed != null && isLocalhost(parsed.host());
+    return local ? url : "https://" + url.substring("http://".length());
   }
 
   /**
@@ -84,20 +86,7 @@ public final class BankstandKeys {
     return parsed == null ? null : parsed.scheme() + "://" + parsed.host() + ":" + parsed.port();
   }
 
-  // Host of "host[:port][/path]", brackets kept for IPv6.
-  private static String hostOf(String rest) {
-    int slash = rest.indexOf('/');
-    String authority = slash < 0 ? rest : rest.substring(0, slash);
-    if (authority.startsWith("[")) {
-      int close = authority.indexOf(']');
-      return close < 0 ? authority : authority.substring(0, close + 1);
-    }
-    int colon = authority.indexOf(':');
-    return colon < 0 ? authority : authority.substring(0, colon);
-  }
-
   private static boolean isLocalhost(String host) {
-    String h = host.toLowerCase(Locale.ROOT);
-    return h.equals("localhost") || h.equals("127.0.0.1") || h.equals("[::1]");
+    return host.equals("localhost") || host.equals("127.0.0.1") || host.equals("::1");
   }
 }
