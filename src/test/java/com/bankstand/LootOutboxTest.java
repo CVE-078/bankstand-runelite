@@ -112,6 +112,6 @@ public class LootOutboxTest {
     String json =
         "{\"acks\":[{\"id\":\"q\",\"outcome\":\"rejected\",\"reason\":\"quota\"}]}";
     assertTrue(LootOutbox.idsToAck(acks(json)).isEmpty());
-    assertTrue(BankstandPlugin.idsToAck(acks(json)).isEmpty());
+    assertTrue(EventOutbox.idsToAck(acks(json)).isEmpty());
   }
 }

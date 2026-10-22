@@ -40,7 +40,7 @@ public class PairingQueuesTest {
     ledger.record(ACCOUNT, 2, "Goblin", Collections.singletonMap(526, 1), Instant.now());
     assertEquals(1, loot.pending().size());
 
-    PairingQueues queues = new PairingQueues(presence, events, ledger, loot);
+    PairingQueues queues = new PairingQueues(presence, events, ledger, loot, () -> null);
     boolean[] droppedFirst = {false};
     PairingQueues.Dropped dropped =
         queues.replace(() -> droppedFirst[0] = events.pending().isEmpty());
@@ -88,7 +88,8 @@ public class PairingQueuesTest {
             new PresenceQueue(),
             new EventOutbox(new File(folder.newFolder("q"), "events.json"), new Gson()),
             new LootLedger(),
-            new LootOutbox(new File(folder.getRoot(), "q/loot.json"), new Gson()));
+            new LootOutbox(new File(folder.getRoot(), "q/loot.json"), new Gson()),
+            () -> null);
     java.util.concurrent.CountDownLatch swapped = new java.util.concurrent.CountDownLatch(1);
     Thread pairing;
     synchronized (queues) {

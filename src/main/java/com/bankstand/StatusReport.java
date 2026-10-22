@@ -158,4 +158,20 @@ public final class StatusReport {
     }
     return out;
   }
+
+  /** Coarse on purpose: more precision would imply more than we know. */
+  static String describeAge(long millis) {
+    long minutes = millis / 60_000L;
+    if (minutes < 1) {
+      return "less than a minute ago";
+    }
+    if (minutes == 1) {
+      return "1 minute ago";
+    }
+    if (minutes < 60) {
+      return minutes + " minutes ago";
+    }
+    long hours = minutes / 60;
+    return hours == 1 ? "1 hour ago" : hours + " hours ago";
+  }
 }

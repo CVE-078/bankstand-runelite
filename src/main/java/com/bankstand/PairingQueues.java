@@ -2,6 +2,7 @@ package com.bankstand;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Supplier;
 
 /**
  * Everything queued under one pairing. A new pairing can be another Bankstand account or another
@@ -15,7 +16,15 @@ final class PairingQueues {
   private final LootLedger ledger;
   private final LootOutbox loot;
 
-  PairingQueues(PresenceQueue presence, EventOutbox events, LootLedger ledger, LootOutbox loot) {
+  PairingQueues(
+      PresenceQueue presence,
+      EventOutbox events,
+      LootLedger ledger,
+      LootOutbox loot,
+      Supplier<String> pairing) {
+    events.setPairing(pairing);
+    ledger.setPairing(pairing);
+    loot.setPairing(pairing);
     this.presence = presence;
     this.events = events;
     this.ledger = ledger;
@@ -24,7 +33,7 @@ final class PairingQueues {
 
   /** Drops the old queues and swaps the stored pairing as one step. Returns what it dropped. */
   synchronized Dropped replace(Runnable swapPairing) {
-    // Dropped before the swap: a crash in between loses the queue, never sends it under a new token.
+    // Dropped first: a crash in between loses the queue, never sends it with the new token.
     Dropped dropped =
         new Dropped(events.pending().size(), loot.pending().size() + ledger.closeAll().size());
     presence.clear();
