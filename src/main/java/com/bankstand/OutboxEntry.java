@@ -7,10 +7,17 @@ package com.bankstand;
 public final class OutboxEntry {
   private final long accountHash;
   private final TransientEvent event;
+  // Null for an entry queued before pairings were tagged.
+  private final String pairingId;
 
   public OutboxEntry(long accountHash, TransientEvent event) {
+    this(accountHash, event, null);
+  }
+
+  public OutboxEntry(long accountHash, TransientEvent event, String pairingId) {
     this.accountHash = accountHash;
     this.event = event;
+    this.pairingId = pairingId;
   }
 
   public long getAccountHash() {
@@ -19,5 +26,9 @@ public final class OutboxEntry {
 
   public TransientEvent getEvent() {
     return event;
+  }
+
+  public String getPairingId() {
+    return pairingId;
   }
 }

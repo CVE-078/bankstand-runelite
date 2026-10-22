@@ -18,7 +18,9 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
+import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -39,6 +41,7 @@ public class LootOutbox {
 
   private final File file;
   private final Gson gson;
+  private volatile Supplier<String> pairing = () -> null;
 
   public LootOutbox(File file, Gson gson) {
     this.file = file;
@@ -50,7 +53,7 @@ public class LootOutbox {
     if (added.isEmpty()) {
       return;
     }
-    List<LootEntry> entries = read();
+    List<LootEntry> entries = current();
     entries.addAll(added);
     int evicted = 0;
     while (entries.size() > MAX_PENDING) {
@@ -65,7 +68,7 @@ public class LootOutbox {
 
   /** Every pending entry, oldest first. A snapshot: mutating it does not persist. */
   public synchronized List<LootEntry> pending() {
-    return read();
+    return current();
   }
 
   /** Removes exactly the entries whose record id is in {@code ids}. */
@@ -73,9 +76,14 @@ public class LootOutbox {
     if (ids.isEmpty()) {
       return;
     }
-    List<LootEntry> entries = read();
+    List<LootEntry> entries = current();
     entries.removeIf(entry -> ids.contains(entry.getEvent().getId()));
     write(entries);
+  }
+
+  /** Forgets every pending record, on disk too, so a restart cannot send them either. */
+  public synchronized void clear() {
+    write(new ArrayList<>());
   }
 
   /** Stored, duplicate and unfixable rejections are dropped; anything else is resent. */
@@ -92,6 +100,22 @@ public class LootOutbox {
       }
     }
     return ids;
+  }
+
+  /** Where the current pairing id is read; entries tagged with another one are never sent. */
+  public void setPairing(Supplier<String> pairing) {
+    this.pairing = pairing;
+  }
+
+  // Fails closed: if a clear on re-pair could not write, the old pairing's entries still never
+  // leave. They are dropped here, and from disk whenever a write succeeds.
+  private List<LootEntry> current() {
+    List<LootEntry> entries = read();
+    String now = pairing.get();
+    if (entries.removeIf(entry -> !Objects.equals(now, entry.getPairingId()))) {
+      write(entries);
+    }
+    return entries;
   }
 
   private List<LootEntry> read() {

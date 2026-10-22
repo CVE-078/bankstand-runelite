@@ -17,6 +17,8 @@ public class DeviceCredentials {
   private String expiresAt;
   // Null in a pairing stored before this was recorded; those are taken as the default server.
   private String serverUrl;
+  // Made here at pairing and never sent: tags every queued capture with the pairing it belongs to.
+  private String pairingId;
 
   public static DeviceCredentials none() {
     return new DeviceCredentials();
@@ -28,6 +30,7 @@ public class DeviceCredentials {
     credentials.setDeviceId(res.getDeviceId());
     credentials.setExpiresAt(res.getExpiresAt());
     credentials.setServerUrl(serverUrl);
+    credentials.setPairingId(java.util.UUID.randomUUID().toString());
     return credentials;
   }
 

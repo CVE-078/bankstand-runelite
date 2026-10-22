@@ -1,5 +1,6 @@
 package com.bankstand;
 
+import com.bankstand.dto.EventAck;
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 import java.io.File;
@@ -16,7 +17,9 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
+import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -38,6 +41,7 @@ public class EventOutbox {
 
   private final File file;
   private final Gson gson;
+  private volatile Supplier<String> pairing = () -> null;
 
   public EventOutbox(File file, Gson gson) {
     this.file = file;
@@ -47,8 +51,8 @@ public class EventOutbox {
 
   /** Appends one event, evicting the oldest pending entry (logged) if this overflows the cap. */
   public synchronized void add(long accountHash, TransientEvent event) {
-    List<OutboxEntry> entries = read();
-    entries.add(new OutboxEntry(accountHash, event));
+    List<OutboxEntry> entries = current();
+    entries.add(new OutboxEntry(accountHash, event, pairing.get()));
     while (entries.size() > MAX_PENDING) {
       OutboxEntry dropped = entries.remove(0);
       log.warn(
@@ -61,7 +65,7 @@ public class EventOutbox {
 
   /** Every pending entry, oldest first. A snapshot: mutating the result does not persist. */
   public synchronized List<OutboxEntry> pending() {
-    return read();
+    return current();
   }
 
   /**
@@ -70,7 +74,7 @@ public class EventOutbox {
    */
   public synchronized void ack(Set<String> ids) {
     if (ids.isEmpty()) return;
-    List<OutboxEntry> entries = read();
+    List<OutboxEntry> entries = current();
     entries.removeIf(entry -> ids.contains(entry.getEvent().getId()));
     write(entries);
   }
@@ -81,6 +85,22 @@ public class EventOutbox {
    */
   public synchronized void clear() {
     write(Collections.emptyList());
+  }
+
+  /** Where the current pairing id is read; entries tagged with another one are never sent. */
+  public void setPairing(Supplier<String> pairing) {
+    this.pairing = pairing;
+  }
+
+  // Fails closed: if a clear on re-pair could not write, the old pairing's entries still never
+  // leave. They are dropped here, and from disk whenever a write succeeds.
+  private List<OutboxEntry> current() {
+    List<OutboxEntry> entries = read();
+    String now = pairing.get();
+    if (entries.removeIf(entry -> !Objects.equals(now, entry.getPairingId()))) {
+      write(entries);
+    }
+    return entries;
   }
 
   private List<OutboxEntry> read() {
@@ -119,6 +139,27 @@ public class EventOutbox {
       // Swallowed: throwing out of a capture handler would break every detector on the tick.
       log.debug("event outbox write failed: {}", e.getMessage());
     }
+  }
+
+  /**
+   * The ids the outbox should stop retrying: stored or duplicate, plus {@code "stale"}
+   * rejections, which only get truer with time. {@code "not_applied"} stays pending, since the
+   * capability flag can be turned on later.
+   */
+  static Set<String> idsToAck(List<EventAck> acks) {
+    Set<String> ids = new HashSet<>();
+    for (EventAck ack : acks) {
+      if (ack.isStored() || isPermanentlyRejected(ack)) {
+        ids.add(ack.getId());
+      }
+    }
+    return ids;
+  }
+
+  private static boolean isPermanentlyRejected(EventAck ack) {
+    // An invalid event fails the same check on every resend.
+    return "rejected".equals(ack.getOutcome())
+        && ("stale".equals(ack.getReason()) || "invalid".equals(ack.getReason()));
   }
 
   static Set<String> toIdSet(Iterable<String> ids) {

@@ -174,7 +174,7 @@ public class PresenceQueueTest {
     for (String method : new String[] {"private void disconnect() {", "private void storeToken("}) {
       int start = source.indexOf(method);
       String methodBody = source.substring(start, source.indexOf("\n  }\n", start));
-      assertTrue(method + " must clear the presence queue", methodBody.contains("presenceQueue.clear();"));
+      assertTrue(method + " must drop the pairing's queues", methodBody.contains("pairingQueues.replace("));
     }
   }
 }
