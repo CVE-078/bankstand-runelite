@@ -51,6 +51,7 @@ public class AckedStateStore {
     copy.setLastSyncedAt(stored.getLastSyncedAt());
     copy.setDiaryTaskBits(stored.getDiaryTaskBits());
     copy.setCaptureGeneration(stored.getCaptureGeneration());
+    copy.setBaselineGeneration(stored.getBaselineGeneration());
     return copy;
   }
 

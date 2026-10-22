@@ -79,8 +79,7 @@ public class PairingQueuesTest {
 
     int previous = body.indexOf("DeviceCredentials previous = deviceStore.load();");
     int replace =
-        body.indexOf(
-            "pairingQueues.replace(() -> deviceStore.save(DeviceCredentials.of(res, url)));");
+        body.indexOf("pairingQueues.replace(() -> deviceStore.save(DeviceCredentials.of(res, url))");
     int revoke = body.indexOf("previous.pairedServerUrl(), previous.getToken()");
     assertTrue("reads the old pairing before replacing it", previous >= 0 && previous < replace);
     assertTrue("revokes the old token at the server it was paired with", revoke > replace);

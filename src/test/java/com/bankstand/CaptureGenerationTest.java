@@ -330,17 +330,17 @@ public class CaptureGenerationTest {
     boolean[] loggedIn = {false};
     CaptureGenerations fresh = new CaptureGenerations();
     fresh.onStaleRefusal(notices::add, () -> loggedIn[0]);
-    fresh.observe(1L, 2, "stale_generation");
+    fresh.observe(1L, 2, 1, "stale_generation");
     assertEquals(0, notices.size());
     loggedIn[0] = true;
-    fresh.observe(1L, 2, "stale_generation");
-    fresh.observe(1L, 2, acks("{\"acks\":[{\"id\":\"a\",\"outcome\":\"rejected\",\"reason\":\"stale_generation\"}]}"));
-    fresh.observe(1L, 2, "not_applied");
+    fresh.observe(1L, 2, 1, "stale_generation");
+    fresh.observe(1L, 2, 1, acks("{\"acks\":[{\"id\":\"a\",\"outcome\":\"rejected\",\"reason\":\"stale_generation\"}]}"));
+    fresh.observe(1L, 2, 2, "not_applied");
     assertEquals(1, notices.size());
-    fresh.observe(1L, 3, "stale_generation");
+    fresh.observe(1L, 3, 2, "stale_generation");
     assertEquals(2, notices.size());
     fresh.forget();
-    fresh.observe(1L, 3, "stale_generation");
+    fresh.observe(1L, 3, 2, "stale_generation");
     assertEquals(3, notices.size());
   }
 
@@ -366,5 +366,149 @@ public class CaptureGenerationTest {
     generations.observe(1L, 5);
     generations.stamp(envelope, 1L);
     assertEquals(5, envelope.get("captureGeneration"));
+  }
+
+  @Test
+  public void aLateAckNeverWindsTheGenerationBack() {
+    generations.observe(1L, 3);
+    assertFalse(generations.observe(1L, 2));
+    // A refusal of a request stamped with an older value says nothing about now.
+    generations.observe(1L, 2, 1, "stale_generation");
+    assertEquals(Integer.valueOf(3), generations.get(1L));
+    // A refusal of the current stamp is the server saying the value went back.
+    generations.observe(1L, 1, 3, "stale_generation");
+    assertEquals(Integer.valueOf(1), generations.get(1L));
+    assertEquals(Integer.valueOf(1), store.load(1L).getCaptureGeneration());
+  }
+
+  @Test
+  public void everyChangeIsHeardOnceAndARestoreIsNot() {
+    List<String> heard = new java.util.ArrayList<>();
+    generations.onChange((account, generation) -> heard.add(account + "=" + generation));
+    generations.restore(9L, 4);
+    generations.observe(1L, 1);
+    generations.observe(1L, 1);
+    generations.observe(1L, 2, 1, "stale_generation");
+    Map<Long, Integer> paired = new LinkedHashMap<>();
+    paired.put(5L, 2);
+    paired.put(1L, 2);
+    generations.observeAll(paired);
+    assertEquals(Arrays.asList("1=1", "1=2", "5=2"), heard);
+    assertEquals(Integer.valueOf(2), generations.get(5L));
+  }
+
+  @Test
+  public void baselinesHoldOnlyUnderTheGenerationTheyWereAckedUnder() {
+    // Nothing known yet: keep them; the first ack settles it.
+    assertTrue(CaptureGenerations.baselinesHold(2, null));
+    // Saved before generations existed: that was generation 1.
+    assertTrue(CaptureGenerations.baselinesHold(null, 1));
+    assertFalse(CaptureGenerations.baselinesHold(null, 2));
+    assertTrue(CaptureGenerations.baselinesHold(3, 3));
+    assertFalse(CaptureGenerations.baselinesHold(2, 3));
+  }
+
+  @Test
+  public void onlyAnAckUnderTheCurrentGenerationAdvancesABaseline() {
+    assertTrue("an older server sends none", CaptureGenerations.ackedUnder(null, 2));
+    assertTrue(CaptureGenerations.ackedUnder(2, 2));
+    assertFalse("stored before a removal the client has since learned", CaptureGenerations.ackedUnder(1, 2));
+  }
+
+  @Test
+  public void theBaselineGenerationSurvivesARestart() {
+    AckedState state = AckedState.empty();
+    state.setBaselineGeneration(3);
+    store.save(1L, state);
+    assertEquals(Integer.valueOf(3), store.load(1L).getBaselineGeneration());
+    assertNull(store.load(2L).getBaselineGeneration());
+  }
+
+  @Test
+  public void pairingTeachesEveryClearedGenerationBeforeAnythingIsQueued() throws Exception {
+    Capture capture =
+        new Capture(
+            "{\"deviceToken\":\"bsd_t\",\"deviceId\":\"d\",\"expiresAt\":\"2027-01-01T00:00:00Z\","
+                + "\"captureGenerations\":[{\"accountHash\":\"-9223372036854775807\",\"generation\":3},"
+                + "{\"accountHash\":\"junk\",\"generation\":2},{\"accountHash\":\"7\"}]}");
+    Map<Long, Integer> learned =
+        client(capture).exchangePairingCode("https://x.test", "ABCD2345").captureGenerationsByAccount();
+    assertEquals(Collections.singletonMap(-9223372036854775807L, 3), learned);
+    Capture older =
+        new Capture(
+            "{\"deviceToken\":\"bsd_t\",\"deviceId\":\"d\",\"expiresAt\":\"2027-01-01T00:00:00Z\"}");
+    assertTrue(
+        client(older).exchangePairingCode("https://x.test", "ABCD2345").captureGenerationsByAccount().isEmpty());
+
+    generations.observe(-9223372036854775807L, 1);
+    PresenceQueue presence = new PresenceQueue();
+    presence.setCaptureGenerations(generations);
+    PairingQueues queues =
+        new PairingQueues(
+            presence,
+            new EventOutbox(new File(dir, "events.json"), new Gson()),
+            new LootLedger(),
+            new LootOutbox(new File(dir, "loot.json"), new Gson()),
+            generations,
+            () -> null);
+    Integer[] atSwap = {null};
+    queues.replace(() -> atSwap[0] = generations.get(-9223372036854775807L), learned);
+    assertEquals("known before the new pairing can queue anything", Integer.valueOf(3), atSwap[0]);
+    presence.addTransition(new PresenceSignal(PresenceSignal.LOGIN, -9223372036854775807L, 0L));
+    assertEquals(Integer.valueOf(3), presence.peek().getCaptureGeneration());
+  }
+
+  @Test
+  public void theIdentityAckCarriesTheGeneration() throws Exception {
+    Capture capture =
+        new Capture("{\"verified\":true,\"linkedRsn\":\"A\",\"outcome\":\"bound\",\"captureGeneration\":4}");
+    assertEquals(
+        Integer.valueOf(4),
+        client(capture).submitIdentity("https://x.test", "tok", 1L, "A").getCaptureGeneration());
+    Capture older = new Capture("{\"verified\":true,\"linkedRsn\":\"A\",\"outcome\":\"bound\"}");
+    assertNull(client(older).submitIdentity("https://x.test", "tok", 1L, "A").getCaptureGeneration());
+  }
+
+  // The plugin needs a live client to run, so its wiring is pinned on the source.
+  @Test
+  public void aNewGenerationResendsEverySnapshotBlockAndVoidsStoredBaselines() throws Exception {
+    String source =
+        new String(
+            Files.readAllBytes(
+                java.nio.file.Paths.get(
+                    "src", "main", "java", "com", "bankstand", "BankstandPlugin.java")),
+            StandardCharsets.UTF_8);
+    assertTrue(source.contains("captureGenerations.onChange("));
+    String reset =
+        source.substring(
+            source.indexOf("private void resetSnapshotBaselines("),
+            source.indexOf("\n  }\n", source.indexOf("private void resetSnapshotBaselines(")));
+    for (String baseline :
+        Arrays.asList(
+            "skillBaseline",
+            "questBaseline",
+            "diaryBaseline",
+            "combatAchievementBaseline",
+            "accountTypeBaseline",
+            "slayerTaskBaseline",
+            "collectionLogBaseline")) {
+      assertTrue(baseline + " resets", reset.contains(baseline + ".reset();"));
+    }
+    assertFalse("events are never resent", reset.contains("diaryTaskBits"));
+    int load = source.indexOf("private void loadAckedState(");
+    String loadBody = source.substring(load, source.indexOf("\n  }\n", load));
+    assertTrue(
+        "a stored baseline is restored only under its generation",
+        loadBody.indexOf("CaptureGenerations.baselinesHold(")
+            < loadBody.indexOf("skillBaseline.restore("));
+    assertTrue(source.contains("state.setBaselineGeneration(baselineCaptureGeneration);"));
+    assertTrue(source.contains("captureGenerations.observe(accountHash, res.getCaptureGeneration());"));
+  }
+
+  @Test
+  public void theRemovalNoticeNeverClaimsTheDataIsGoneForGood() {
+    assertTrue(CaptureGenerations.STALE_NOTICE.contains("history stays deleted"));
+    assertTrue(CaptureGenerations.STALE_NOTICE.contains("current progress syncs again"));
+    assertTrue(CaptureGenerations.STALE_ACTIVITY.length() <= 45);
   }
 }

@@ -237,6 +237,8 @@ public class BankstandPlugin extends Plugin {
   private volatile long lastSubmitAtMs;
   // A change means the account switched and the baseline must be forgotten.
   private int baselineGeneration = -1;
+  // The capture generation the snapshot baselines were acked under. Client thread.
+  private Integer baselineCaptureGeneration;
   private volatile BankstandClient pairingClient;
   // Set when a guided read finishes COMPLETE; cleared only once the server acknowledged a
   // submission carrying the flag, so a failed send keeps it pending.
@@ -263,7 +265,13 @@ public class BankstandPlugin extends Plugin {
     eventOutbox = new EventOutbox(new File(ACKED_STATE_DIR, EVENTS_FILE), gson);
     captureGenerations.persistTo(ackedStore, executor);
     captureGenerations.onStaleRefusal(
-        this::notice, () -> client.getGameState() == GameState.LOGGED_IN);
+        message -> {
+          notice(message);
+          clientThread.invoke(() -> recentActivityLog.record(CaptureGenerations.STALE_ACTIVITY));
+        },
+        () -> client.getGameState() == GameState.LOGGED_IN);
+    captureGenerations.onChange(
+        (account, value) -> clientThread.invoke(() -> onNewGeneration(account, value)));
     eventOutbox.setCaptureGenerations(captureGenerations);
     presenceQueue.setCaptureGenerations(captureGenerations);
     slayerTaskStart =
@@ -578,8 +586,9 @@ public class BankstandPlugin extends Plugin {
                               failure.getMessage());
                           return;
                         }
+                        Integer sentWith = group.getKey().captureGeneration;
                         captureGenerations.observe(
-                            accountHash, response.getCaptureGeneration(), response.getAcks());
+                            accountHash, response.getCaptureGeneration(), sentWith, response.getAcks());
                         if (!response.isRouted()) {
                           // Unclaimed: leave every entry pending, like a network failure.
                           return;
@@ -684,7 +693,8 @@ public class BankstandPlugin extends Plugin {
                 next.getLoot(),
                 next.getCaptureGeneration());
         presenceQueue.onAnswered(next);
-        captureGenerations.observe(next.getAccountHash(), res.getCaptureGeneration(), res.getReason());
+        captureGenerations.observe(
+            next.getAccountHash(), res.getCaptureGeneration(), next.getCaptureGeneration(), res.getReason());
         if (res.isApplied()) {
           lastSyncedAt.put(Capability.SESSIONS.key, System.currentTimeMillis());
           if (PresenceSignal.LOGIN.equals(next.getState())) {
@@ -771,7 +781,8 @@ public class BankstandPlugin extends Plugin {
         try {
           SubmitLootResponse res =
               client.submitLoot(url, token, accountHash, chunk, group.getKey().captureGeneration);
-          captureGenerations.observe(accountHash, res.getCaptureGeneration(), res.getAcks());
+          captureGenerations.observe(
+              accountHash, res.getCaptureGeneration(), group.getKey().captureGeneration, res.getAcks());
           lootOutbox.ack(LootOutbox.idsToAck(res.getAcks()));
           if (res.getAcks().stream().anyMatch(EventAck::isStored)) {
             lastSyncedAt.put(Capability.LOOT.key, System.currentTimeMillis());
@@ -1633,16 +1644,10 @@ public class BankstandPlugin extends Plugin {
     // Forget every baseline, then load what disk says this character had acked. A capture
     // arriving before the load just re-sends.
     if (generation != baselineGeneration) {
-      skillBaseline.reset();
-      questBaseline.reset();
-      diaryBaseline.reset();
+      resetSnapshotBaselines(captureGenerations.get(accountHash));
       diaryTaskBits.reset();
-      combatAchievementBaseline.reset();
-      accountTypeBaseline.reset();
-      slayerTaskBaseline.reset();
       // Per-character state; carrying it across a switch would mix accounts.
       collectionLog.reset();
-      collectionLogBaseline.reset();
       // A pending COMPLETE claim is about the log just reset, so it must not survive a relog.
       pendingFullEnumeration = false;
       // loadAckedState repopulates lastSyncedAt; the activity log is session-only.
@@ -1727,15 +1732,23 @@ public class BankstandPlugin extends Plugin {
                 if (!session.isCurrent(accountHash, generation)) {
                   return;
                 }
-                skillBaseline.restore(state.getSkills());
-                questBaseline.restore(state.getQuests());
-                diaryBaseline.restore(state.getDiaries());
                 diaryTaskBits.restore(state.getDiaryTaskBits());
-                combatAchievementBaseline.restore(state.getCombatAchievements());
-                accountTypeBaseline.restore(state.getAccountType());
-                // Together, never one alone. See CollectionLogBaseline.restore.
+                // Observed items are kept either way: they resend whole when the count is unknown.
                 collectionLog.restore(state.getCollectionLogItems());
-                collectionLogBaseline.restore(state.getCollectionLogAcked());
+                Integer current = captureGenerations.get(accountHash);
+                if (CaptureGenerations.baselinesHold(state.getBaselineGeneration(), current)) {
+                  skillBaseline.restore(state.getSkills());
+                  questBaseline.restore(state.getQuests());
+                  diaryBaseline.restore(state.getDiaries());
+                  combatAchievementBaseline.restore(state.getCombatAchievements());
+                  accountTypeBaseline.restore(state.getAccountType());
+                  // Together, never one alone. See CollectionLogBaseline.restore.
+                  collectionLogBaseline.restore(state.getCollectionLogAcked());
+                  baselineCaptureGeneration = state.getBaselineGeneration();
+                } else {
+                  // Acked before a removal: every enabled block resends on the next capture.
+                  baselineCaptureGeneration = current;
+                }
                 lastSyncedAt.clear();
                 lastSyncedAt.putAll(state.getLastSyncedAt());
                 refreshPanel();
@@ -1761,7 +1774,37 @@ public class BankstandPlugin extends Plugin {
     state.setCollectionLogItems(collectionLog.observed());
     state.setCollectionLogAcked(collectionLogBaseline.ackedCount());
     state.setLastSyncedAt(lastSyncedAt);
+    state.setBaselineGeneration(baselineCaptureGeneration);
     executor.submit(() -> ackedStore.save(accountHash, state));
+  }
+
+  /** Forgets what the server acked, so each enabled snapshot block resends whole. Client thread. */
+  private void resetSnapshotBaselines(Integer captureGeneration) {
+    skillBaseline.reset();
+    questBaseline.reset();
+    diaryBaseline.reset();
+    combatAchievementBaseline.reset();
+    accountTypeBaseline.reset();
+    slayerTaskBaseline.reset();
+    collectionLogBaseline.reset();
+    baselineCaptureGeneration = captureGeneration;
+  }
+
+  /**
+   * A removal cleared what the server held, so the current character resends its whole state on
+   * the next capture even if nothing in game changed. Another character's stored baselines are
+   * voided when it next loads. Events are never resent. Client thread.
+   */
+  private void onNewGeneration(long accountHash, int captureGeneration) {
+    if (session.getAccountHash() != accountHash || baselineGeneration != session.getGeneration()) {
+      return;
+    }
+    if (!CaptureGenerations.baselinesHold(baselineCaptureGeneration, captureGeneration)) {
+      resetSnapshotBaselines(captureGeneration);
+    } else {
+      baselineCaptureGeneration = captureGeneration;
+    }
+    saveAckedState(accountHash);
   }
 
   /** Which blocks a capture puts on the wire. Skills is required, so it is not listed. */
@@ -2057,12 +2100,16 @@ public class BankstandPlugin extends Plugin {
                       }
                       return;
                     }
-                    captureGenerations.observe(accountHash, res.getCaptureGeneration(), res.getReason());
+                    Integer sentWith = (Integer) body.get("captureGeneration");
+                    captureGenerations.observe(
+                        accountHash, res.getCaptureGeneration(), sentWith, res.getReason());
                     // Advance each baseline only for a block the server wrote, on the client
                     // thread, and only if this login is still current.
                     clientThread.invoke(
                         () -> {
-                          if (session.isCurrent(accountHash, generation)) {
+                          if (session.isCurrent(accountHash, generation)
+                              && CaptureGenerations.ackedUnder(
+                                  res.getCaptureGeneration(), captureGenerations.get(accountHash))) {
                             // Skills ride on every submission, so check for a real change
                             // before advance() overwrites the baseline.
                             boolean skillsChanged = skillBaseline.changedSince(skills);
@@ -2259,6 +2306,8 @@ public class BankstandPlugin extends Plugin {
                       }
                       return;
                     }
+                    // Learned before most captures of this login are queued.
+                    captureGenerations.observe(accountHash, res.getCaptureGeneration());
                     // Drop the result unless this login instance is still current: the retry
                     // backoff can span a relog.
                     if (session.isCurrent(accountHash, generation)) {
@@ -2341,8 +2390,9 @@ public class BankstandPlugin extends Plugin {
 
   private void storeToken(PairResponse res, String url) {
     DeviceCredentials previous = deviceStore.load();
+    Map<Long, Integer> generations = res.captureGenerationsByAccount();
     PairingQueues.Dropped dropped =
-        pairingQueues.replace(() -> deviceStore.save(DeviceCredentials.of(res, url)));
+        pairingQueues.replace(() -> deviceStore.save(DeviceCredentials.of(res, url)), generations);
     String discarded = dropped.repairNotice();
     if (discarded != null) {
       notice(discarded);

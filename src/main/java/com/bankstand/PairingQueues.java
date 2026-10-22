@@ -1,7 +1,9 @@
 package com.bankstand;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.function.Supplier;
 
 /**
@@ -35,7 +37,12 @@ final class PairingQueues {
   }
 
   /** Drops the old queues and swaps the stored pairing as one step. Returns what it dropped. */
-  synchronized Dropped replace(Runnable swapPairing) {
+  Dropped replace(Runnable swapPairing) {
+    return replace(swapPairing, Collections.emptyMap());
+  }
+
+  /** {@link #replace(Runnable)} that also learns the new pairing's generations, before the swap. */
+  synchronized Dropped replace(Runnable swapPairing, Map<Long, Integer> generationsByAccount) {
     // Dropped first: a crash in between loses the queue, never sends it with the new token.
     Dropped dropped =
         new Dropped(events.pending().size(), loot.pending().size() + ledger.closeAll().size());
@@ -43,6 +50,7 @@ final class PairingQueues {
     events.clear();
     loot.clear();
     generations.forget();
+    generations.observeAll(generationsByAccount);
     swapPairing.run();
     return dropped;
   }

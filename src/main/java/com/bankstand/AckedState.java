@@ -42,6 +42,9 @@ public class AckedState {
   /** The server's last acked capture generation, or null when none was seen. */
   private Integer captureGeneration;
 
+  /** The capture generation the baselines above were acked under, or null when saved before any. */
+  private Integer baselineGeneration;
+
   /** The state of a character nothing is known about yet: everything resends once. */
   public static AckedState empty() {
     AckedState state = new AckedState();
@@ -143,5 +146,13 @@ public class AckedState {
 
   public void setCaptureGeneration(Integer captureGeneration) {
     this.captureGeneration = captureGeneration;
+  }
+
+  public Integer getBaselineGeneration() {
+    return baselineGeneration;
+  }
+
+  public void setBaselineGeneration(Integer baselineGeneration) {
+    this.baselineGeneration = baselineGeneration;
   }
 }
