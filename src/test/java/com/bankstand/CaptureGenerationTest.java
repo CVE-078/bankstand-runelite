@@ -511,4 +511,29 @@ public class CaptureGenerationTest {
     assertTrue(CaptureGenerations.STALE_NOTICE.contains("current progress syncs again"));
     assertTrue(CaptureGenerations.STALE_ACTIVITY.length() <= 45);
   }
+
+  @Test
+  public void concurrentAcksSettleOnTheHighestGeneration() throws Exception {
+    for (int round = 0; round < 50; round++) {
+      CaptureGenerations shared = new CaptureGenerations();
+      java.util.concurrent.ExecutorService pool = Executors.newFixedThreadPool(8);
+      java.util.concurrent.CountDownLatch start = new java.util.concurrent.CountDownLatch(1);
+      for (int g = 1; g <= 64; g++) {
+        int value = g;
+        pool.execute(
+            () -> {
+              try {
+                start.await();
+              } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+              }
+              shared.observe(1L, value);
+            });
+      }
+      start.countDown();
+      pool.shutdown();
+      assertTrue(pool.awaitTermination(5, java.util.concurrent.TimeUnit.SECONDS));
+      assertEquals(Integer.valueOf(64), shared.get(1L));
+    }
+  }
 }

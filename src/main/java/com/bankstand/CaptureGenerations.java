@@ -62,7 +62,7 @@ public final class CaptureGenerations {
    * so is a lower value: generations only rise, so a lower one is a late ack from before a removal.
    */
   public boolean observe(long accountHash, Integer generation) {
-    return apply(accountHash, generation, false);
+    return apply(accountHash, generation, null, false);
   }
 
   /** Every generation the server named when pairing, learned before anything is queued. */
@@ -76,11 +76,14 @@ public final class CaptureGenerations {
   }
 
   // A lower value is taken only when the server refused the value we hold: then it really went back.
-  private boolean apply(long accountHash, Integer generation, boolean mayLower) {
+  // Synchronized: acks arrive on several executor threads, and a check-then-put could go backwards.
+  private synchronized boolean apply(
+      long accountHash, Integer generation, Integer sentWith, boolean staleRefusal) {
     if (generation == null) {
       return false;
     }
     Integer previous = byAccount.get(accountHash);
+    boolean mayLower = staleRefusal && sentWith != null && sentWith.equals(previous);
     if (previous != null && generation < previous && !mayLower) {
       return false;
     }
@@ -132,8 +135,7 @@ public final class CaptureGenerations {
   }
 
   private void observeAck(long accountHash, Integer generation, Integer sentWith, boolean stale) {
-    boolean refusedCurrent = stale && sentWith != null && sentWith.equals(get(accountHash));
-    apply(accountHash, generation, refusedCurrent);
+    apply(accountHash, generation, sentWith, stale);
     if (stale) {
       staleRefused(accountHash);
     }
@@ -174,7 +176,7 @@ public final class CaptureGenerations {
    * captures stamped with it are refused once and the refusal teaches the right one. Tag each
    * request with a pairing epoch if that ever matters.
    */
-  public void forget() {
+  public synchronized void forget() {
     byAccount.clear();
     staleNoticeAt.clear();
     AckedStateStore target = store;
