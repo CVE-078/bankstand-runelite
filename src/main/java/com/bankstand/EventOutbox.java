@@ -61,7 +61,7 @@ public class EventOutbox {
    */
   public synchronized void add(long accountHash, TransientEvent event) {
     List<OutboxEntry> entries = current();
-    entries.add(new OutboxEntry(accountHash, event, generations.get(accountHash), pairing.get()));
+    entries.add(new OutboxEntry(accountHash, event, generations.stampFor(accountHash), pairing.get()));
     while (entries.size() > MAX_PENDING) {
       OutboxEntry dropped = entries.remove(0);
       log.warn(
@@ -173,12 +173,18 @@ public class EventOutbox {
 
   /** Whether the server refused any of these as queued before a capture removal. */
   static boolean anyStaleGeneration(List<EventAck> acks) {
+    return countStaleGeneration(acks) > 0;
+  }
+
+  /** How many the server refused as captured under an older generation. */
+  static int countStaleGeneration(List<EventAck> acks) {
+    int count = 0;
     for (EventAck ack : acks) {
       if ("rejected".equals(ack.getOutcome()) && STALE_GENERATION.equals(ack.getReason())) {
-        return true;
+        count++;
       }
     }
-    return false;
+    return count;
   }
 
   static final String STALE_GENERATION = "stale_generation";

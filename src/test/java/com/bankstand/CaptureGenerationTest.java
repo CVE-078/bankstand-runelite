@@ -287,6 +287,8 @@ public class CaptureGenerationTest {
     // Restart: a fresh run knows the newer generation the removal produced.
     CaptureGenerations restarted = new CaptureGenerations();
     restarted.restore(1L, 2);
+    // The server answers for the character this login before "new" is captured.
+    restarted.observe(1L, 2);
     EventOutbox reloaded = new EventOutbox(events, new Gson());
     reloaded.setCaptureGenerations(restarted);
     reloaded.add(1L, event("new"));
@@ -345,7 +347,7 @@ public class CaptureGenerationTest {
   }
 
   @Test
-  public void aRestartRestoresEveryStoredGenerationBeforeAnythingIsQueued() {
+  public void aRestartRestoresEveryStoredGenerationButStampsNoneUntilTheServerAnswers() {
     generations.observe(1L, 2);
     generations.observe(5L, 4);
     CaptureGenerations restarted = new CaptureGenerations();
@@ -355,6 +357,10 @@ public class CaptureGenerationTest {
     PresenceQueue queue = new PresenceQueue();
     queue.setCaptureGenerations(restarted);
     queue.addTransition(new PresenceSignal(PresenceSignal.LOGIN, 1L, 0L));
+    assertNull(queue.peek().getCaptureGeneration());
+    restarted.observe(1L, 2);
+    queue.addTransition(new PresenceSignal(PresenceSignal.LOGOUT, 1L, 1L));
+    queue.onAnswered(queue.peek());
     assertEquals(Integer.valueOf(2), queue.peek().getCaptureGeneration());
   }
 

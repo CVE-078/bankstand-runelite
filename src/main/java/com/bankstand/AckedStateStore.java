@@ -96,6 +96,26 @@ public class AckedStateStore {
     write(document);
   }
 
+  /**
+   * Forgets every character's snapshot baselines, so each enabled block resends whole under a new
+   * pairing. Keeps what only feeds events (diary task bits) and the observed log items.
+   */
+  public synchronized void clearBaselines() {
+    Document document = read();
+    for (AckedState state : document.accounts.values()) {
+      if (state != null) {
+        state.setSkills(null);
+        state.setQuests(null);
+        state.setDiaries(null);
+        state.setCombatAchievements(null);
+        state.setAccountType(null);
+        state.setCollectionLogAcked(-1);
+        state.setBaselineGeneration(null);
+      }
+    }
+    write(document);
+  }
+
   /** Records only the capture generation, for an ack that arrives for any account. */
   public synchronized void saveCaptureGeneration(long accountHash, int generation) {
     Document document = read();

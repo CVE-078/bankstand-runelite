@@ -98,11 +98,14 @@ config sync never uploads it.
 ### Removing captured data
 
 Removing a character's captured data on the website deletes its stored history (drops, pets,
-unlocks, sessions, loot, dates) for good. Captures this plugin queued before the removal are
-dropped, never resent. If the plugin stays connected with capture on, the character's current
+unlocks, sessions, loot, dates) for good. Captures this plugin made before it learned of the
+removal are not saved, never resent; the sidebar says how many. If the plugin stays connected with capture on, the character's current
 progress (skills, quests, diaries, collection log, combat achievements) syncs again on the next
 capture, as a fresh starting point with no history. Turn capture off or disconnect first to keep
 it from coming back. Older plugin versions are disconnected by a removal: update and pair again.
+
+Pairing again also resends the current progress of every character once. Drops, pets, loot and
+sessions are never resent, and a full collection log only counts after a guided read in game.
 
 ### Sidebar panel
 

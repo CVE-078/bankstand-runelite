@@ -270,6 +270,13 @@ public class BankstandPlugin extends Plugin {
           clientThread.invoke(() -> recentActivityLog.record(CaptureGenerations.STALE_ACTIVITY));
         },
         () -> client.getGameState() == GameState.LOGGED_IN);
+    captureGenerations.onRefused(
+        line ->
+            clientThread.invoke(
+                () -> {
+                  recentActivityLog.record(line);
+                  refreshPanel();
+                }));
     captureGenerations.onChange(
         (account, value) -> clientThread.invoke(() -> onNewGeneration(account, value)));
     eventOutbox.setCaptureGenerations(captureGenerations);
@@ -1387,6 +1394,7 @@ public class BankstandPlugin extends Plugin {
       // Adopts the account only if it changed; the -1 logged-out sentinel is ignored.
       if (session.onLogin(client.getAccountHash())) {
         lastSkillRead = null;
+        captureGenerations.startSession(client.getAccountHash());
       }
       ticksSinceLoggedIn = 0;
       cancelHopTimer();
@@ -1656,6 +1664,10 @@ public class BankstandPlugin extends Plugin {
       baselineGeneration = generation;
       loadAckedState(accountHash, generation);
     }
+    // Not until the server answered for this character this login: re-captured once it has.
+    if (!captureGenerations.isConfirmed(accountHash)) {
+      return;
+    }
     // An opt-in is not retroactive to items observed before it.
     Set<Integer> clog =
         isCollectionLogCaptureEnabled() ? collectionLog.observed() : Collections.emptySet();
@@ -1787,6 +1799,8 @@ public class BankstandPlugin extends Plugin {
     accountTypeBaseline.reset();
     slayerTaskBaseline.reset();
     collectionLogBaseline.reset();
+    // Only a guided read this login may claim the whole log, never a resend.
+    pendingFullEnumeration = false;
     baselineCaptureGeneration = captureGeneration;
   }
 
@@ -2108,6 +2122,7 @@ public class BankstandPlugin extends Plugin {
                     clientThread.invoke(
                         () -> {
                           if (session.isCurrent(accountHash, generation)
+                              && !isReplaced(url, token)
                               && CaptureGenerations.ackedUnder(
                                   res.getCaptureGeneration(), captureGenerations.get(accountHash))) {
                             // Skills ride on every submission, so check for a real change
@@ -2306,7 +2321,9 @@ public class BankstandPlugin extends Plugin {
                       }
                       return;
                     }
-                    // Learned before most captures of this login are queued.
+                    // Learned before most captures of this login are queued. Any answer opens
+                    // capture: without a generation, the server decides on unstamped captures.
+                    captureGenerations.confirm(accountHash);
                     captureGenerations.observe(accountHash, res.getCaptureGeneration());
                     // Drop the result unless this login instance is still current: the retry
                     // backoff can span a relog.
@@ -2393,6 +2410,21 @@ public class BankstandPlugin extends Plugin {
     Map<Long, Integer> generations = res.captureGenerationsByAccount();
     PairingQueues.Dropped dropped =
         pairingQueues.replace(() -> deviceStore.save(DeviceCredentials.of(res, url)), generations);
+    // A new pairing may be another server or account: every enabled snapshot block resends
+    // whole, for every character. Events, loot, presence and diary task bits do not.
+    if (ackedStore != null) {
+      ackedStore.clearBaselines();
+    }
+    clientThread.invoke(
+        () -> {
+          long account = session.getAccountHash();
+          resetSnapshotBaselines(captureGenerations.get(account));
+          if (session.isActive() && baselineGeneration == session.getGeneration()) {
+            saveAckedState(account);
+          }
+        });
+    // Re-runs the identity check, which confirms the current character under this pairing.
+    session.markSubmitFailed(session.getAccountHash(), session.getGeneration());
     String discarded = dropped.repairNotice();
     if (discarded != null) {
       notice(discarded);

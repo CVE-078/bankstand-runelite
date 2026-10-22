@@ -3,6 +3,7 @@ package com.bankstand;
 import com.bankstand.dto.EventAck;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.function.BiConsumer;
@@ -19,15 +20,18 @@ public final class CaptureGenerations {
   /** Said once per removal. Never claims the removal is final while capture can refill it. */
   static final String STALE_NOTICE =
       "Captured data for one of your characters was removed on the Bankstand website. Its history"
-          + " stays deleted and captures queued before the removal were dropped. While this plugin"
-          + " stays connected with capture on, its current progress syncs again. Turn capture off"
-          + " or disconnect to stop that.";
+          + " stays deleted, and captures made before this plugin learned of the removal were not"
+          + " saved. While this plugin stays connected with capture on, its current progress syncs"
+          + " again. Turn capture off or disconnect to stop that.";
 
   /** The same, short enough for a panel row. */
   static final String STALE_ACTIVITY = "Data removed on the site: progress resyncs";
 
   private final Map<Long, Integer> byAccount = new ConcurrentHashMap<>();
   private final Map<Long, Integer> staleNoticeAt = new ConcurrentHashMap<>();
+  // Accounts the server answered for since their login: only their generation is a stamp.
+  private final Set<Long> confirmed = ConcurrentHashMap.newKeySet();
+  private volatile Consumer<String> refused = line -> {};
   private volatile Consumer<String> staleNotice = message -> {};
   private volatile BiConsumer<Long, Integer> changed = (account, generation) -> {};
   private volatile BooleanSupplier canNotify = () -> true;
@@ -49,9 +53,33 @@ public final class CaptureGenerations {
     return byAccount.get(accountHash);
   }
 
-  /** Puts the account's generation on a request body, when one is known. */
+  /**
+   * The stamp for a capture queued now: the generation the server named since this login, else
+   * null. Unstamped, the server takes it only for a character never cleared, so a capture made
+   * before the answer can never land under the wrong generation.
+   */
+  public Integer stampFor(long accountHash) {
+    return confirmed.contains(accountHash) ? byAccount.get(accountHash) : null;
+  }
+
+  /** Whether the server has answered for this account since its login or this pairing. */
+  public boolean isConfirmed(long accountHash) {
+    return confirmed.contains(accountHash);
+  }
+
+  /** A new login: a remembered generation may be stale until the server answers again. */
+  public void startSession(long accountHash) {
+    confirmed.remove(accountHash);
+  }
+
+  /** The server answered without a generation (an older server, or a character not routed). */
+  public void confirm(long accountHash) {
+    confirmed.add(accountHash);
+  }
+
+  /** Puts the account's confirmed generation on a request body, when one is known. */
   public void stamp(Map<String, Object> body, long accountHash) {
-    Integer generation = get(accountHash);
+    Integer generation = stampFor(accountHash);
     if (generation != null) {
       body.put("captureGeneration", generation);
     }
@@ -82,6 +110,7 @@ public final class CaptureGenerations {
     if (generation == null) {
       return false;
     }
+    confirmed.add(accountHash);
     Integer previous = byAccount.get(accountHash);
     boolean mayLower = staleRefusal && sentWith != null && sentWith.equals(previous);
     if (previous != null && generation < previous && !mayLower) {
@@ -123,22 +152,44 @@ public final class CaptureGenerations {
     this.canNotify = canNotify;
   }
 
-  /** {@link #observe(long, Integer)} for an ack, sent stamped {@code sentWith}, that may be stale. */
+  /** Where a panel line goes for each answer that refused events or loot as stale. */
+  public void onRefused(Consumer<String> activity) {
+    this.refused = activity;
+  }
+
+  /**
+   * {@link #observe(long, Integer)} for a snapshot or presence ack, sent stamped {@code sentWith},
+   * that may be stale. Not counted as lost: a snapshot is re-captured, presence is not an event.
+   */
   public void observe(long accountHash, Integer generation, Integer sentWith, String reason) {
-    observeAck(accountHash, generation, sentWith, EventOutbox.STALE_GENERATION.equals(reason));
+    observeAck(accountHash, generation, sentWith, EventOutbox.STALE_GENERATION.equals(reason) ? 0 : -1);
   }
 
   /** {@link #observe(long, Integer)} for per-item acks, any of which may be stale. */
   public void observe(
       long accountHash, Integer generation, Integer sentWith, List<EventAck> acks) {
-    observeAck(accountHash, generation, sentWith, EventOutbox.anyStaleGeneration(acks));
+    int stale = EventOutbox.countStaleGeneration(acks);
+    observeAck(accountHash, generation, sentWith, stale > 0 ? stale : -1);
   }
 
-  private void observeAck(long accountHash, Integer generation, Integer sentWith, boolean stale) {
-    apply(accountHash, generation, sentWith, stale);
-    if (stale) {
+  // staleItems: -1 when nothing was refused as stale, else how many events or loot were.
+  private void observeAck(long accountHash, Integer generation, Integer sentWith, int staleItems) {
+    apply(accountHash, generation, sentWith, staleItems >= 0);
+    if (staleItems >= 0) {
       staleRefused(accountHash);
     }
+    String line = refusedActivity(staleItems);
+    if (line != null) {
+      refused.accept(line);
+    }
+  }
+
+  /** The panel line for refused events or loot, never restamped and so lost; null for none. */
+  static String refusedActivity(int count) {
+    if (count <= 0) {
+      return null;
+    }
+    return count + (count == 1 ? " capture" : " captures") + " not saved: data was removed";
   }
 
   /**
@@ -179,6 +230,7 @@ public final class CaptureGenerations {
   public synchronized void forget() {
     byAccount.clear();
     staleNoticeAt.clear();
+    confirmed.clear();
     AckedStateStore target = store;
     Executor writer = executor;
     if (target != null && writer != null) {

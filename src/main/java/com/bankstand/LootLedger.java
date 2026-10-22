@@ -54,7 +54,7 @@ final class LootLedger {
     Key key = new Key(accountHash, npcId);
     Window window = open.get(key);
     // A kill after a new generation was acked never joins a window from before it.
-    Integer generation = generations.get(accountHash);
+    Integer generation = generations.stampFor(accountHash);
     if (window != null
         && (!window.accepts(kill, at) || !Objects.equals(window.generation, generation))) {
       closed.add(window.close(accountHash));

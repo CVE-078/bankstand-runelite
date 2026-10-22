@@ -40,7 +40,7 @@ final class PresenceQueue {
   }
 
   private PresenceSignal stamped(PresenceSignal signal) {
-    Integer generation = generations.get(signal.getAccountHash());
+    Integer generation = generations.stampFor(signal.getAccountHash());
     return generation == null ? signal : signal.withCaptureGeneration(generation);
   }
 
