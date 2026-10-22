@@ -304,7 +304,7 @@ public class GenerationBoundaryTest {
     assertEquals(2, rig.boundary.losses().discarded(CaptureBoundary.Kind.EVENT));
     java.util.List<String> summary =
         Arrays.asList(
-            "Since start-up: 1 snapshot re-read from the game, nothing lost",
+            "Since start-up: 1 snapshot held back, read again from the game once Bankstand answers",
             "Since start-up: 2 events not saved, data was removed");
     assertEquals(summary, rig.boundary.losses().summary());
     rig.logout();

@@ -123,8 +123,8 @@ Click the Bankstand icon in the sidebar.
 - **Capabilities.** When each enabled capability last sent something. A dash means nothing new to
   send yet.
 - **Recent activity.** Unlocks, achievements, diary tasks, drops and pets sent this session. Above
-  them, since RuneLite started: progress snapshots that were held back or refused and read again
-  from the game (nothing lost), and drops, loot and session marks that were not saved, with why.
+  them, since RuneLite started: progress snapshots that were held back or refused, read again
+  from the game once Bankstand answers, and drops, loot and session marks that were not saved, with why.
 - **Also turn on the Session log?** Shown while the Loot log is on and the Session log is off.
   Nothing changes unless you press its button.
 - **Sync now** sends immediately. **Open Bankstand** opens the site.

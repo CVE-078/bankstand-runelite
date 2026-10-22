@@ -64,7 +64,7 @@ final class CaptureLosses {
     if (recovered > 0) {
       lines.add(
           "Since start-up: "
-              + line(single(CaptureBoundary.Kind.SNAPSHOT, recovered), "re-read from the game, nothing lost"));
+              + line(single(CaptureBoundary.Kind.SNAPSHOT, recovered), "held back, read again from the game once Bankstand answers"));
     }
     lost.forEach((reason, counts) -> lines.add("Since start-up: " + line(counts, reason.why)));
     return lines;
