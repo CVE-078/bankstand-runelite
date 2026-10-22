@@ -2165,7 +2165,9 @@ public class BankstandPlugin extends Plugin {
                             if (isSuperseded(seq, submitSeq.get())
                                 || submitGate.isHalted()
                                 || pairingClient == null
-                                || !isPaired()) {
+                                || !isPaired()
+                                // A new pairing may be another account: never resend under it.
+                                || isReplaced(url, token)) {
                               return;
                             }
                             submitSnapshot(
