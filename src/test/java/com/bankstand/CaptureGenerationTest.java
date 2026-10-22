@@ -262,6 +262,82 @@ public class CaptureGenerationTest {
   }
 
   @Test
+  public void pairingDeclaresGenerationStamping() throws Exception {
+    Capture capture =
+        new Capture(
+            "{\"deviceToken\":\"bsd_t\",\"deviceId\":\"d\",\"expiresAt\":\"2027-01-01T00:00:00Z\"}");
+    client(capture).exchangePairingCode("https://x.test", "ABCD2345");
+    assertEquals(
+        "capture_generation", body(capture).getAsJsonArray("capabilities").get(0).getAsString());
+  }
+
+  @Test
+  public void queuedCapturesKeepTheirStampAcrossARestartAndAreDroppedWhenRefused() {
+    File events = new File(dir, "events.json");
+    File lootFile = new File(dir, "loot.json");
+    EventOutbox outbox = new EventOutbox(events, new Gson());
+    outbox.setCaptureGenerations(generations);
+    outbox.add(1L, event("unstamped"));
+    generations.observe(1L, 1);
+    outbox.add(1L, event("old"));
+    LootOutbox lootOutbox = new LootOutbox(lootFile, new Gson());
+    lootOutbox.addAll(
+        Collections.singletonList(new LootEntry(1L, loot("l").getEvent(), 1, null)));
+
+    // Restart: a fresh run knows the newer generation the removal produced.
+    CaptureGenerations restarted = new CaptureGenerations();
+    restarted.restore(1L, 2);
+    EventOutbox reloaded = new EventOutbox(events, new Gson());
+    reloaded.setCaptureGenerations(restarted);
+    reloaded.add(1L, event("new"));
+    Map<SendGroup, List<TransientEvent>> groups =
+        SendGroup.of(
+            reloaded.pending(),
+            OutboxEntry::getAccountHash,
+            OutboxEntry::getCaptureGeneration,
+            OutboxEntry::getEvent);
+    assertEquals("unstamped", groups.get(new SendGroup(1L, null)).get(0).getId());
+    assertEquals("old", groups.get(new SendGroup(1L, 1)).get(0).getId());
+    assertEquals("new", groups.get(new SendGroup(1L, 2)).get(0).getId());
+    LootOutbox reloadedLoot = new LootOutbox(lootFile, new Gson());
+    assertEquals(Integer.valueOf(1), reloadedLoot.pending().get(0).getCaptureGeneration());
+
+    String refused =
+        "{\"acks\":[{\"id\":\"unstamped\",\"outcome\":\"rejected\",\"reason\":\"stale_generation\"},"
+            + "{\"id\":\"old\",\"outcome\":\"rejected\",\"reason\":\"stale_generation\"},"
+            + "{\"id\":\"new\",\"outcome\":\"stored\"},"
+            + "{\"id\":\"l\",\"outcome\":\"rejected\",\"reason\":\"stale_generation\"}]}";
+    reloaded.ack(EventOutbox.idsToAck(acks(refused)));
+    reloadedLoot.ack(LootOutbox.idsToAck(acks(refused)));
+    assertTrue(new EventOutbox(events, new Gson()).pending().isEmpty());
+    assertTrue(new LootOutbox(lootFile, new Gson()).pending().isEmpty());
+    assertTrue(EventOutbox.anyStaleGeneration(acks(refused)));
+    assertFalse(
+        EventOutbox.anyStaleGeneration(acks("{\"acks\":[{\"id\":\"a\",\"outcome\":\"stored\"}]}")));
+  }
+
+  @Test
+  public void aStaleRefusalIsAnnouncedOncePerRemoval() {
+    assertFalse(generations.firstStaleRefusal(1L));
+    generations.observe(1L, 2);
+    assertTrue(generations.firstStaleRefusal(1L));
+    assertFalse(generations.firstStaleRefusal(1L));
+    generations.observe(1L, 3);
+    assertTrue(generations.firstStaleRefusal(1L));
+    assertFalse(generations.firstStaleRefusal(2L));
+
+    List<String> notices = new java.util.ArrayList<>();
+    CaptureGenerations fresh = new CaptureGenerations();
+    fresh.onStaleRefusal(notices::add);
+    fresh.observe(1L, 2, "stale_generation");
+    fresh.observe(1L, 2, acks("{\"acks\":[{\"id\":\"a\",\"outcome\":\"rejected\",\"reason\":\"stale_generation\"}]}"));
+    fresh.observe(1L, 2, "not_applied");
+    assertEquals(1, notices.size());
+    fresh.observe(1L, 3, "stale_generation");
+    assertEquals(2, notices.size());
+  }
+
+  @Test
   public void aSnapshotIsStampedAsItIsBuilt() {
     Map<String, Object> envelope = new LinkedHashMap<>();
     generations.stamp(envelope, 1L);

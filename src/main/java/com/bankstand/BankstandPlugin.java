@@ -262,6 +262,7 @@ public class BankstandPlugin extends Plugin {
 
     eventOutbox = new EventOutbox(new File(ACKED_STATE_DIR, EVENTS_FILE), gson);
     captureGenerations.persistTo(ackedStore, executor);
+    captureGenerations.onStaleRefusal(this::notice);
     eventOutbox.setCaptureGenerations(captureGenerations);
     presenceQueue.setCaptureGenerations(captureGenerations);
     slayerTaskStart =
@@ -576,7 +577,8 @@ public class BankstandPlugin extends Plugin {
                               failure.getMessage());
                           return;
                         }
-                        captureGenerations.observe(accountHash, response.getCaptureGeneration());
+                        captureGenerations.observe(
+                            accountHash, response.getCaptureGeneration(), response.getAcks());
                         if (!response.isRouted()) {
                           // Unclaimed: leave every entry pending, like a network failure.
                           return;
@@ -681,7 +683,7 @@ public class BankstandPlugin extends Plugin {
                 next.getLoot(),
                 next.getCaptureGeneration());
         presenceQueue.onAnswered(next);
-        captureGenerations.observe(next.getAccountHash(), res.getCaptureGeneration());
+        captureGenerations.observe(next.getAccountHash(), res.getCaptureGeneration(), res.getReason());
         if (res.isApplied()) {
           lastSyncedAt.put(Capability.SESSIONS.key, System.currentTimeMillis());
           if (PresenceSignal.LOGIN.equals(next.getState())) {
@@ -768,7 +770,7 @@ public class BankstandPlugin extends Plugin {
         try {
           SubmitLootResponse res =
               client.submitLoot(url, token, accountHash, chunk, group.getKey().captureGeneration);
-          captureGenerations.observe(accountHash, res.getCaptureGeneration());
+          captureGenerations.observe(accountHash, res.getCaptureGeneration(), res.getAcks());
           lootOutbox.ack(LootOutbox.idsToAck(res.getAcks()));
           if (res.getAcks().stream().anyMatch(EventAck::isStored)) {
             lastSyncedAt.put(Capability.LOOT.key, System.currentTimeMillis());
@@ -2054,7 +2056,7 @@ public class BankstandPlugin extends Plugin {
                       }
                       return;
                     }
-                    captureGenerations.observe(accountHash, res.getCaptureGeneration());
+                    captureGenerations.observe(accountHash, res.getCaptureGeneration(), res.getReason());
                     // Advance each baseline only for a block the server wrote, on the client
                     // thread, and only if this login is still current.
                     clientThread.invoke(
@@ -2309,6 +2311,7 @@ public class BankstandPlugin extends Plugin {
   private void clearPairingCode() {
     configManager.setConfiguration(BankstandKeys.GROUP, BankstandKeys.KEY_PAIRING_CODE, "");
   }
+
 
   /**
    * Writes a line to the chat box. Logged out, the message is dropped, not queued: an outcome is

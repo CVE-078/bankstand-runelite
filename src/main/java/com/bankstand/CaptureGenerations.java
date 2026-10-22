@@ -1,8 +1,11 @@
 package com.bankstand;
 
+import com.bankstand.dto.EventAck;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
+import java.util.function.Consumer;
 
 /**
  * The capture generation the server last acked, per account. The server bumps it when the
@@ -12,6 +15,8 @@ import java.util.concurrent.Executor;
  */
 public final class CaptureGenerations {
   private final Map<Long, Integer> byAccount = new ConcurrentHashMap<>();
+  private final Map<Long, Integer> staleNoticeAt = new ConcurrentHashMap<>();
+  private volatile Consumer<String> staleNotice = message -> {};
   private volatile AckedStateStore store;
   private volatile Executor executor;
 
@@ -48,6 +53,48 @@ public final class CaptureGenerations {
       writer.execute(() -> target.saveCaptureGeneration(accountHash, value));
     }
     return changed;
+  }
+
+  /** Where the once-per-removal message about dropped captures goes. */
+  public void onStaleRefusal(Consumer<String> notice) {
+    this.staleNotice = notice;
+  }
+
+  /** {@link #observe(long, Integer)} for an ack whose refusal reason may be stale. */
+  public void observe(long accountHash, Integer generation, String reason) {
+    observe(accountHash, generation);
+    if (EventOutbox.STALE_GENERATION.equals(reason)) {
+      staleRefused(accountHash);
+    }
+  }
+
+  /** {@link #observe(long, Integer)} for per-item acks, any of which may be stale. */
+  public void observe(long accountHash, Integer generation, List<EventAck> acks) {
+    observe(accountHash, generation);
+    if (EventOutbox.anyStaleGeneration(acks)) {
+      staleRefused(accountHash);
+    }
+  }
+
+  /**
+   * Captures queued under an older generation were refused and dropped, never restamped, so data
+   * the player removed is not uploaded again. Said once per removal, not once per request.
+   */
+  private void staleRefused(long accountHash) {
+    if (firstStaleRefusal(accountHash)) {
+      staleNotice.accept(
+          "Bankstand discarded some queued captures for this character because its data was"
+              + " removed. New captures sync as normal.");
+    }
+  }
+
+  /**
+   * True the first time a capture is refused as stale under the account's current generation, so
+   * the player is told once per removal rather than once per request.
+   */
+  public boolean firstStaleRefusal(long accountHash) {
+    Integer current = byAccount.get(accountHash);
+    return current != null && !current.equals(staleNoticeAt.put(accountHash, current));
   }
 
   /** Restores a persisted value without overwriting one an ack already set this run. */

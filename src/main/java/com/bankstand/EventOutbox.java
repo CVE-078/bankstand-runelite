@@ -171,6 +171,18 @@ public class EventOutbox {
     return ids;
   }
 
+  /** Whether the server refused any of these as queued before a capture removal. */
+  static boolean anyStaleGeneration(List<EventAck> acks) {
+    for (EventAck ack : acks) {
+      if ("rejected".equals(ack.getOutcome()) && STALE_GENERATION.equals(ack.getReason())) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  static final String STALE_GENERATION = "stale_generation";
+
   static Set<String> toIdSet(Iterable<String> ids) {
     Set<String> set = new HashSet<>();
     for (String id : ids) set.add(id);

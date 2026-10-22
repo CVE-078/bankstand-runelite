@@ -13,6 +13,7 @@ import com.google.gson.JsonSyntaxException;
 import java.io.IOException;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -78,8 +79,9 @@ public class BankstandClient {
     }
 
     String url = trimTrailingSlash(baseUrl) + PAIR_PATH;
-    Map<String, String> body = new LinkedHashMap<>();
+    Map<String, Object> body = new LinkedHashMap<>();
     body.put("code", code);
+    body.put("capabilities", Collections.singletonList("capture_generation"));
     Map<String, String> headers = new LinkedHashMap<>();
     headers.put("Content-Type", "application/json");
     headers.put("Accept", "application/json");
