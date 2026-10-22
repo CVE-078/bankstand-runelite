@@ -41,15 +41,15 @@ public class PairingQueuesTest {
     assertEquals(1, loot.pending().size());
 
     PairingQueues queues = new PairingQueues(presence, events, ledger, loot);
-    boolean[] swappedFirst = {false};
+    boolean[] droppedFirst = {false};
     PairingQueues.Dropped dropped =
-        queues.replace(() -> swappedFirst[0] = !events.pending().isEmpty());
+        queues.replace(() -> droppedFirst[0] = events.pending().isEmpty());
     assertEquals(1, dropped.events);
     assertEquals("one queued and one still open", 2, dropped.loot);
     assertEquals(
         "Re-paired: 1 queued event and 2 loot drops from the previous pairing were discarded.",
         dropped.repairNotice());
-    assertTrue("the pairing is swapped before the queues are dropped", swappedFirst[0]);
+    assertTrue("the queues are dropped before the pairing is swapped", droppedFirst[0]);
 
     assertEquals(0, presence.size());
     assertTrue(events.pending().isEmpty());
