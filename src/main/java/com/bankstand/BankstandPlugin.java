@@ -194,6 +194,7 @@ public class BankstandPlugin extends Plugin {
   private final LootSendPacer lootPacer = new LootSendPacer();
   private final AtomicBoolean lootSending = new AtomicBoolean();
   private LootOutbox lootOutbox;
+  private PairingQueues pairingQueues;
   private LootCapture lootCapture;
 
   private final PresenceTracker presenceTracker = new PresenceTracker();
@@ -256,7 +257,7 @@ public class BankstandPlugin extends Plugin {
     manifest = manifestStore.current(null);
     refreshManifest();
     deviceStore = new DeviceCredentialStore(new File(ACKED_STATE_DIR, DEVICE_FILE), gson);
-    migrateCredentialsOutOfConfig();
+    LegacyCredentials.migrate(configManager, deviceStore);
 
     eventOutbox = new EventOutbox(new File(ACKED_STATE_DIR, EVENTS_FILE), gson);
     slayerTaskStart =
@@ -330,6 +331,7 @@ public class BankstandPlugin extends Plugin {
             onEmit);
     eventBus.register(slayerTaskCompletionCapture);
     lootOutbox = new LootOutbox(new File(ACKED_STATE_DIR, LOOT_FILE), gson);
+    pairingQueues = new PairingQueues(presenceQueue, eventOutbox, lootLedger, lootOutbox);
     lootCapture =
         new LootCapture(
             this::isLootCaptureEnabled,
@@ -518,19 +520,24 @@ public class BankstandPlugin extends Plugin {
       lootOutbox.addAll(lootLedger.closeAll());
     }
     drainLoot();
-    if (pairingClient == null || eventOutbox == null || !isPaired()) {
+    if (pairingClient == null || eventOutbox == null) {
       return;
     }
-    List<OutboxEntry> pending = eventOutbox.pending();
-    if (pending.isEmpty()) {
+    String url = savedServerUrl();
+    String token;
+    List<OutboxEntry> pending;
+    // One step, so the token and the queue always belong to the same pairing.
+    synchronized (pairingQueues) {
+      token = deviceStore.load().tokenFor(url);
+      pending = eventOutbox.pending();
+    }
+    if (token == null || pending.isEmpty()) {
       return;
     }
     Map<Long, List<TransientEvent>> byAccount = new LinkedHashMap<>();
     for (OutboxEntry entry : pending) {
       byAccount.computeIfAbsent(entry.getAccountHash(), key -> new ArrayList<>()).add(entry.getEvent());
     }
-    String url = savedServerUrl();
-    String token = deviceStore.load().tokenFor(url);
     BankstandClient api = pairingClient;
     executor.submit(
         () -> {
@@ -612,14 +619,22 @@ public class BankstandPlugin extends Plugin {
     if (!presenceSending.compareAndSet(false, true)) {
       return;
     }
-    String url = savedServerUrl();
-    String token = deviceStore.load().tokenFor(url);
-    executor.submit(() -> runPresenceSends(url, token));
+    executor.submit(this::runPresenceSends);
   }
 
-  private void runPresenceSends(String url, String token) {
+  private void runPresenceSends() {
     while (true) {
-      PresenceSignal next = presenceQueue.peek();
+      PresenceSignal next;
+      String url = savedServerUrl();
+      String token;
+      synchronized (pairingQueues) {
+        next = presenceQueue.peek();
+        token = deviceStore.load().tokenFor(url);
+      }
+      if (token == null) {
+        presenceSending.set(false);
+        return;
+      }
       if (next == null) {
         presenceSending.set(false);
         // A value queued between the peek and the release found the chain still busy.
@@ -692,21 +707,29 @@ public class BankstandPlugin extends Plugin {
     if (!lootSending.compareAndSet(false, true)) {
       return;
     }
-    String url = savedServerUrl();
-    String token = deviceStore.load().tokenFor(url);
     executor.submit(
         () -> {
           try {
-            sendLoot(url, token);
+            sendLoot();
           } finally {
             lootSending.set(false);
           }
         });
   }
 
-  private void sendLoot(String url, String token) {
+  private void sendLoot() {
+    String url = savedServerUrl();
+    String token;
+    List<LootEntry> pending;
+    synchronized (pairingQueues) {
+      token = deviceStore.load().tokenFor(url);
+      pending = lootOutbox.pending();
+    }
+    if (token == null) {
+      return;
+    }
     Map<Long, List<LootEvent>> byAccount = new LinkedHashMap<>();
-    for (LootEntry entry : lootOutbox.pending()) {
+    for (LootEntry entry : pending) {
       byAccount.computeIfAbsent(entry.getAccountHash(), key -> new ArrayList<>()).add(entry.getEvent());
     }
     for (Map.Entry<Long, List<LootEvent>> group : byAccount.entrySet()) {
@@ -2028,6 +2051,9 @@ public class BankstandPlugin extends Plugin {
                       // Shown on the panel's header dot and failure footer.
                       lastFailureReason = e.getMessage();
                       refreshPanel();
+                      if (e.isAuthFailure() && isReplaced(url, token)) {
+                        return;
+                      }
                       if (e.isAuthFailure()) {
                         // Retrying cannot fix a revoked token. This is the one failure the
                         // player must act on, so the gate announces it.
@@ -2165,6 +2191,11 @@ public class BankstandPlugin extends Plugin {
         });
   }
 
+  // A token a new pairing or a disconnect replaced: its failures say nothing about the new one.
+  private boolean isReplaced(String url, String token) {
+    return !java.util.Objects.equals(token, deviceStore.load().tokenFor(url));
+  }
+
   // Paired for the server now configured; a pairing for another origin counts as unpaired here.
   private boolean isPaired() {
     return deviceStore.load().tokenFor(savedServerUrl()) != null;
@@ -2229,6 +2260,9 @@ public class BankstandPlugin extends Plugin {
                       // tick retries; otherwise the session stays unbound until a relog.
                       // Guarded on the login instance.
                       session.markSubmitFailed(accountHash, generation);
+                      if (isReplaced(url, token)) {
+                        return;
+                      }
                       // Never log the token or account hash.
                       String message =
                           identityFailureNotice(failure, submitGate, noticeGate);
@@ -2275,11 +2309,9 @@ public class BankstandPlugin extends Plugin {
 
   private void disconnect() {
     DeviceCredentials paired = deviceStore.load();
-    deviceStore.clear();
-    // Queued presence belongs to this pairing; never send it under the next one.
-    presenceQueue.clear();
+    pairingQueues.replace(deviceStore::clear);
     // Unsetting the legacy keys is what removes the token from a synced profile upstream.
-    forgetLegacyCredentialKeys();
+    LegacyCredentials.forget(configManager);
     // Untick the toggle so ticking it again fires this afresh.
     configManager.setConfiguration(
         BankstandKeys.GROUP, BankstandKeys.KEY_DISCONNECT, Boolean.FALSE.toString());
@@ -2319,40 +2351,12 @@ public class BankstandPlugin extends Plugin {
     return new ChatMessageBuilder().append(BRAND, NOTICE_PREFIX).append(message).build();
   }
 
-  /**
-   * Moves credentials from ConfigManager to the device file. A no-op after the first run. The
-   * unset matters most: it is what deletes the token from RuneLite's config sync on a synced
-   * profile. The file wins if both exist, so a stale synced value never overwrites a newer
-   * pairing.
-   */
-  private void migrateCredentialsOutOfConfig() {
-    String legacyToken =
-        configManager.getConfiguration(BankstandKeys.GROUP, BankstandKeys.KEY_DEVICE_TOKEN);
-    if (legacyToken == null || legacyToken.trim().isEmpty()) {
-      return;
-    }
-    if (!deviceStore.load().isPaired()) {
-      DeviceCredentials migrated = new DeviceCredentials();
-      migrated.setToken(legacyToken);
-      migrated.setDeviceId(
-          configManager.getConfiguration(BankstandKeys.GROUP, BankstandKeys.KEY_DEVICE_ID));
-      migrated.setExpiresAt(
-          configManager.getConfiguration(BankstandKeys.GROUP, BankstandKeys.KEY_TOKEN_EXPIRES_AT));
-      deviceStore.save(migrated);
-    }
-    forgetLegacyCredentialKeys();
-  }
-
-  /** Clears the pre-file credential keys, and on a synced profile the upstream copy. */
-  private void forgetLegacyCredentialKeys() {
-    configManager.unsetConfiguration(BankstandKeys.GROUP, BankstandKeys.KEY_DEVICE_TOKEN);
-    configManager.unsetConfiguration(BankstandKeys.GROUP, BankstandKeys.KEY_DEVICE_ID);
-    configManager.unsetConfiguration(BankstandKeys.GROUP, BankstandKeys.KEY_TOKEN_EXPIRES_AT);
-  }
-
   private void storeToken(PairResponse res, String url) {
-    deviceStore.save(DeviceCredentials.of(res, url));
-    presenceQueue.clear();
+    DeviceCredentials previous = deviceStore.load();
+    pairingQueues.replace(() -> deviceStore.save(DeviceCredentials.of(res, url)));
+    // The old token may belong to another account or server: revoke it where it was paired.
+    pairingClient.unpairInBackground(
+        previous.pairedServerUrl(), previous.getToken(), () -> notice(UNPAIR_UNREACHABLE));
   }
 
   // Normalised, so a blank or padded value never reaches the socket; a cleared field gets prod.

@@ -78,6 +78,11 @@ public class LootOutbox {
     write(entries);
   }
 
+  /** Forgets every pending record, on disk too, so a restart cannot send them either. */
+  public synchronized void clear() {
+    write(new ArrayList<>());
+  }
+
   /** Stored, duplicate and unfixable rejections are dropped; anything else is resent. */
   static Set<String> idsToAck(List<EventAck> acks) {
     Set<String> ids = new HashSet<>();

@@ -23,9 +23,10 @@ public class TokenOriginWiringTest {
   public void everySendTakesTheTokenForTheConfiguredServer() throws IOException {
     String source = plugin();
     int raw = source.split("getToken\\(\\)", -1).length - 1;
-    // The one exception is disconnect, which revokes at the server the token was paired with.
-    assertEquals("only disconnect may read the raw token", 1, raw);
+    // Disconnect and a new pairing revoke the old token, at the server it was paired with.
+    assertEquals("only the two revokes may read the raw token", 2, raw);
     assertTrue(source.contains("paired.pairedServerUrl(), paired.getToken()"));
+    assertTrue(source.contains("previous.pairedServerUrl(), previous.getToken()"));
     assertTrue(source.contains("return deviceStore.load().tokenFor(savedServerUrl()) != null;"));
   }
 
@@ -33,6 +34,43 @@ public class TokenOriginWiringTest {
   public void aNewPairingRecordsTheServerItWasMadeWith() throws IOException {
     String source = plugin();
     assertTrue(source.contains("storeToken(res, url);"));
-    assertTrue(source.contains("deviceStore.save(DeviceCredentials.of(res, url));"));
+    assertTrue(source.contains("deviceStore.save(DeviceCredentials.of(res, url))"));
+  }
+
+  private static String body(String source, String signature) {
+    int start = source.indexOf(signature);
+    assertTrue(signature, start >= 0);
+    return source.substring(start, source.indexOf("\n  }\n", start));
+  }
+
+  @Test
+  public void everyQueuedSendReadsItsTokenAndQueueAsOneStepWhenItRuns() throws IOException {
+    String source = plugin();
+    String[][] sends = {
+      {"public void drainEventOutbox() {", "eventOutbox.pending()"},
+      {"private void runPresenceSends() {", "presenceQueue.peek()"},
+      {"private void sendLoot() {", "lootOutbox.pending()"},
+    };
+    for (String[] send : sends) {
+      String body = body(source, send[0]);
+      int lock = body.indexOf("synchronized (pairingQueues) {");
+      int end = body.indexOf("}", lock);
+      int token = body.indexOf("deviceStore.load().tokenFor(url)", lock);
+      int queue = body.indexOf(send[1], lock);
+      assertTrue(send[0] + " reads the token under the pairing lock", lock >= 0 && token < end);
+      assertTrue(send[0] + " reads the queue under the pairing lock", queue > lock && queue < end);
+    }
+    assertTrue(body(source, "private void sendPresence() {").contains("this::runPresenceSends"));
+  }
+
+  @Test
+  public void aReplacedTokensAuthFailureNeverHaltsTheNewPairing() throws IOException {
+    String source = plugin();
+    String snapshot = body(source, "private void submitSnapshot(");
+    int skip = snapshot.indexOf("if (e.isAuthFailure() && isReplaced(url, token)) {");
+    assertTrue(skip >= 0 && skip < snapshot.indexOf("submitGate.onAuthFailure()"));
+    String identity = body(source, "private void submitIdentity(");
+    int skipIdentity = identity.indexOf("if (isReplaced(url, token)) {");
+    assertTrue(skipIdentity >= 0 && skipIdentity < identity.indexOf("identityFailureNotice("));
   }
 }
