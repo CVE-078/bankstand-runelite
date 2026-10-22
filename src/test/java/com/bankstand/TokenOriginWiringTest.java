@@ -73,4 +73,12 @@ public class TokenOriginWiringTest {
     int skipIdentity = identity.indexOf("if (isReplaced(url, token)) {");
     assertTrue(skipIdentity >= 0 && skipIdentity < identity.indexOf("identityFailureNotice("));
   }
+
+  @Test
+  public void aCooldownRetryIsDroppedWhenThePairingChanged() throws IOException {
+    String snapshot = body(plugin(), "private void submitSnapshot(");
+    int retry = snapshot.indexOf("executor.schedule(");
+    int check = snapshot.indexOf("|| isReplaced(url, token)) {", retry);
+    assertTrue(retry >= 0 && check > retry && check < snapshot.indexOf("submitSnapshot(", retry));
+  }
 }
