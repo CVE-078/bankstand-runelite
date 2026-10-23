@@ -60,9 +60,10 @@ Each capability has its own toggle and its own section under **Settings > Bankst
 It also takes one last capture when you log out. A cleared client reads as zeroes, and that read is
 dropped rather than sent.
 
-Nothing is read or sent on Leagues, Deadman, tournament, PvP Arena, beta, no-save or quest
-speedrunning worlds, or before the welcome screen is closed after login. Fresh Start worlds count as
-their own account.
+Only regular worlds are read: free, members, PvP, Bounty, high-risk and total-level worlds. Nothing
+is read or sent on any other world type (Leagues, Deadman, tournament, PvP Arena, beta, no-save,
+quest speedrunning, Fresh Start, Last Man Standing, or a mode added after this version), inside a
+Last Man Standing game, or before the welcome screen is closed after login.
 
 ## What it never captures
 

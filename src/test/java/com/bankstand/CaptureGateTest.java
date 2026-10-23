@@ -25,15 +25,20 @@ public class CaptureGateTest {
 
   @Rule public TemporaryFolder folder = new TemporaryFolder();
 
-  private static final EnumSet<WorldType> SKIPPED =
+  // Main-game worlds. Every other flag, including one added later, is skipped.
+  private static final EnumSet<WorldType> ALLOWED =
       EnumSet.of(
-          WorldType.SEASONAL,
-          WorldType.DEADMAN,
-          WorldType.TOURNAMENT_WORLD,
-          WorldType.PVP_ARENA,
-          WorldType.BETA_WORLD,
-          WorldType.NOSAVE_MODE,
-          WorldType.QUEST_SPEEDRUNNING);
+          WorldType.MEMBERS,
+          WorldType.PVP,
+          WorldType.BOUNTY,
+          WorldType.SKILL_TOTAL,
+          WorldType.HIGH_RISK,
+          WorldType.LEGACY_ONLY,
+          WorldType.EOC_ONLY);
+
+  private static boolean skipped(WorldType type) {
+    return !ALLOWED.contains(type);
+  }
 
   private static CaptureGate settled() {
     CaptureGate gate = new CaptureGate();
@@ -45,6 +50,11 @@ public class CaptureGateTest {
 
   /** A plugin whose client reports {@code world} and whose login has settled. */
   private static BankstandPlugin pluginOn(EnumSet<WorldType> world) throws Exception {
+    return pluginOn(world, new int[] {12850});
+  }
+
+  private static BankstandPlugin pluginOn(EnumSet<WorldType> world, int[] regions)
+      throws Exception {
     Client client =
         (Client)
             Proxy.newProxyInstance(
@@ -56,6 +66,8 @@ public class CaptureGateTest {
                       return world;
                     case "getAccountHash":
                       return 42L;
+                    case "getMapRegions":
+                      return regions;
                     default:
                       return method.getReturnType() == boolean.class ? false : null;
                   }
@@ -71,18 +83,38 @@ public class CaptureGateTest {
   }
 
   @Test
-  public void skipsExactlyTheNonMainWorlds() {
-    assertEquals(SKIPPED, EnumSet.copyOf(CaptureGate.SKIPPED_WORLDS));
+  public void allowsExactlyTheMainWorlds() {
+    assertEquals(ALLOWED, EnumSet.copyOf(CaptureGate.MAIN_WORLDS));
     for (WorldType type : WorldType.values()) {
-      assertEquals(type.name(), !SKIPPED.contains(type), CaptureGate.allowsWorld(EnumSet.of(type)));
+      assertEquals(type.name(), !skipped(type), CaptureGate.allowsWorld(EnumSet.of(type)));
     }
   }
 
   @Test
-  public void keepsFreshStartAndOrdinaryWorlds() {
+  public void keepsFreeAndOrdinaryWorlds() {
     assertTrue(CaptureGate.allowsWorld(EnumSet.noneOf(WorldType.class)));
-    assertTrue(CaptureGate.allowsWorld(EnumSet.of(WorldType.FRESH_START_WORLD)));
     assertTrue(CaptureGate.allowsWorld(EnumSet.of(WorldType.MEMBERS, WorldType.PVP)));
+    assertTrue(CaptureGate.allowsWorld(EnumSet.of(WorldType.MEMBERS, WorldType.SKILL_TOTAL)));
+  }
+
+  /** Separate saves, or a mode this build does not know: fail closed. */
+  @Test
+  public void skipsSpecialAndUnknownModes() {
+    assertFalse(CaptureGate.allowsWorld(EnumSet.of(WorldType.LAST_MAN_STANDING)));
+    assertFalse(CaptureGate.allowsWorld(EnumSet.of(WorldType.FRESH_START_WORLD)));
+    assertFalse(CaptureGate.allowsWorld(EnumSet.of(WorldType.MEMBERS, WorldType.HARDCORE_MAIN)));
+  }
+
+  /** A Last Man Standing game runs on a normal world with a temporary loadout. */
+  @Test
+  public void aLastManStandingGameBlocksEveryCapture() throws Exception {
+    BankstandPlugin inGame = pluginOn(EnumSet.of(WorldType.MEMBERS), new int[] {12850, 13658});
+    assertFalse(inGame.isCaptureReady());
+    assertFalse(inGame.gated(() -> true).getAsBoolean());
+
+    BankstandPlugin outside = pluginOn(EnumSet.of(WorldType.MEMBERS), new int[] {12850});
+    assertTrue(outside.isCaptureReady());
+    assertTrue(pluginOn(EnumSet.of(WorldType.MEMBERS), null).isCaptureReady());
   }
 
   @Test
@@ -120,7 +152,7 @@ public class CaptureGateTest {
   public void resetWaitsForAFreshSettle() {
     CaptureGate gate = settled();
     gate.reset();
-    assertFalse(gate.allows(EnumSet.noneOf(WorldType.class)));
+    assertFalse(gate.allows(EnumSet.noneOf(WorldType.class), null));
   }
 
   @Test
@@ -139,7 +171,7 @@ public class CaptureGateTest {
   public void everyGateFollowsTheWorldCheckForEveryType() throws Exception {
     for (WorldType type : WorldType.values()) {
       BankstandPlugin plugin = pluginOn(EnumSet.of(type));
-      boolean allowed = !SKIPPED.contains(type);
+      boolean allowed = !skipped(type);
       assertEquals(type.name(), allowed, plugin.isCaptureReady());
       assertEquals(type.name(), allowed, plugin.gated(() -> true).getAsBoolean());
       assertFalse(type.name(), plugin.gated(() -> false).getAsBoolean());
@@ -175,7 +207,7 @@ public class CaptureGateTest {
       for (int i = 0; i < triggers.length; i++) {
         EventOutbox outbox = new EventOutbox(new File(folder.newFolder(), "events.json"), new Gson());
         triggers[i].fire(outbox, gate);
-        assertEquals(type.name() + " trigger " + i, SKIPPED.contains(type), outbox.pending().isEmpty());
+        assertEquals(type.name() + " trigger " + i, skipped(type), outbox.pending().isEmpty());
       }
     }
   }
