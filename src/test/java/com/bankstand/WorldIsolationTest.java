@@ -224,6 +224,14 @@ public class WorldIsolationTest {
     // Logging out from inside the game: the login screen may report no regions any more.
     regions = null;
     assertFalse("the last in-game tick was inside the arena", plugin.isFinalReadReady());
+    // The logout read itself needs a live client, so its use of that gate is pinned on the source.
+    String source =
+        new String(
+            java.nio.file.Files.readAllBytes(
+                java.nio.file.Paths.get("src/main/java/com/bankstand/BankstandPlugin.java")),
+            java.nio.charset.StandardCharsets.UTF_8);
+    int start = source.indexOf("private void captureFinalSnapshot(");
+    assertTrue(source.substring(start, source.indexOf("\n  }\n", start)).contains("isFinalReadReady()"));
 
     regions = LUMBRIDGE;
     ticks(1);
