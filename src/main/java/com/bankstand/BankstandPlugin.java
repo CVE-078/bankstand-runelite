@@ -455,7 +455,7 @@ public class BankstandPlugin extends Plugin {
 
   /** True once logged in long enough to read, on a world whose progress counts. */
   boolean isCaptureReady() {
-    return captureGate.allows(client.getWorldType());
+    return captureGate.allows(client.getWorldType(), client.getMapRegions());
   }
 
   /** Wraps an event capture's gate in the shared world and settle check. */
@@ -494,7 +494,7 @@ public class BankstandPlugin extends Plugin {
     return pairingClient != null
         && isPaired()
         && session.isActive()
-        && captureGate.allows(client.getWorldType())
+        && isCaptureReady()
         && config.collectLoot()
         && manifest.allows("loot");
   }
@@ -507,7 +507,7 @@ public class BankstandPlugin extends Plugin {
     return pairingClient != null
         && isPaired()
         && session.isActive()
-        && captureGate.allows(client.getWorldType())
+        && isCaptureReady()
         && isSlayerCaptureEnabled();
   }
 

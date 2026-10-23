@@ -66,9 +66,10 @@ answer arrives, drops, loot and session marks wait in memory: at most 200, for a
 Past that they are dropped, and the sidebar says how many. Closing RuneLite before the answer
 loses what was waiting.
 
-Nothing is read or sent on Leagues, Deadman, tournament, PvP Arena, beta, no-save or quest
-speedrunning worlds, or before the welcome screen is closed after login. Fresh Start worlds count as
-their own account.
+Only regular worlds are read: free, members, PvP, Bounty, high-risk and total-level worlds. Nothing
+is read or sent on any other world type (Leagues, Deadman, tournament, PvP Arena, beta, no-save,
+quest speedrunning, Fresh Start, Last Man Standing, or a mode added after this version), inside a
+Last Man Standing game, or before the welcome screen is closed after login.
 
 ## What it never captures
 
