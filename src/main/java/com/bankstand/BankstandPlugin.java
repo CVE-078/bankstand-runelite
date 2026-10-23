@@ -245,6 +245,8 @@ public class BankstandPlugin extends Plugin {
   // Set when a guided read finishes COMPLETE; cleared only once the server acknowledged a
   // submission carrying the flag, so a failed send keeps it pending.
   private boolean pendingFullEnumeration = false;
+  // Whether the gate passed on the last in-game tick. Client thread.
+  private boolean readyLastTick;
 
   @Provides
   BankstandConfig provideConfig(ConfigManager configManager) {
@@ -456,6 +458,11 @@ public class BankstandPlugin extends Plugin {
   /** True once logged in long enough to read, on a world whose progress counts. */
   boolean isCaptureReady() {
     return captureGate.allows(client.getWorldType(), client.getMapRegions());
+  }
+
+  // World and regions may already be cleared at the login screen; the last tick saw them live.
+  boolean isFinalReadReady() {
+    return readyLastTick && isCaptureReady();
   }
 
   /** Wraps an event capture's gate in the shared world and settle check. */
@@ -1127,8 +1134,10 @@ public class BankstandPlugin extends Plugin {
    */
   @Subscribe
   public void onScriptPreFired(ScriptPreFired event) {
+    // No session means no known account to hold the items for.
     if (event.getScriptId() != COLLECTION_LOG_ITEM_SCRIPT
         || !isCollectionLogCaptureEnabled()
+        || !session.isActive()
         || !isCaptureReady()) {
       return;
     }
@@ -1399,6 +1408,7 @@ public class BankstandPlugin extends Plugin {
       // Adopts the account only if it changed; the -1 logged-out sentinel is ignored.
       if (captureBoundary.startLogin(client.getAccountHash())) {
         lastSkillRead = null;
+        adoptCharacter(session.getAccountHash(), session.getGeneration());
       }
       ticksSinceLoggedIn = 0;
       cancelHopTimer();
@@ -1469,6 +1479,7 @@ public class BankstandPlugin extends Plugin {
   public void onGameTick(GameTick event) {
     Widget welcome = client.getWidget(InterfaceID.WelcomeScreen.MOTW);
     captureGate.onTick(welcome != null && !welcome.isHidden());
+    readyLastTick = isCaptureReady();
     if (ticksSinceLoggedIn < Integer.MAX_VALUE) {
       ticksSinceLoggedIn++;
     }
@@ -1512,7 +1523,7 @@ public class BankstandPlugin extends Plugin {
     if (pairingClient == null || !isPaired() || !session.isActive() || !isSkillCaptureEnabled()) {
       return;
     }
-    if (!isCaptureReady()) {
+    if (!isFinalReadReady()) {
       return;
     }
     if (!submitGate.allow()) {
@@ -1653,21 +1664,7 @@ public class BankstandPlugin extends Plugin {
       Map<String, String> diaries,
       Map<String, Integer> diaryTaskCounts,
       SlayerTask slayerTask) {
-    // Forget every baseline, then load what disk says this character had acked. A capture
-    // arriving before the load just re-sends.
-    if (generation != baselineGeneration) {
-      resetSnapshotBaselines(captureGenerations.get(accountHash));
-      diaryTaskBits.reset();
-      // Per-character state; carrying it across a switch would mix accounts.
-      collectionLog.reset();
-      // A pending COMPLETE claim is about the log just reset, so it must not survive a relog.
-      pendingFullEnumeration = false;
-      // loadAckedState repopulates lastSyncedAt; the activity log is session-only.
-      lastSyncedAt.clear();
-      recentActivityLog.clear();
-      baselineGeneration = generation;
-      loadAckedState(accountHash, generation);
-    }
+    adoptCharacter(accountHash, generation);
     // Not until the server answered for this character this login: re-captured once it has.
     if (!captureGenerations.isConfirmed(accountHash)) {
       captureBoundary.snapshotWaiting(accountHash);
@@ -1731,6 +1728,28 @@ public class BankstandPlugin extends Plugin {
         plan.includesSlayerTask() ? slayerTask : null,
         null);
   }
+
+  /**
+   * Forgets every baseline, then loads what disk says this character had acked. Runs at login, so
+   * nothing captured for the new character meets the previous one's state. A capture arriving
+   * before the load just re-sends.
+   */
+  private void adoptCharacter(long accountHash, int generation) {
+    if (generation != baselineGeneration) {
+      resetSnapshotBaselines(captureGenerations.get(accountHash));
+      diaryTaskBits.reset();
+      // Per-character state; carrying it across a switch would mix accounts.
+      collectionLog.reset();
+      // A pending COMPLETE claim is about the log just reset, so it must not survive a relog.
+      pendingFullEnumeration = false;
+      // loadAckedState repopulates lastSyncedAt; the activity log is session-only.
+      lastSyncedAt.clear();
+      recentActivityLog.clear();
+      baselineGeneration = generation;
+      loadAckedState(accountHash, generation);
+    }
+  }
+
 
   /**
    * Reads on the executor, applies on the client thread where the baselines live. The
