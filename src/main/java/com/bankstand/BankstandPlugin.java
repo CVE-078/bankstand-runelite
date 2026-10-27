@@ -240,6 +240,8 @@ public class BankstandPlugin extends Plugin {
   private volatile long lastSubmitAtMs;
   // A change means the account switched and the baseline must be forgotten.
   private int baselineGeneration = -1;
+  // Digest of the raw diary task values last stored. Client thread.
+  private String diaryTaskVarsAcked;
   private volatile BankstandClient pairingClient;
   // Set when a guided read finishes COMPLETE; cleared only once the server acknowledged a
   // submission carrying the flag, so a failed send keeps it pending.
@@ -1671,6 +1673,14 @@ public class BankstandPlugin extends Plugin {
       return;
     }
     forcedSubmitGeneration = -1;
+    // A rider: never a reason to submit, so a server that strips it cannot cause a resend loop.
+    Map<String, Object> diaryTaskVars =
+        isDiaryCaptureEnabled() && manifest.allows("diaryTaskVars")
+            ? DiaryTaskVars.read(client::getVarpValue, client::getVarbitValue)
+            : null;
+    if (diaryTaskVars != null && CapabilityDigest.of(diaryTaskVars).equals(diaryTaskVarsAcked)) {
+      diaryTaskVars = null;
+    }
     // An omitted block is null or empty, so the per-block ack keys off what actually went out.
     submitSnapshot(
         plan.includesCombatAchievements() ? combatAchievements : null,
@@ -1688,6 +1698,7 @@ public class BankstandPlugin extends Plugin {
         plan.includesAccountType() ? accountType : null,
         plan.includesFullEnumeration(),
         plan.includesSlayerTask() ? slayerTask : null,
+        diaryTaskVars,
         null);
   }
 
@@ -1705,6 +1716,7 @@ public class BankstandPlugin extends Plugin {
       combatAchievementBaseline.reset();
       accountTypeBaseline.reset();
       slayerTaskBaseline.reset();
+      diaryTaskVarsAcked = null;
       // Per-character state; carrying it across a switch would mix accounts.
       collectionLog.reset();
       collectionLogBaseline.reset();
@@ -1741,6 +1753,7 @@ public class BankstandPlugin extends Plugin {
                 diaryTaskBits.restore(state.getDiaryTaskBits());
                 combatAchievementBaseline.restore(state.getCombatAchievements());
                 accountTypeBaseline.restore(state.getAccountType());
+                diaryTaskVarsAcked = state.getDiaryTaskVars();
                 // Together, never one alone. See CollectionLogBaseline.restore.
                 collectionLog.restore(state.getCollectionLogItems());
                 collectionLogBaseline.restore(state.getCollectionLogAcked());
@@ -1766,6 +1779,7 @@ public class BankstandPlugin extends Plugin {
     state.setDiaryTaskBits(diaryTaskBits.snapshot());
     state.setCombatAchievements(combatAchievementBaseline.ackedDigest());
     state.setAccountType(accountTypeBaseline.ackedValue());
+    state.setDiaryTaskVars(diaryTaskVarsAcked);
     state.setCollectionLogItems(collectionLog.observed());
     state.setCollectionLogAcked(collectionLogBaseline.ackedCount());
     state.setLastSyncedAt(lastSyncedAt);
@@ -2000,6 +2014,7 @@ public class BankstandPlugin extends Plugin {
       String accountType,
       boolean fullEnumeration,
       SlayerTask slayerTask,
+      Map<String, Object> diaryTaskVars,
       Map<String, Object> retryBody) {
     String url = savedServerUrl();
     String token = deviceStore.load().tokenFor(url);
@@ -2025,6 +2040,9 @@ public class BankstandPlugin extends Plugin {
                 fullEnumeration,
                 combatAchievementBossCounts,
                 slayerTask == null ? null : slayerTask.toWire());
+    if (retryBody == null && diaryTaskVars != null) {
+      body.put("diaryTaskVars", diaryTaskVars);
+    }
     BankstandClient api = pairingClient;
     executor.submit(
         () -> {
@@ -2105,6 +2123,9 @@ public class BankstandPlugin extends Plugin {
                             }
                             boolean slayerTaskAdvanced =
                                 shouldAdvanceSlayerTask(res, slayerTask != null);
+                            if (diaryTaskVars != null && res.isBlockStored("diaryTaskVars")) {
+                              diaryTaskVarsAcked = CapabilityDigest.of(diaryTaskVars);
+                            }
                             if (slayerTaskAdvanced) {
                               slayerTaskBaseline.advance(slayerTask);
                               lastSyncedAt.put(Capability.SLAYER.key, System.currentTimeMillis());
@@ -2175,6 +2196,7 @@ public class BankstandPlugin extends Plugin {
                                 accountType,
                                 fullEnumeration,
                                 slayerTask,
+                                diaryTaskVars,
                                 body);
                           },
                           retryDelay,
@@ -2377,6 +2399,7 @@ public class BankstandPlugin extends Plugin {
     accountTypeBaseline.reset();
     slayerTaskBaseline.reset();
     collectionLogBaseline.reset();
+    diaryTaskVarsAcked = null;
     lastSyncedAt.clear();
     // Queued after any earlier save, so a stale ack cannot be written back over this.
     executor.submit(ackedStore::forgetAcks);

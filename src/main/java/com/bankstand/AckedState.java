@@ -39,6 +39,9 @@ public class AckedState {
    */
   private Map<Integer, Integer> diaryTaskBits;
 
+  /** Digest of the raw per-task diary values the server last stored. */
+  private String diaryTaskVars;
+
   /** The state of a character nothing is known about yet: everything resends once. */
   public static AckedState empty() {
     AckedState state = new AckedState();
@@ -47,6 +50,14 @@ public class AckedState {
     state.lastSyncedAt = new LinkedHashMap<>();
     state.diaryTaskBits = new LinkedHashMap<>();
     return state;
+  }
+
+  public String getDiaryTaskVars() {
+    return diaryTaskVars;
+  }
+
+  public void setDiaryTaskVars(String diaryTaskVars) {
+    this.diaryTaskVars = diaryTaskVars;
   }
 
   public String getSkills() {

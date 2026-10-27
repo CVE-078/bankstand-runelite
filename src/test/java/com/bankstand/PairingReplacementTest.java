@@ -71,6 +71,7 @@ public class PairingReplacementTest {
         null,
         false,
         null,
+        null,
         null);
   }
 

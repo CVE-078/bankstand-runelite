@@ -51,6 +51,9 @@ final class PluginHarness {
   int[] regions = LUMBRIDGE;
   long hash = MAIN;
   GameState gameState = GameState.LOGGED_IN;
+  int xp;
+  final Map<Integer, Integer> varps = new HashMap<>();
+  final Map<Integer, Integer> varbits = new HashMap<>();
   String serverUrl = BankstandKeys.DEFAULT_SERVER_URL;
   final Map<String, Boolean> toggles = new HashMap<>();
 
@@ -83,6 +86,12 @@ final class PluginHarness {
                       return gameState;
                     case "getLocalPlayer":
                       return localPlayer();
+                    case "getSkillExperience":
+                      return xp;
+                    case "getVarpValue":
+                      return varps.getOrDefault((Integer) args[0], 0);
+                    case "getVarbitValue":
+                      return args.length == 1 ? varbits.getOrDefault((Integer) args[0], 0) : 0;
                     default:
                       return zero(method.getReturnType());
                   }
