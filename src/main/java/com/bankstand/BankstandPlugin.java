@@ -192,6 +192,8 @@ public class BankstandPlugin extends Plugin {
 
   private final LootLedger lootLedger = new LootLedger();
   private final LootSendPacer lootPacer = new LootSendPacer();
+  // Only its 429 pause is used: presence has no early sends.
+  private final LootSendPacer presencePacer = new LootSendPacer();
   private final EventSendPacer eventPacer = new EventSendPacer();
   private final AtomicBoolean lootSending = new AtomicBoolean();
   private LootOutbox lootOutbox;
@@ -625,7 +627,7 @@ public class BankstandPlugin extends Plugin {
 
   /** Sends queued presence in order on the executor. At most one send chain runs. */
   private void sendPresence() {
-    if (pairingClient == null || !isPaired()) {
+    if (pairingClient == null || !isPaired() || !presencePacer.mayDrain(System.currentTimeMillis())) {
       return;
     }
     if (!presenceSending.compareAndSet(false, true)) {
@@ -685,6 +687,7 @@ public class BankstandPlugin extends Plugin {
         if (isReplaced(url, token)) {
           continue;
         }
+        presencePacer.pauseFor(System.currentTimeMillis(), e.getRetryAfterMillis());
         if (e.isRetryable()) {
           presenceQueue.onRetryableFailure(next);
         } else {
