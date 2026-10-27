@@ -1833,20 +1833,28 @@ public class BankstandPlugin extends Plugin {
                 }
                 boolean retry = ackedLoadedGeneration == generation;
                 ackedLoadedGeneration = generation;
-                // After a re-pair nothing is acked, so an empty baseline is the truth.
-                if (pairingQueues.epoch() != pairing) {
-                  ackedLoadFailed = false;
-                  return;
-                }
-                // A failed read applies nothing; a retry only fills in what is still unknown.
+                // A failed read applies nothing, and is retried until one succeeds.
                 ackedLoadFailed = failed;
                 if (failed) {
                   return;
                 }
-                applyAckedState(state, retry);
+                if (pairingQueues.epoch() != pairing) {
+                  // A re-pair forgot the acks, but the observed log is kept: merge only that.
+                  mergeCollectionLog(state);
+                } else {
+                  // A retry only fills in what is still unknown.
+                  applyAckedState(state, retry);
+                }
                 refreshPanel();
               });
         });
+  }
+
+  /** Adds the stored log items to the ones seen this session; never drops one. */
+  private void mergeCollectionLog(AckedState state) {
+    Set<Integer> items = new java.util.HashSet<>(state.getCollectionLogItems());
+    items.addAll(collectionLog.observed());
+    collectionLog.restore(items);
   }
 
   /** Restores a loaded state; merged, only filling what is unknown, when live state exists. */
@@ -1871,11 +1879,7 @@ public class BankstandPlugin extends Plugin {
     }
     // Together, never one alone. See CollectionLogBaseline.restore. A merge never drops an item.
     if (!merge || collectionLogBaseline.ackedCount() < 0) {
-      Set<Integer> items = new java.util.HashSet<>(state.getCollectionLogItems());
-      if (merge) {
-        items.addAll(collectionLog.observed());
-      }
-      collectionLog.restore(items);
+      mergeCollectionLog(state);
       collectionLogBaseline.restore(state.getCollectionLogAcked());
     }
     if (!merge) {
@@ -1889,7 +1893,10 @@ public class BankstandPlugin extends Plugin {
    * executor to write. Reading them on the executor would race the next capture.
    */
   private void saveAckedState(long accountHash) {
-    if (ackedStore == null) {
+    // Until this login's load has succeeded, memory may lack what disk holds: never write over it.
+    if (ackedStore == null
+        || ackedLoadedGeneration != session.getGeneration()
+        || ackedLoadFailed) {
       return;
     }
     AckedState state = AckedState.empty();
@@ -2569,8 +2576,6 @@ public class BankstandPlugin extends Plugin {
     diaryTaskVarsAcked = null;
     // With the reset, so a load that read the old acks before it is never applied after it.
     pairingQueues.acksForgotten();
-    // Nothing is acked on the new pairing, so an empty baseline is the truth.
-    ackedLoadFailed = false;
     lastSyncedAt.clear();
     // Queued after any earlier save, so a stale ack cannot be written back over this.
     executor.submit(ackedStore::forgetAcks);

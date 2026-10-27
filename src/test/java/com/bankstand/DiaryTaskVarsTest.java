@@ -13,6 +13,7 @@ import java.io.File;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
+import java.util.Set;
 import net.runelite.api.GameState;
 import net.runelite.api.WorldType;
 import net.runelite.api.gameval.VarPlayerID;
@@ -325,8 +326,63 @@ public class DiaryTaskVarsTest {
     assertEquals("just-acked", quests.ackedDigest());
   }
 
+  private Set<Integer> storedLog() {
+    return new AckedStateStore(new File(dir, "acked.json"), new Gson())
+        .load(PluginHarness.MAIN)
+        .getCollectionLogItems();
+  }
+
+  private void observe(int item) throws Exception {
+    ((CollectionLogAccumulator) h.get("collectionLog")).observe(item);
+  }
+
+  private Set<Integer> observed() throws Exception {
+    return ((CollectionLogAccumulator) h.get("collectionLog")).observed();
+  }
+
   @Test
-  public void aRePairLiftsTheFailedLoad() throws Exception {
+  public void aSaveDuringAFailedLoginLoadNeverErasesTheStoredLog() throws Exception {
+    observe(13262);
+    capture();
+    assertTrue(storedLog().contains(13262));
+    File acked = new File(dir, "acked.json");
+    org.junit.Assume.assumeTrue(acked.setReadable(false) && !acked.canRead());
+    try {
+      h = start();
+      h.xp = 2_000;
+      capture(); // acked, while this login's load has failed
+    } finally {
+      acked.setReadable(true);
+    }
+    h.xp = 3_000;
+    capture(); // the retry loads
+    h.xp = 4_000;
+    capture(); // and the next save writes the merged log
+    assertTrue(observed().contains(13262));
+    assertTrue(storedLog().contains(13262));
+  }
+
+  @Test
+  public void aRePairDuringTheLoginLoadStillRestoresTheStoredLog() throws Exception {
+    observe(13262);
+    capture();
+    PluginHarness next = new PluginHarness(dir);
+    next.toggles.put("collectQuests", false);
+    next.toggles.put("collectSessions", false);
+    next.transport.byPath.put(
+        "/pair", body -> new HttpResponse(200, "{\"deviceToken\":\"tok-b\",\"deviceId\":\"d\"}"));
+    next.logIn();
+    Runnable load = next.executor.take();
+    next.call("pair", "BBBB-BBBB");
+    next.executor.runAll();
+    load.run();
+    next.executor.runAll();
+    h = next;
+    assertTrue(observed().contains(13262));
+  }
+
+  @Test
+  public void aRePairKeepsTheNeedToLoad() throws Exception {
     h.transport.byPath.put(
         "/pair", body -> new HttpResponse(200, "{\"deviceToken\":\"tok-b\",\"deviceId\":\"d\"}"));
     capture();
@@ -336,10 +392,15 @@ public class DiaryTaskVarsTest {
       h.executor.runAll();
       h.xp = 3_000;
       capture();
-      assertTrue("nothing is acked on the new pairing", last().has("diaries"));
+      assertFalse("the stored log is still unread", last().has("diaries"));
     } finally {
       acked.setReadable(true);
     }
+    h.xp = 4_000;
+    capture(); // the retry loads
+    h.xp = 5_000;
+    capture();
+    assertTrue("nothing is acked on the new pairing", last().has("diaries"));
   }
 
   @Test
