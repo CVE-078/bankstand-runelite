@@ -2,7 +2,6 @@ package com.bankstand;
 
 import com.bankstand.dto.EventAck;
 import com.google.gson.Gson;
-import com.google.gson.JsonSyntaxException;
 import com.google.gson.reflect.TypeToken;
 import java.io.File;
 import java.io.IOException;
@@ -154,14 +153,10 @@ public class LootOutbox {
     try (Reader reader = Files.newBufferedReader(file.toPath(), StandardCharsets.UTF_8)) {
       List<LootEntry> stored = gson.fromJson(reader, LIST_TYPE);
       return stored == null ? new ArrayList<>() : new ArrayList<>(stored);
-    } catch (JsonSyntaxException e) {
-      // Damaged for good: kept aside, and the queue starts again empty.
-      log.debug("loot outbox unparseable: {}", e.getMessage());
-      return setAside();
     } catch (IOException | RuntimeException e) {
-      // Maybe passing (a lock, a permission): left in place and read again next time.
-      log.debug("loot outbox unreadable for now: {}", e.getMessage());
-      return null;
+      log.debug("loot outbox unreadable: {}", e.getMessage());
+      // Damaged for good: kept aside. Maybe passing (a lock, a permission): left in place.
+      return ReadFailures.isDamaged(e) ? setAside() : null;
     }
   }
 

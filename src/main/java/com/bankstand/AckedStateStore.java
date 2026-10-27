@@ -1,7 +1,6 @@
 package com.bankstand;
 
 import com.google.gson.Gson;
-import com.google.gson.JsonSyntaxException;
 import java.io.File;
 import java.io.IOException;
 import java.io.Reader;
@@ -120,14 +119,14 @@ public class AckedStateStore {
     if (file.exists()) {
       try (Reader reader = Files.newBufferedReader(file.toPath(), StandardCharsets.UTF_8)) {
         document = gson.fromJson(reader, Document.class);
-      } catch (JsonSyntaxException e) {
+      } catch (IOException | RuntimeException e) {
+        lastReadFailed = true;
+        // Maybe passing: never treated as empty, or a save would erase every other character.
+        if (!ReadFailures.isDamaged(e)) {
+          return null;
+        }
         // Damaged for good: start again, which re-sends everything once.
         document = null;
-        lastReadFailed = true;
-      } catch (IOException | RuntimeException e) {
-        // Maybe passing: never treated as empty, or a save would erase every other character.
-        lastReadFailed = true;
-        return null;
       }
     }
     if (document == null) {
