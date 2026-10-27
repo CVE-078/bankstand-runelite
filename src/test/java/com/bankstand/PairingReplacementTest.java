@@ -195,6 +195,23 @@ public class PairingReplacementTest {
   }
 
   @Test
+  public void aLoginBetweenTheSwapAndTheResetNeverRestoresTheOldAcks() throws Exception {
+    submitSnapshot();
+    h.executor.runAll();
+    h = new PluginHarness(folder.getRoot());
+    h.transport.byPath.put(
+        "/pair", body -> new HttpResponse(200, "{\"deviceToken\":\"tok-b\",\"deviceId\":\"d\"}"));
+    h.onClientThread = false;
+    h.call("pair", "BBBB-BBBB");
+    h.executor.runAll(); // swapped on the executor; the reset waits for the client thread
+    h.logIn();
+    h.executor.runAll(); // the login's load reads the old acks
+    h.runClientThread(); // the reset, then the load's apply
+    h.executor.runAll();
+    assertFalse(questsAcked());
+  }
+
+  @Test
   public void disconnectWithoutAClientStillForgetsThePairing() throws Exception {
     h.set("pairingClient", null);
     h.call("disconnect");

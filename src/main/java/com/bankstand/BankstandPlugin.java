@@ -2567,6 +2567,8 @@ public class BankstandPlugin extends Plugin {
     slayerTaskBaseline.reset();
     collectionLogBaseline.reset();
     diaryTaskVarsAcked = null;
+    // With the reset, so a load that read the old acks before it is never applied after it.
+    pairingQueues.acksForgotten();
     // Nothing is acked on the new pairing, so an empty baseline is the truth.
     ackedLoadFailed = false;
     lastSyncedAt.clear();

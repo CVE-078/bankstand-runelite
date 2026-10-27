@@ -33,7 +33,7 @@ final class PairingQueues {
 
   // Bumped by every pairing request and every replace, so a slow pairing reply is told apart.
   private long tickets;
-  // Bumped only when the stored pairing really changed, so a reader knows its acks were forgotten.
+  // Bumped when a new pairing's acks are forgotten, on the client thread in the same step.
   private long epoch;
 
   /** Read while the credential file cannot be: the queues then keep everything as it is. */
@@ -47,9 +47,13 @@ final class PairingQueues {
     };
   }
 
-  /** Changes only when the stored pairing changes. */
+  /** Changes only when acks are forgotten for a new pairing. */
   synchronized long epoch() {
     return epoch;
+  }
+
+  synchronized void acksForgotten() {
+    epoch++;
   }
 
   /** Taken before a pairing request; hand it back to {@link #replaceIfCurrent}. */
@@ -73,7 +77,6 @@ final class PairingQueues {
     if (!swapPairing.getAsBoolean()) {
       return new Dropped(0, 0, false);
     }
-    epoch++;
     lootCount += ledger.closeAll().size();
     presence.clear();
     events.clear();
