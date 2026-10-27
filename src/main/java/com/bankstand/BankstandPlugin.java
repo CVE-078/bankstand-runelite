@@ -1831,26 +1831,57 @@ public class BankstandPlugin extends Plugin {
                 if (!session.isCurrent(accountHash, generation)) {
                   return;
                 }
+                boolean retry = ackedLoadedGeneration == generation;
                 ackedLoadedGeneration = generation;
                 // After a re-pair nothing is acked, so an empty baseline is the truth.
-                ackedLoadFailed = failed && pairingQueues.epoch() == pairing;
                 if (pairingQueues.epoch() != pairing) {
+                  ackedLoadFailed = false;
                   return;
                 }
-                skillBaseline.restore(state.getSkills());
-                questBaseline.restore(state.getQuests());
-                diaryBaseline.restore(state.getDiaries());
-                combatAchievementBaseline.restore(state.getCombatAchievements());
-                accountTypeBaseline.restore(state.getAccountType());
-                diaryTaskVarsAcked = state.getDiaryTaskVars();
-                // Together, never one alone. See CollectionLogBaseline.restore.
-                collectionLog.restore(state.getCollectionLogItems());
-                collectionLogBaseline.restore(state.getCollectionLogAcked());
-                lastSyncedAt.clear();
-                lastSyncedAt.putAll(state.getLastSyncedAt());
+                // A failed read applies nothing; a retry only fills in what is still unknown.
+                ackedLoadFailed = failed;
+                if (failed) {
+                  return;
+                }
+                applyAckedState(state, retry);
                 refreshPanel();
               });
         });
+  }
+
+  /** Restores a loaded state; merged, only filling what is unknown, when live state exists. */
+  private void applyAckedState(AckedState state, boolean merge) {
+    if (!merge || skillBaseline.ackedDigest() == null) {
+      skillBaseline.restore(state.getSkills());
+    }
+    if (!merge || questBaseline.ackedDigest() == null) {
+      questBaseline.restore(state.getQuests());
+    }
+    if (!merge || diaryBaseline.ackedDigest() == null) {
+      diaryBaseline.restore(state.getDiaries());
+    }
+    if (!merge || combatAchievementBaseline.ackedDigest() == null) {
+      combatAchievementBaseline.restore(state.getCombatAchievements());
+    }
+    if (!merge || accountTypeBaseline.ackedValue() == null) {
+      accountTypeBaseline.restore(state.getAccountType());
+    }
+    if (!merge || diaryTaskVarsAcked == null) {
+      diaryTaskVarsAcked = state.getDiaryTaskVars();
+    }
+    // Together, never one alone. See CollectionLogBaseline.restore. A merge never drops an item.
+    if (!merge || collectionLogBaseline.ackedCount() < 0) {
+      Set<Integer> items = new java.util.HashSet<>(state.getCollectionLogItems());
+      if (merge) {
+        items.addAll(collectionLog.observed());
+      }
+      collectionLog.restore(items);
+      collectionLogBaseline.restore(state.getCollectionLogAcked());
+    }
+    if (!merge) {
+      lastSyncedAt.clear();
+    }
+    state.getLastSyncedAt().forEach(lastSyncedAt::putIfAbsent);
   }
 
   /**

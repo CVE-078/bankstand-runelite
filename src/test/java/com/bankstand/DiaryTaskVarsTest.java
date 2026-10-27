@@ -304,6 +304,28 @@ public class DiaryTaskVarsTest {
   }
 
   @Test
+  public void aRetriedLoadNeverWipesLiveState() throws Exception {
+    capture();
+    File acked = unreadableLogin();
+    CollectionLogAccumulator log = (CollectionLogAccumulator) h.get("collectionLog");
+    QuestBaseline quests = (QuestBaseline) h.get("questBaseline");
+    try {
+      log.observe(13262);
+      quests.restore("just-acked");
+      h.xp = 3_000;
+      capture(); // its retry fails again
+      assertTrue(log.observed().contains(13262));
+      assertEquals("just-acked", quests.ackedDigest());
+    } finally {
+      acked.setReadable(true);
+    }
+    h.xp = 4_000;
+    capture(); // this retry succeeds, after live state exists: merged, never cleared
+    assertTrue(log.observed().contains(13262));
+    assertEquals("just-acked", quests.ackedDigest());
+  }
+
+  @Test
   public void aRePairLiftsTheFailedLoad() throws Exception {
     h.transport.byPath.put(
         "/pair", body -> new HttpResponse(200, "{\"deviceToken\":\"tok-b\",\"deviceId\":\"d\"}"));
