@@ -13,10 +13,12 @@ public class SubmitGate {
   private boolean halted;
   private int consecutiveFailures;
   private int skipsRemaining;
+  // Epoch millis before which nothing is sent: the server's Retry-After.
+  private long pausedUntilMs;
 
   /** Consumes one skip when backing off. */
   public synchronized boolean allow() {
-    if (halted) {
+    if (halted || isPaused(System.currentTimeMillis())) {
       return false;
     }
     if (skipsRemaining > 0) {
@@ -45,9 +47,19 @@ public class SubmitGate {
     return announce;
   }
 
+  /** A Retry-After: nothing is sent before it passes. Never shortens a longer pause. */
+  public synchronized void pauseFor(long nowMs, long retryAfterMs) {
+    pausedUntilMs = Math.max(pausedUntilMs, nowMs + retryAfterMs);
+  }
+
+  public synchronized boolean isPaused(long nowMs) {
+    return nowMs < pausedUntilMs;
+  }
+
   /** Called on re-pairing, the only thing that clears a halt. */
   public synchronized void resume() {
     halted = false;
+    pausedUntilMs = 0;
     consecutiveFailures = 0;
     skipsRemaining = 0;
   }

@@ -1529,7 +1529,8 @@ public class BankstandPlugin extends Plugin {
         || !session.isActive()
         || session.isSubmitted()
         || !isCaptureReady()
-        || submitGate.isHalted()) {
+        || submitGate.isHalted()
+        || submitGate.isPaused(System.currentTimeMillis())) {
       return;
     }
     // Identity sends the account hash and name, so it shares the skill capture opt-in.
@@ -2210,6 +2211,7 @@ public class BankstandPlugin extends Plugin {
                       // The message, never the body: it carries the account hash and name.
                       log.debug("submit failed: {}", e.getMessage());
                       submitGate.onFailure();
+                      submitGate.pauseFor(System.currentTimeMillis(), e.getRetryAfterMillis());
                       if (session.isCurrent(accountHash, generation)
                           && noticeGate.onFailure(e.getMessage())) {
                         notice("Could not sync your progress. " + e.getMessage());
@@ -2435,6 +2437,11 @@ public class BankstandPlugin extends Plugin {
                         }
                         // Never log the token or account hash.
                         message = identityFailureNotice(failure, submitGate, noticeGate);
+                        if (failure instanceof SubmitException) {
+                          submitGate.pauseFor(
+                              System.currentTimeMillis(),
+                              ((SubmitException) failure).getRetryAfterMillis());
+                        }
                       }
                       if (session.isCurrent(accountHash, generation) && message != null) {
                         notice(message);

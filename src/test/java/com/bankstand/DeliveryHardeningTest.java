@@ -328,6 +328,40 @@ public class DeliveryHardeningTest {
     assertEquals(before + 1, h.transport.count("/submit"));
   }
 
+  @Test
+  public void aSnapshotRetryAfterHoldsTheNextCapture() throws Exception {
+    h.toggles.put("collectQuests", false);
+    h.transport.byPath.put("/submit", body -> new HttpResponse(429, "{}", "120"));
+    long before = h.transport.count("/submit");
+    h.xp = 5_000;
+    h.plugin.captureSkills();
+    h.runClientThread();
+    h.executor.runAll();
+    h.xp = 6_000;
+    h.plugin.captureSkills();
+    h.runClientThread();
+    h.executor.runAll();
+    assertEquals(before + 1, h.transport.count("/submit"));
+    SubmitGate gate = (SubmitGate) h.get("submitGate");
+    long now = System.currentTimeMillis();
+    assertTrue(gate.isPaused(now + 110_000L));
+    assertFalse(gate.isPaused(now + 125_000L));
+  }
+
+  @Test
+  public void anIdentityRetryAfterHoldsTheNextTicks() throws Exception {
+    h.transport.byPath.put("/submit", body -> new HttpResponse(429, "{}", "120"));
+    h.state(net.runelite.api.GameState.LOGIN_SCREEN);
+    h.executor.runAll();
+    h.hash = 77L;
+    long before = h.transport.count("/submit");
+    h.logIn();
+    h.executor.runAll();
+    h.ticks(5);
+    h.executor.runAll();
+    assertEquals(before + 1, h.transport.count("/submit"));
+  }
+
   // B: credentials
 
   /** Makes {@code device.json} a non-empty directory: no save, delete or overwrite can succeed. */
