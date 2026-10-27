@@ -226,6 +226,29 @@ public class DeliveryHardeningTest {
   }
 
   @Test
+  public void heldEventsSurviveAFailedWriteAfterTheFileIsReadableAgain() throws Exception {
+    File events = new File(dir, "events.json");
+    unlock("Pet snakeling");
+    assumeTrue(events.setReadable(false) && !events.canRead());
+    try {
+      unlock("Abyssal orphan");
+    } finally {
+      events.setReadable(true);
+    }
+    assumeTrue(dir.setWritable(false));
+    try {
+      h.eventOutbox.pending();
+      assertEquals("still held after the failed write", 2, h.eventOutbox.pending().size());
+    } finally {
+      dir.setWritable(true);
+    }
+    assertEquals(2, h.eventOutbox.pending().size());
+    EventOutbox onDisk = new EventOutbox(events, new Gson());
+    onDisk.setPairing(PairingQueues.pairingOf(h.deviceStore));
+    assertEquals("written once the disk allows", 2, onDisk.pending().size());
+  }
+
+  @Test
   public void aTransientReadErrorLeavesTheLootQueueIntact() throws Exception {
     File loot = new File(dir, "loot.json");
     addLoot(1);

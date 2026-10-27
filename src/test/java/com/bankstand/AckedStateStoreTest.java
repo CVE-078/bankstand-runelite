@@ -232,4 +232,30 @@ public class AckedStateStoreTest {
         "and written", "mine-digest",
         new AckedStateStore(file, new com.google.gson.Gson()).load(42L).getQuests());
   }
+
+  @Test
+  public void aHeldSaveSurvivesAFailedWrite() throws Exception {
+    java.io.File dir = folder.newFolder();
+    java.io.File file = new java.io.File(dir, "acked.json");
+    AckedStateStore store = new AckedStateStore(file, new com.google.gson.Gson());
+    store.save(77L, AckedState.empty());
+    AckedState mine = AckedState.empty();
+    mine.setQuests("mine-digest");
+    org.junit.Assume.assumeTrue(file.setReadable(false) && !file.canRead());
+    try {
+      store.save(42L, mine);
+    } finally {
+      file.setReadable(true);
+    }
+    org.junit.Assume.assumeTrue(dir.setWritable(false));
+    try {
+      store.load(77L);
+      assertEquals("still held after the failed write", "mine-digest", store.load(42L).getQuests());
+    } finally {
+      dir.setWritable(true);
+    }
+    store.load(77L);
+    assertEquals(
+        "mine-digest", new AckedStateStore(file, new com.google.gson.Gson()).load(42L).getQuests());
+  }
 }

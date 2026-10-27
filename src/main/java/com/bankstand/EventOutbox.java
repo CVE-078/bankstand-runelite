@@ -112,9 +112,9 @@ public class EventOutbox {
       entries = new ArrayList<>(held);
     } else {
       readFailing = false;
+      // Cleared by the next successful write, so a failed one cannot lose them.
       changed = !held.isEmpty();
       entries.addAll(held);
-      held.clear();
     }
     String now = pairing.get();
     // An unreadable pairing is not "another pairing": nothing is purged until it is known.
@@ -200,6 +200,7 @@ public class EventOutbox {
         Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING);
       }
       unsaved = false;
+      held.clear();
     } catch (IOException | RuntimeException e) {
       unsaved = true;
       // Swallowed: throwing out of a capture handler would break every detector on the tick.

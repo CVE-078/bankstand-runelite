@@ -103,8 +103,7 @@ public class AckedStateStore {
       forget(document.accounts);
     }
     document.accounts.putAll(held);
-    held.clear();
-    forgetHeld = false;
+    // Cleared by write() on success, so a failed write cannot lose them.
     write(document);
     return document;
   }
@@ -156,6 +155,9 @@ public class AckedStateStore {
       } catch (AtomicMoveNotSupportedException e) {
         Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING);
       }
+      // Every write carries what was held, merged in by document().
+      held.clear();
+      forgetHeld = false;
     } catch (IOException | RuntimeException e) {
       // A failed save costs one resend next start.
     }
