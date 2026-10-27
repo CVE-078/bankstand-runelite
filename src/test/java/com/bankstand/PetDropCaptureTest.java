@@ -62,6 +62,17 @@ public class PetDropCaptureTest {
   }
 
   @Test
+  public void resolvesPetsFromTheFullCollectionLog() {
+    assertEquals("Phoenix", PetDropCapture.resolvePetName("Untradeable drop: Phoenix"));
+    assertEquals(
+        "Pet Zilyana",
+        PetDropCapture.resolvePetName("New item added to your collection log: Pet Zilyana"));
+    assertEquals(
+        "Tumeken's guardian",
+        PetDropCapture.resolvePetName("Untradeable drop: Tumeken's guardian"));
+  }
+
+  @Test
   public void anUnrecognisedMessageResolvesToNull() {
     assertNull(PetDropCapture.resolvePetName("Congratulations, you've completed a hard Combat Task."));
   }

@@ -19,7 +19,7 @@ import net.runelite.client.util.Text;
  * names the pet. A prime line arms the detector for the next {@link #WINDOW} game messages, since
  * other lines (pet insurance) can come before the collection-log or untradeable-drop line. The
  * first known pet in that window resolves and consumes the prime, so one prime emits once. Only
- * names in {@link #KNOWN_PETS} emit. That set is a starting set, not exhaustive.
+ * names in {@link #KNOWN_PETS} emit; extend it when the game adds a pet to the collection log.
  */
 public class PetDropCapture extends BaseCapture {
 
@@ -90,7 +90,31 @@ public class PetDropCapture extends BaseCapture {
               "Wisp",
               "Abyssal protector",
               "Pet smoke devil",
-              "Pet snakeling"));
+              "Pet snakeling",
+              "Aggy",
+              "Baby chinchompa",
+              "Baron",
+              "Beef",
+              "Dom",
+              "Gull",
+              "Lil' Creator",
+              "Maggot marquess",
+              "Moxi",
+              "Mr McGroot",
+              "Pet dark core",
+              "Pet General Graardor",
+              "Pet K'ril Tsutsaroth",
+              "Pet Kree'arra",
+              "Pet Penance Queen",
+              "Pet Zilyana",
+              "Phoenix",
+              "Quetzin",
+              "Scurry",
+              "Smol Heredit",
+              "Soup",
+              "Tiny tempor",
+              "Tumeken's guardian",
+              "Yami"));
     return pets;
   }
 
