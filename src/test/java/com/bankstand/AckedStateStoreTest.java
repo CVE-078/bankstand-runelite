@@ -208,4 +208,28 @@ public class AckedStateStoreTest {
     assertEquals("new", store.load(1L).getSkills());
     assertNotEquals("old", store.load(1L).getSkills());
   }
+
+  @Test
+  public void aSaveDuringATransientReadErrorKeepsEveryOtherCharacter() throws Exception {
+    java.io.File file = new java.io.File(folder.newFolder(), "acked.json");
+    AckedStateStore store = new AckedStateStore(file, new com.google.gson.Gson());
+    AckedState other = AckedState.empty();
+    other.setQuests("other-digest");
+    store.save(77L, other);
+
+    org.junit.Assume.assumeTrue(file.setReadable(false) && !file.canRead());
+    AckedState mine = AckedState.empty();
+    mine.setQuests("mine-digest");
+    try {
+      store.save(42L, mine);
+      assertEquals("held for this session", "mine-digest", store.load(42L).getQuests());
+    } finally {
+      file.setReadable(true);
+    }
+    assertEquals("other-digest", store.load(77L).getQuests());
+    assertEquals("merged once readable", "mine-digest", store.load(42L).getQuests());
+    assertEquals(
+        "and written", "mine-digest",
+        new AckedStateStore(file, new com.google.gson.Gson()).load(42L).getQuests());
+  }
 }
