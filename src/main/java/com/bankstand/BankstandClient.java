@@ -37,7 +37,7 @@ public class BankstandClient {
   private static final String UNPAIR_PATH = "/api/plugin/v1/unpair";
   // Disconnect never waits on the server, so a slow one only delays the "could not reach" notice.
   private static final long UNPAIR_TIMEOUT_MILLIS = 5_000L;
-  private static final String USER_AGENT = "Bankstand-RuneLite";
+  private static final String USER_AGENT = "bankstand-runelite/" + PluginVersion.VERSION;
   private static final String GENERIC_FAILURE = "Pairing failed. Check the code and try again.";
   // Redirects are never followed, so the token and body never reach a host they were not sent to.
   static final String REDIRECTED = "The server redirected the request, so it was not sent. Check the Server URL.";
