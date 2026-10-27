@@ -292,6 +292,28 @@ public class DiaryTaskVarsTest {
         new AckedStateStore(acked, new Gson()).load(PluginHarness.MAIN).getSkills());
   }
 
+  @Test
+  public void aRetriedLoadAlwaysMergesTheStoredLog() throws Exception {
+    observe(13262);
+    capture();
+    assertTrue(storedLog().contains(13262));
+    File acked = new File(dir, "acked.json");
+    org.junit.Assume.assumeTrue(acked.setReadable(false) && !acked.canRead());
+    try {
+      h = start();
+      reply = STORED_WITH_VARS.replace("\"diaryTaskVars\"", "\"diaryTaskVars\",\"collectionLog\"");
+      observe(4151);
+      h.xp = 2_000;
+      capture(); // acks the log block, advancing its baseline before any load succeeded
+    } finally {
+      acked.setReadable(true);
+    }
+    h.xp = 3_000;
+    capture(); // the retry loads
+    assertTrue(observed().contains(13262));
+    assertTrue(observed().contains(4151));
+  }
+
   /** Logs a new character in while the acked-state file cannot be read. */
   private File unreadableLogin() throws Exception {
     File acked = new File(dir, "acked.json");

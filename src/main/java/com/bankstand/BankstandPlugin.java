@@ -1877,9 +1877,9 @@ public class BankstandPlugin extends Plugin {
     if (!merge || diaryTaskVarsAcked == null) {
       diaryTaskVarsAcked = state.getDiaryTaskVars();
     }
-    // Together, never one alone. See CollectionLogBaseline.restore. A merge never drops an item.
+    // Stored items are always merged in, never dropped. The acked count only fills a gap.
+    mergeCollectionLog(state);
     if (!merge || collectionLogBaseline.ackedCount() < 0) {
-      mergeCollectionLog(state);
       collectionLogBaseline.restore(state.getCollectionLogAcked());
     }
     if (!merge) {
