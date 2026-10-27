@@ -2000,8 +2000,6 @@ public class BankstandPlugin extends Plugin {
       Map<String, Object> retryBody) {
     String url = savedServerUrl();
     String token = deviceStore.load().tokenFor(url);
-    String version = getClass().getPackage().getImplementationVersion();
-    String pluginVersion = version != null ? version : "dev";
     // A retry re-sends the original envelope: a cooldown is not recorded, so its id is unused.
     long seq = retryBody == null ? submitSeq.incrementAndGet() : submitSeq.get();
     Map<String, Object> body =
@@ -2010,7 +2008,7 @@ public class BankstandPlugin extends Plugin {
             : SubmitEnvelope.body(
                 UuidV7.generate(),
                 SubmitEnvelope.SCHEMA_VERSION,
-                pluginVersion,
+                PluginVersion.VERSION,
                 Instant.now().toString(),
                 accountHash,
                 name,
