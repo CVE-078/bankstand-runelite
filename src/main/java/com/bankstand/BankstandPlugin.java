@@ -263,7 +263,7 @@ public class BankstandPlugin extends Plugin {
   @Override
   protected void startUp() {
     HttpTransport transport = new OkHttpTransport(okHttpClient);
-    pairingClient = new BankstandClient(transport, gson, executor);
+    pairingClient = newClient(transport);
     // A file, not ConfigManager. See AckedStateStore.
     ackedStore = new AckedStateStore(new File(ACKED_STATE_DIR, ACKED_STATE_FILE), gson);
     manifestStore = new ManifestStore(new File(ACKED_STATE_DIR, MANIFEST_FILE), gson);
@@ -584,8 +584,7 @@ public class BankstandPlugin extends Plugin {
                         hash,
                         chunk,
                         MAX_SUBMIT_ATTEMPTS,
-                        SUBMIT_RETRY_BASE_DELAY_MS,
-                        () -> !isReplaced(url, token))
+                        SUBMIT_RETRY_BASE_DELAY_MS)
                     .whenComplete(
                         (response, failure) -> {
                           // The old pairing's reply says nothing about the new one.
@@ -2334,6 +2333,12 @@ public class BankstandPlugin extends Plugin {
                     }
                   });
         });
+  }
+
+  private BankstandClient newClient(HttpTransport transport) {
+    BankstandClient api = new BankstandClient(transport, gson, executor);
+    api.setCurrentPairing((url, token) -> !isReplaced(url, token));
+    return api;
   }
 
   /** Halts on a rejected token unless it was replaced; atomic with a pairing swap. */

@@ -311,6 +311,23 @@ public class DeliveryHardeningTest {
     assertEquals(2, h.lootOutbox.pending().size());
   }
 
+  @Test
+  public void aDisconnectStopsAScheduledSnapshotRetry() throws Exception {
+    h.toggles.put("collectQuests", false);
+    h.transport.byPath.put("/submit", body -> new HttpResponse(503, ""));
+    long before = h.transport.count("/submit");
+    h.xp = 5_000;
+    h.plugin.captureSkills();
+    h.runClientThread();
+    h.executor.runAll();
+    assertEquals(before + 1, h.transport.count("/submit"));
+    assertFalse("a retry is scheduled", h.executor.scheduled.isEmpty());
+    disconnectNow();
+    new java.util.ArrayList<>(h.executor.scheduled).forEach(Runnable::run);
+    h.executor.runAll();
+    assertEquals(before + 1, h.transport.count("/submit"));
+  }
+
   // B: credentials
 
   /** Makes {@code device.json} a non-empty directory: no save, delete or overwrite can succeed. */

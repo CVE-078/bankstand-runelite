@@ -20,6 +20,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
+import java.util.function.BiPredicate;
 import java.util.function.Supplier;
 
 /**
@@ -129,6 +130,8 @@ public class BankstandClient {
       int maxAttempts,
       long baseDelayMillis) {
     return withRetry(
+        baseUrl,
+        deviceToken,
         () -> submitIdentity(baseUrl, deviceToken, accountHash, displayName),
         maxAttempts,
         baseDelayMillis);
@@ -149,7 +152,11 @@ public class BankstandClient {
       int maxAttempts,
       long baseDelayMillis) {
     return withRetry(
-        () -> submitSnapshot(baseUrl, deviceToken, envelopeBody), maxAttempts, baseDelayMillis);
+        baseUrl,
+        deviceToken,
+        () -> submitSnapshot(baseUrl, deviceToken, envelopeBody),
+        maxAttempts,
+        baseDelayMillis);
   }
 
   /** Wire field names are a server contract; do not rename them. */
@@ -180,26 +187,10 @@ public class BankstandClient {
       List<TransientEvent> events,
       int maxAttempts,
       long baseDelayMillis) {
-    return submitEventsWithRetry(
-        baseUrl, deviceToken, accountHash, events, maxAttempts, baseDelayMillis, () -> true);
-  }
-
-  /** {@code stillCurrent} is checked before every attempt, retries included. */
-  public CompletableFuture<SubmitEventsResponse> submitEventsWithRetry(
-      String baseUrl,
-      String deviceToken,
-      long accountHash,
-      List<TransientEvent> events,
-      int maxAttempts,
-      long baseDelayMillis,
-      java.util.function.BooleanSupplier stillCurrent) {
     return withRetry(
-        () -> {
-          if (!stillCurrent.getAsBoolean()) {
-            throw new SubmitException("Pairing changed.");
-          }
-          return submitEvents(baseUrl, deviceToken, accountHash, events);
-        },
+        baseUrl,
+        deviceToken,
+        () -> submitEvents(baseUrl, deviceToken, accountHash, events),
         maxAttempts,
         baseDelayMillis);
   }
@@ -299,6 +290,7 @@ public class BankstandClient {
 
   /** {@link #unpair} on the executor; runs {@code onUnreachable} when the server could not say. */
   private volatile boolean closed;
+  private volatile BiPredicate<String, String> current = (url, token) -> true;
 
   /** On plugin shutdown: a retry that is still scheduled fails instead of dispatching. */
   public void close() {
@@ -364,10 +356,22 @@ public class BankstandClient {
    * {@code Thread.sleep}). The first attempt runs on the calling thread, which must not be
    * the client thread.
    */
+  /** Checked before every attempt, retries included, so a replaced token is never sent. */
+  public void setCurrentPairing(BiPredicate<String, String> current) {
+    this.current = current;
+  }
+
   private <T> CompletableFuture<T> withRetry(
-      SubmitCall<T> call, int maxAttempts, long baseDelayMillis) {
+      String baseUrl, String deviceToken, SubmitCall<T> call, int maxAttempts, long baseDelayMillis) {
+    SubmitCall<T> guarded =
+        () -> {
+          if (!current.test(baseUrl, deviceToken)) {
+            throw new SubmitException("Pairing changed.");
+          }
+          return call.call();
+        };
     CompletableFuture<T> result = new CompletableFuture<>();
-    attempt(call, 1, maxAttempts, baseDelayMillis, result);
+    attempt(guarded, 1, maxAttempts, baseDelayMillis, result);
     return result;
   }
 

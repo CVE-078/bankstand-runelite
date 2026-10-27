@@ -137,7 +137,8 @@ final class PluginHarness {
     set("ackedStore", ackedStore);
     set("eventOutbox", eventOutbox);
     set("lootOutbox", lootOutbox);
-    set("pairingClient", new BankstandClient(transport, gson, executor));
+    set("gson", gson);
+    set("pairingClient", call("newClient", transport));
     set(
         "pairingQueues",
         new PairingQueues(
