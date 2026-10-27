@@ -14,6 +14,14 @@ Every notable change to the Bankstand RuneLite plugin. Internal-only changes (re
 - Switching characters forgets the previous one's state at login, so nothing captured before the first sync can mix the two.
 - The account type is remembered across restarts, so it is not sent again after every restart.
 - If you paired with a self-hosted or test server before this version, pair again.
+- A pairing that answers after you pressed Disconnect, or after you started a newer pairing, is ignored, so an old pairing can never come back.
+- After pairing with another account or server, everything is sent again, so the new one is not missing what the old one already had.
+- The Session log follows the same rules as every other capture: nothing inside a Last Man Standing game, and nothing until the welcome screen is closed after login.
+- When Bankstand asks the plugin to slow down, events, loot and session marks wait for as long as it asks, and nothing is lost. Events for a character Bankstand cannot link yet are held for 30 minutes, or until you log in again or pair again.
+- Bankstand now sees which plugin version you run.
+- A pet that drops right after the game's pet insurance message is now recognised.
+- 24 more collection log pets are recognised, including the God Wars Dungeon pets, Phoenix, Tumeken's guardian and Smol Heredit.
+- Settings and README text now match what the plugin really does: Skill XP links your character and carries the regular update, other captures follow their own toggles, and pairing help points to Plugin connection on the website.
 - With Diary progress on, the game's per-task diary values and reward claims are sent with your diaries, so Bankstand can show which tasks are done.
 
 ## v0.3.0
