@@ -189,4 +189,16 @@ public class ThrottlingTest {
     drain();
     assertEquals(1, h.transport.count("/presence"));
   }
+
+  @Test
+  public void aRejectedTokenStopsPresenceUntilPairedAgain() throws Exception {
+    h.toggles.put("collectSessions", true);
+    h.transport.byPath.put("/presence", body -> new HttpResponse(401, ""));
+    h.call("pulsePresence");
+    h.executor.runAll();
+    assertEquals(1, h.transport.count("/presence"));
+    h.call("pulsePresence");
+    drain();
+    assertEquals("no heartbeat under a rejected token", 1, h.transport.count("/presence"));
+  }
 }

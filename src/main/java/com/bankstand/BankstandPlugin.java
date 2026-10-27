@@ -665,7 +665,10 @@ public class BankstandPlugin extends Plugin {
 
   /** Sends queued presence in order on the executor. At most one send chain runs. */
   private void sendPresence() {
-    if (pairingClient == null || !isPaired() || !presencePacer.mayDrain(System.currentTimeMillis())) {
+    if (pairingClient == null
+        || !isPaired()
+        || submitGate.isHalted()
+        || !presencePacer.mayDrain(System.currentTimeMillis())) {
       return;
     }
     if (!presenceSending.compareAndSet(false, true)) {
@@ -726,6 +729,9 @@ public class BankstandPlugin extends Plugin {
           continue;
         }
         presencePacer.pauseFor(System.currentTimeMillis(), e.getRetryAfterMillis());
+        if (e.isAuthFailure() && haltIfCurrent(url, token)) {
+          notice(NO_LONGER_PAIRED);
+        }
         if (e.isRetryable()) {
           presenceQueue.onRetryableFailure(next);
         } else {
