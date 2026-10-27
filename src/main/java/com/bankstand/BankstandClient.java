@@ -244,7 +244,7 @@ public class BankstandClient {
     }
     if (status == 401 || status == 403) {
       throw new SubmitException(
-          "Bankstand rejected the device token. Re-pair in Account > Connect RuneLite.", false, true);
+          "Bankstand rejected the device token. Pair again with a new code from bankstand.gg/account/connection.", false, true);
     }
     if (status == 429) {
       throw new SubmitException(

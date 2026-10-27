@@ -2047,7 +2047,7 @@ public class BankstandPlugin extends Plugin {
                         // player must act on, so the gate announces it.
                         log.debug("submit refused: token rejected, halting until re-paired");
                         if (submitGate.onAuthFailure()) {
-                          notice("This client is no longer paired. Re-pair from your Bankstand account.");
+                          notice("This client is no longer paired. Pair again with a new code from bankstand.gg/account/connection.");
                         }
                         return;
                       }
@@ -2206,8 +2206,8 @@ public class BankstandPlugin extends Plugin {
   }
 
   // Defaults to on: skill XP is already public, and it carries the account hash and name that
-  // bind a paired client. Kept as an option so the Plugin Hub warning sits on it and a player can
-  // go quiet without unpairing.
+  // bind a paired client. Kept as an option so a player can go quiet on identity without
+  // unpairing.
   private boolean isSkillCaptureEnabled() {
     return config.collectSkills() && manifest.allows("skills");
   }

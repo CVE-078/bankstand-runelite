@@ -68,7 +68,8 @@ public class IdentityNoticeTest {
   }
 
   private static final String REJECTED =
-      "Bankstand rejected the device token. Re-pair in Account > Connect RuneLite.";
+      "Bankstand rejected the device token. Pair again with a new code from"
+          + " bankstand.gg/account/connection.";
 
   /** Identity retries every tick after a failure, so a rejected token must be told once. */
   @Test

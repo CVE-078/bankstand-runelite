@@ -12,8 +12,9 @@ The RuneLite companion for [Bankstand](https://bankstand.gg).
 
 ## Pairing
 
-1. Sign in at [bankstand.gg](https://bankstand.gg) and open **Account > Connect RuneLite**.
-   Generate a pairing code.
+1. Sign in at [bankstand.gg](https://bankstand.gg) and open **Plugin connection**
+   ([bankstand.gg/account/connection](https://bankstand.gg/account/connection)). Generate a pairing
+   code.
 2. In RuneLite, open **Settings > Bankstand** and paste the code into **Pairing code**. The field
    clears itself and the chat box confirms the connection.
 3. Log in as a character you track on Bankstand. The chat box shows **Verified as `<name>`**.
@@ -28,8 +29,11 @@ button.
 Each capability has its own toggle and its own section under **Settings > Bankstand**.
 
 - **Skill XP** (on by default). Your XP per skill, your account hash and your display name. Checked
-  every 60 seconds and sent only when something changed. This toggle gates all the others: with it
-  off, nothing is sent.
+  every 60 seconds and sent only when something changed. This is what links your character to
+  Bankstand, so your other captures only reach your account once it has linked. With it off, the
+  regular update stops, and with it your quest, diary, combat achievement, collection log, account
+  type and Slayer task progress. Drops, pets, loot, sessions and chat-announced completions still
+  send if their own toggles are on. To stop everything, use **Disconnect**.
 - **Quest progress** (opt-in). Each quest's state: not started, started or finished. For a quest
   too new for RuneLite's quest list, the quest name from the quest-complete scroll.
 - **Diary progress** (opt-in). A completed task count per diary tier, whether the tier reads
@@ -47,7 +51,7 @@ Each capability has its own toggle and its own section under **Settings > Bankst
   Untradeable items are judged by name.
 - **Pet drops** (opt-in). Which pet you got and when.
 - **Session log** (opt-in). When you log in and out, plus an online mark once a minute on a
-  normal world, so the site can show how long you played. A world hop is not a logout. Kept in
+  regular world, so the site can show how long you played. A world hop is not a logout. Kept in
   memory only, never written to disk.
 - **Loot log** (opt-in). Every item you get from killing a monster, as item ids and quantities,
   with the monster's name and how many kills dropped loot. Sent about once a minute. Separate
@@ -89,7 +93,8 @@ Under **Settings > Bankstand**:
   you pair with that one. Redirects are never followed.
 - **Pairing code.** Paste a code to pair. It clears itself once used.
 - **Disconnect.** Tick to forget this device's token and revoke it on the server. If the server
-  cannot be reached, a chat message says so; remove the device under **Account** on the website.
+  cannot be reached, a chat message says so; remove the device on **Plugin connection**
+  ([bankstand.gg/account/connection](https://bankstand.gg/account/connection)).
 - **One section per capability**, each with its own toggle. Notable drops also has its gp
   threshold.
 
@@ -140,7 +145,7 @@ This compiles the plugin and runs the tests, the same as CI.
 ## Reporting a problem
 
 [Open an issue](https://github.com/CVE-078/bankstand-runelite/issues/new/choose) with the plugin
-version and what the chat box said. Never paste your pairing code or device token.
+version (shown next to Bankstand in RuneLite's Plugin Hub list) and what the chat box said. Never paste your pairing code or device token.
 
 ## Licence
 
