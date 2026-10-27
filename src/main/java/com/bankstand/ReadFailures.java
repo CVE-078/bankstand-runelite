@@ -4,6 +4,7 @@ import com.google.gson.JsonParseException;
 import com.google.gson.stream.MalformedJsonException;
 import java.io.EOFException;
 import java.io.IOException;
+import java.nio.charset.CharacterCodingException;
 
 /**
  * Tells a damaged local file from one that could not be read right now. Gson wraps a reader's
@@ -15,8 +16,10 @@ final class ReadFailures {
 
   static boolean isDamaged(Throwable failure) {
     for (Throwable t = failure; t != null; t = t.getCause()) {
-      // Bad JSON, or a file that ends mid-document.
-      if (t instanceof MalformedJsonException || t instanceof EOFException) {
+      // Bad JSON, bytes that are not UTF-8, or a file that ends mid-document or mid-character.
+      if (t instanceof MalformedJsonException
+          || t instanceof EOFException
+          || t instanceof CharacterCodingException) {
         return true;
       }
       if (t instanceof IOException) {

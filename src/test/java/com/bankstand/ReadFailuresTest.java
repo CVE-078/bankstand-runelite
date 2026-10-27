@@ -53,4 +53,30 @@ public class ReadFailuresTest {
     assertTrue(ReadFailures.isDamaged(parse(new StringReader("{not json"))));
     assertTrue(ReadFailures.isDamaged(parse(new StringReader("[{\"accountHash\":"))));
   }
+
+  private static Throwable parseBytes(byte[] bytes) throws IOException {
+    java.nio.file.Path file = java.nio.file.Files.createTempFile("queue", ".json");
+    try {
+      java.nio.file.Files.write(file, bytes);
+      try (Reader reader =
+          java.nio.file.Files.newBufferedReader(file, java.nio.charset.StandardCharsets.UTF_8)) {
+        return parse(reader);
+      }
+    } finally {
+      java.nio.file.Files.delete(file);
+    }
+  }
+
+  @Test
+  public void undecodableBytesAreDamage() throws IOException {
+    byte[] prefix = "[{\"accountHash\":\"".getBytes(java.nio.charset.StandardCharsets.US_ASCII);
+    byte[] invalid = java.util.Arrays.copyOf(prefix, prefix.length + 2);
+    invalid[prefix.length] = (byte) 0xC3;
+    invalid[prefix.length + 1] = (byte) 0x28;
+    assertTrue("not UTF-8", ReadFailures.isDamaged(parseBytes(invalid)));
+    byte[] truncated = java.util.Arrays.copyOf(prefix, prefix.length + 2);
+    truncated[prefix.length] = (byte) 0xE2;
+    truncated[prefix.length + 1] = (byte) 0x82;
+    assertTrue("cut mid-character", ReadFailures.isDamaged(parseBytes(truncated)));
+  }
 }
