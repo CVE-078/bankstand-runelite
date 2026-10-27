@@ -2169,6 +2169,8 @@ public class BankstandPlugin extends Plugin {
     if (retryBody == null && diaryTaskVars != null) {
       body.put("diaryTaskVars", diaryTaskVars);
     }
+    // Taken now, so an ack that lands after a re-pair reset is dropped, not applied over it.
+    long pairing = pairingQueues.epoch();
     BankstandClient api = pairingClient;
     executor.submit(
         () -> {
@@ -2212,7 +2214,8 @@ public class BankstandPlugin extends Plugin {
                     // thread, and only if this login is still current.
                     clientThread.invoke(
                         () -> {
-                          if (session.isCurrent(accountHash, generation)) {
+                          if (session.isCurrent(accountHash, generation)
+                              && pairingQueues.epoch() == pairing) {
                             // Skills ride on every submission, so check for a real change
                             // before advance() overwrites the baseline.
                             boolean skillsChanged = skillBaseline.changedSince(skills);

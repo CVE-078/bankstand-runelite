@@ -212,6 +212,23 @@ public class PairingReplacementTest {
   }
 
   @Test
+  public void anAckLandingAfterTheResetIsDropped() throws Exception {
+    h.transport.byPath.put(
+        "/submit",
+        body -> {
+          try {
+            h.call("forgetAcks"); // a re-pair's reset lands while the request is out
+          } catch (Exception e) {
+            throw new AssertionError(e);
+          }
+          return new HttpResponse(200, ALL_BLOCKS);
+        });
+    submitSnapshot();
+    h.executor.runAll();
+    assertFalse(questsAcked());
+  }
+
+  @Test
   public void disconnectWithoutAClientStillForgetsThePairing() throws Exception {
     h.set("pairingClient", null);
     h.call("disconnect");
