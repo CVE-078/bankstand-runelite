@@ -1,6 +1,7 @@
 package com.bankstand;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
 import java.util.Arrays;
 import java.util.stream.IntStream;
@@ -23,9 +24,12 @@ public class DiaryTaskVarsAllowlistTest {
   }
 
   @Test
-  public void varbitsAreKaramjaTasksAndEveryReward() {
-    assertEquals(39 + 48, DiaryTaskVars.VARBITS.length);
-    assertEquals(39 + 48, Arrays.stream(DiaryTaskVars.VARBITS).distinct().count());
+  public void varbitsAreKaramjaTasksEveryRewardAndEveryTierCount() {
+    assertEquals(39 + 48 + 48, DiaryTaskVars.VARBITS.length);
+    assertEquals(39 + 48 + 48, Arrays.stream(DiaryTaskVars.VARBITS).distinct().count());
+    for (int count : DiaryTaskVarbits.ALL.values()) {
+      assertTrue(Arrays.stream(DiaryTaskVars.VARBITS).anyMatch(id -> id == count));
+    }
     // Karamja tasks sit in 3566-3609, skipping the started, reward and done varbits.
     assertEquals(
         39,

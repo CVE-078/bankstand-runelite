@@ -90,7 +90,7 @@ public class DiaryTaskVarsTest {
     JsonObject vars = last().getAsJsonObject("diaryTaskVars");
     assertNotNull(vars);
     assertEquals(23, vars.getAsJsonObject("varps").size());
-    assertEquals(39 + 48, vars.getAsJsonObject("varbits").size());
+    assertEquals(39 + 48 + 48, vars.getAsJsonObject("varbits").size());
     assertEquals(0b1011, vars.getAsJsonObject("varps").get("1184").getAsInt());
     assertEquals(5, vars.getAsJsonObject("varbits").get("3566").getAsInt());
     assertEquals(1, vars.getAsJsonObject("varbits").get("4511").getAsInt());

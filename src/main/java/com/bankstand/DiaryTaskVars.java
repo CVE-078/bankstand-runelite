@@ -31,8 +31,13 @@ final class DiaryTaskVars {
     VarPlayerID.KOUREND_ACHIEVEMENT_DIARY, VarPlayerID.KOUREND_ACHIEVEMENT_DIARY2,
   };
 
-  /** Karamja easy, medium and hard: one varbit per task. Then every tier's reward claim. */
-  static final int[] VARBITS = {
+  /**
+   * Karamja easy, medium and hard: one varbit per task. Then every tier's reward claim, then every
+   * tier's task count, so the server can check decoded bits against a count read with them.
+   */
+  static final int[] VARBITS =
+      java.util.stream.IntStream.concat(
+              java.util.Arrays.stream(new int[] {
     VarbitID.ATJUN_EASY_BANANA, VarbitID.ATJUN_EASY_SWING, VarbitID.ATJUN_EASY_GOLD,
     VarbitID.ATJUN_EASY_BOAT_SARIM, VarbitID.ATJUN_EASY_BOAT_ARDY, VarbitID.ATJUN_EASY_CAIRN,
     VarbitID.ATJUN_EASY_FISHING, VarbitID.ATJUN_EASY_SEAWEED, VarbitID.ATJUN_EASY_TZHAAR,
@@ -72,7 +77,9 @@ final class DiaryTaskVars {
     VarbitID.WESTERN_HARD_REWARD, VarbitID.WESTERN_ELITE_REWARD,
     VarbitID.WILDERNESS_EASY_REWARD, VarbitID.WILDERNESS_MEDIUM_REWARD,
     VarbitID.WILDERNESS_HARD_REWARD, VarbitID.WILDERNESS_ELITE_REWARD,
-  };
+              }),
+              DiaryTaskVarbits.ALL.values().stream().mapToInt(Integer::intValue))
+          .toArray();
 
   /** The wire block, every key read. Sorted, so its digest is stable. Client thread. */
   static Map<String, Object> read(IntUnaryOperator varp, IntUnaryOperator varbit) {
