@@ -143,6 +143,36 @@ public class PairingReplacementTest {
   }
 
   @Test
+  public void aStaleRejectionLeavesNoFailureOnTheNewPairing() throws Exception {
+    h.transport.byPath.put(
+        "/submit",
+        body -> {
+          DeviceCredentials current = h.deviceStore.load();
+          DeviceCredentials next = DeviceCredentials.none();
+          next.setToken("tok-new");
+          next.setServerUrl(current.getServerUrl());
+          next.setPairingId("second");
+          h.deviceStore.save(next);
+          return new HttpResponse(401, "");
+        });
+    submitSnapshot();
+    h.executor.runAll();
+    assertNull(h.get("lastFailureReason"));
+    assertFalse(((SubmitGate) h.get("submitGate")).isHalted());
+  }
+
+  @Test
+  public void pairingAndDisconnectClearTheLastFailure() throws Exception {
+    h.set("lastFailureReason", "Bankstand is busy.");
+    h.call("pair", "AAAA-AAAA");
+    h.executor.runAll();
+    assertNull(h.get("lastFailureReason"));
+    h.set("lastFailureReason", "Bankstand is busy.");
+    h.call("disconnect");
+    assertNull(h.get("lastFailureReason"));
+  }
+
+  @Test
   public void disconnectWithoutAClientStillForgetsThePairing() throws Exception {
     h.set("pairingClient", null);
     h.call("disconnect");

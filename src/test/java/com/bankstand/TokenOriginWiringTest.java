@@ -67,8 +67,8 @@ public class TokenOriginWiringTest {
   public void aReplacedTokensAuthFailureNeverHaltsTheNewPairing() throws IOException {
     String source = plugin();
     String snapshot = body(source, "private void submitSnapshot(");
-    int skip = snapshot.indexOf("if (e.isAuthFailure() && isReplaced(url, token)) {");
-    assertTrue(skip >= 0 && skip < snapshot.indexOf("submitGate.onAuthFailure()"));
+    int skip = snapshot.indexOf("if (isReplaced(url, token)) {");
+    assertTrue(skip >= 0 && skip < snapshot.indexOf("haltIfCurrent(url, token)"));
     String identity = body(source, "private void submitIdentity(");
     int skipIdentity = identity.indexOf("if (isReplaced(url, token)) {");
     assertTrue(skipIdentity >= 0 && skipIdentity < identity.indexOf("identityFailureNotice("));

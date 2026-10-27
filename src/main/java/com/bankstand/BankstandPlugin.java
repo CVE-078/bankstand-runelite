@@ -596,7 +596,7 @@ public class BankstandPlugin extends Plugin {
                             log.debug("event drain failed for one chunk: {}", failure.getMessage());
                             if (failure instanceof SubmitException
                                 && ((SubmitException) failure).isAuthFailure()
-                                && submitGate.onAuthFailure()) {
+                                && haltIfCurrent(url, token)) {
                               notice(NO_LONGER_PAIRED);
                             }
                           }
@@ -812,7 +812,7 @@ public class BankstandPlugin extends Plugin {
           if (isReplaced(url, token)) {
             return;
           }
-          if (e.isAuthFailure() && submitGate.onAuthFailure()) {
+          if (e.isAuthFailure() && haltIfCurrent(url, token)) {
             notice(NO_LONGER_PAIRED);
           }
           if (e.getRetryAfterMillis() > 0) {
@@ -2137,17 +2137,18 @@ public class BankstandPlugin extends Plugin {
                       // Baseline not advanced, so the next cycle retries. Never log the token
                       // or account hash.
                       SubmitException e = (SubmitException) failure;
+                      // A replaced pairing's failure says nothing about the current one.
+                      if (isReplaced(url, token)) {
+                        return;
+                      }
                       // Shown on the panel's header dot and failure footer.
                       lastFailureReason = e.getMessage();
                       refreshPanel();
-                      if (e.isAuthFailure() && isReplaced(url, token)) {
-                        return;
-                      }
                       if (e.isAuthFailure()) {
                         // Retrying cannot fix a revoked token. This is the one failure the
                         // player must act on, so the gate announces it.
                         log.debug("submit refused: token rejected, halting until re-paired");
-                        if (submitGate.onAuthFailure()) {
+                        if (haltIfCurrent(url, token)) {
                           notice(NO_LONGER_PAIRED);
                         }
                         return;
@@ -2289,6 +2290,13 @@ public class BankstandPlugin extends Plugin {
         });
   }
 
+  /** Halts on a rejected token unless it was replaced; atomic with a pairing swap. */
+  private boolean haltIfCurrent(String url, String token) {
+    synchronized (pairingQueues) {
+      return !isReplaced(url, token) && submitGate.onAuthFailure();
+    }
+  }
+
   // A token a new pairing or a disconnect replaced: its failures say nothing about the new one.
   private boolean isReplaced(String url, String token) {
     return !java.util.Objects.equals(token, deviceStore.load().tokenFor(url));
@@ -2358,12 +2366,15 @@ public class BankstandPlugin extends Plugin {
                       // tick retries; otherwise the session stays unbound until a relog.
                       // Guarded on the login instance.
                       session.markSubmitFailed(accountHash, generation);
-                      if (isReplaced(url, token)) {
-                        return;
+                      String message;
+                      // Under the pairing lock, so a swap cannot land between check and halt.
+                      synchronized (pairingQueues) {
+                        if (isReplaced(url, token)) {
+                          return;
+                        }
+                        // Never log the token or account hash.
+                        message = identityFailureNotice(failure, submitGate, noticeGate);
                       }
-                      // Never log the token or account hash.
-                      String message =
-                          identityFailureNotice(failure, submitGate, noticeGate);
                       if (session.isCurrent(accountHash, generation) && message != null) {
                         notice(message);
                       }
@@ -2402,7 +2413,7 @@ public class BankstandPlugin extends Plugin {
             // A fresh pairing resets failure notices, and is the only thing that lifts an
             // auth halt.
             noticeGate.onSuccess();
-            submitGate.resume();
+            lastFailureReason = null;
             notice("Connected. Your progress will sync from now on.");
           } catch (PairingException e) {
             // The message is generic; the raw code and token are never logged.
@@ -2423,6 +2434,7 @@ public class BankstandPlugin extends Plugin {
           removed[0] = deviceStore.clear();
           return true;
         });
+    lastFailureReason = null;
     // Unsetting the legacy keys is what removes the token from a synced profile upstream.
     LegacyCredentials.forget(configManager);
     // Untick the toggle so ticking it again fires this afresh.
@@ -2481,7 +2493,15 @@ public class BankstandPlugin extends Plugin {
     DeviceCredentials previous = deviceStore.load();
     PairingQueues.Dropped dropped =
         pairingQueues.replaceIfCurrent(
-            ticket, () -> deviceStore.save(DeviceCredentials.of(res, url)));
+            ticket,
+            () -> {
+              // Resumed inside the swap, so a stale rejection cannot halt the new pairing.
+              boolean saved = deviceStore.save(DeviceCredentials.of(res, url));
+              if (saved) {
+                submitGate.resume();
+              }
+              return saved;
+            });
     if (dropped == null) {
       return Stored.STALE;
     }
