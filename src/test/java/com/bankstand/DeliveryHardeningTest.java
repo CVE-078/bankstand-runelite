@@ -362,6 +362,68 @@ public class DeliveryHardeningTest {
     assertEquals(before + 1, h.transport.count("/submit"));
   }
 
+  @Test
+  public void aLostResponseIsResentWithTheSameIdAndADuplicateEmptiesTheQueue() throws Exception {
+    unlock("Pet snakeling");
+    String id = h.eventOutbox.pending().get(0).getEvent().getId();
+    int[] calls = {0};
+    h.transport.byPath.put(
+        "/events",
+        body ->
+            ++calls[0] == 1
+                ? null
+                : new HttpResponse(
+                    200,
+                    "{\"routed\":true,\"acks\":[{\"id\":\"" + id + "\",\"outcome\":\"duplicate\"}]}"));
+    drain();
+    new java.util.ArrayList<>(h.executor.scheduled).forEach(Runnable::run);
+    h.executor.runAll();
+    assertEquals(2, h.transport.count("/events"));
+    for (int i = 0; i < h.transport.urls.size(); i++) {
+      if (h.transport.urls.get(i).endsWith("/events")) {
+        assertTrue(h.transport.bodies.get(i).contains(id));
+      }
+    }
+    assertTrue(h.eventOutbox.pending().isEmpty());
+  }
+
+  @Test
+  public void aFailedRevokeIsReportedAlongsideTheDisconnect() throws Exception {
+    h.transport.byPath.put("/unpair", body -> new HttpResponse(500, ""));
+    h.call("disconnect");
+    h.executor.runAll();
+    String said = noticeText();
+    assertTrue(said.contains("Disconnected."));
+    assertTrue(said.contains("Could not reach Bankstand"));
+  }
+
+  @Test
+  public void aRevokeOfAnAlreadyDeadTokenIsNotAFailure() throws Exception {
+    h.transport.byPath.put("/unpair", body -> new HttpResponse(403, ""));
+    h.call("disconnect");
+    h.executor.runAll();
+    assertFalse(noticeText().contains("Could not reach Bankstand"));
+  }
+
+  /** Both the local delete and the server revoke fail: the pairing returns after a restart. */
+  @Test
+  public void aRestartAfterAFailedDeleteAndAFailedRevokeIsPairedAgain() throws Exception {
+    h.transport.byPath.put("/unpair", body -> new HttpResponse(500, ""));
+    assumeTrue(dir.setWritable(false));
+    try {
+      h.call("disconnect");
+      h.executor.runAll();
+      assertFalse("stopped for this session", h.deviceStore.load().isPaired());
+    } finally {
+      dir.setWritable(true);
+    }
+    String said = noticeText();
+    assertTrue(said.contains("returns after a restart"));
+    assertTrue(said.contains("Could not reach Bankstand"));
+    // The token is still live on the server and still on disk: the next start is paired again.
+    assertTrue(new DeviceCredentialStore(new File(dir, "device.json"), new Gson()).load().isPaired());
+  }
+
   // B: credentials
 
   /** Makes {@code device.json} a non-empty directory: no save, delete or overwrite can succeed. */

@@ -282,7 +282,8 @@ public class BankstandClient {
     try {
       String url = trimTrailingSlash(baseUrl) + UNPAIR_PATH;
       int status = transport.post(url, "", headers, UNPAIR_TIMEOUT_MILLIS).getStatus();
-      return status == 204 || status == 401;
+      // 401 and 403: the token is already dead, which is what a revoke wants.
+      return status == 204 || status == 401 || status == 403;
     } catch (IOException e) {
       return false;
     }

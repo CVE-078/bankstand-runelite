@@ -32,7 +32,7 @@ public class SourceSizeTest {
 
   static {
     RATCHET.put("com/bankstand/BankstandPlugin.java", 2618);
-    RATCHET.put("com/bankstand/BankstandClient.java", 436);
+    RATCHET.put("com/bankstand/BankstandClient.java", 437);
   }
 
   @Test

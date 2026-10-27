@@ -400,16 +400,23 @@ final class PluginHarness {
     Function<String, HttpResponse> answer = body -> new HttpResponse(200, "{}");
     final Map<String, Function<String, HttpResponse>> byPath = new HashMap<>();
 
+    /** A route that answers null loses the response, as a dropped connection does. */
     @Override
-    public synchronized HttpResponse post(String url, String body, Map<String, String> headers) {
+    public synchronized HttpResponse post(String url, String body, Map<String, String> headers)
+        throws java.io.IOException {
       urls.add(url);
       bodies.add(body);
+      HttpResponse response = answer.apply(body);
       for (Map.Entry<String, Function<String, HttpResponse>> route : byPath.entrySet()) {
         if (url.endsWith(route.getKey())) {
-          return route.getValue().apply(body);
+          response = route.getValue().apply(body);
+          break;
         }
       }
-      return answer.apply(body);
+      if (response == null) {
+        throw new java.io.IOException("connection lost");
+      }
+      return response;
     }
 
     @Override

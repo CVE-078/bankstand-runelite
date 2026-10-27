@@ -250,6 +250,28 @@ public class PairingReplacementTest {
   }
 
   @Test
+  public void aRelogBetweenTheRequestAndTheAckAdvancesNothing() throws Exception {
+    submitSnapshot();
+    Runnable inFlight = h.executor.take();
+    h.state(net.runelite.api.GameState.LOGIN_SCREEN);
+    h.logIn();
+    h.executor.runAll();
+    inFlight.run();
+    h.executor.runAll();
+    assertFalse(questsAcked());
+  }
+
+  @Test
+  public void reAndDisconnectEachRevokeExactlyOnce() throws Exception {
+    h.call("pair", "AAAA-AAAA");
+    h.executor.runAll();
+    assertEquals("re-pair revokes the old token", 1, h.transport.count("/unpair"));
+    h.call("disconnect");
+    h.executor.runAll();
+    assertEquals("disconnect revokes the new one", 2, h.transport.count("/unpair"));
+  }
+
+  @Test
   public void disconnectWithoutAClientStillForgetsThePairing() throws Exception {
     h.set("pairingClient", null);
     h.call("disconnect");
