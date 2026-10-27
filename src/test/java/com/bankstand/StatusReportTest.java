@@ -144,4 +144,14 @@ public class StatusReportTest {
             true, "https://x", null, "just now", null, Arrays.asList("skills"), 5, null, null);
     assertFalse(mentions(lines, "Account type"));
   }
+
+  @Test
+  public void queueLinesGiveCountsAndFileHealthOnly() {
+    assertEquals(
+        java.util.Collections.singletonList("Queued events: 2."),
+        StatusReport.queueLines("events", 2, 0, null));
+    java.util.List<String> bad = StatusReport.queueLines("events", 0, 3, "could not be saved");
+    assertEquals("Queue full: 3 oldest events dropped this session.", bad.get(1));
+    assertEquals("The events queue file could not be saved.", bad.get(2));
+  }
 }

@@ -23,6 +23,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.function.BooleanSupplier;
@@ -115,6 +116,8 @@ public class BankstandPlugin extends Plugin {
   // both on the parchment chat box and on a transparent one.
   private static final Color BRAND = new Color(0xB3730A);
   private static final String NOTICE_PREFIX = "Bankstand: ";
+  private static final String NO_LONGER_PAIRED =
+      "This client is no longer paired. Pair again with a new code from bankstand.gg/account/connection.";
   private static final String UNPAIR_UNREACHABLE = "Could not reach Bankstand. Remove this device on the website.";
 
   // The server contract is an explicit skill allowlist, not Skill.values(): an unknown key
@@ -194,6 +197,8 @@ public class BankstandPlugin extends Plugin {
   private final LootSendPacer presencePacer = new LootSendPacer();
   private final EventSendPacer eventPacer = new EventSendPacer();
   private final AtomicBoolean lootSending = new AtomicBoolean();
+  // Held until every chunk of a drain, retries included, has answered: one flight per queue.
+  private final AtomicBoolean eventSending = new AtomicBoolean();
   private LootOutbox lootOutbox;
   private PairingQueues pairingQueues;
   private LootCapture lootCapture;
@@ -381,7 +386,12 @@ public class BankstandPlugin extends Plugin {
 
   @Override
   protected void shutDown() {
+    BankstandClient api = pairingClient;
     pairingClient = null;
+    // Stops scheduled retries from dispatching; their callbacks see a failure.
+    if (api != null) {
+      api.close();
+    }
     if (notableDropCapture != null) {
       eventBus.unregister(notableDropCapture);
     }
@@ -542,7 +552,10 @@ public class BankstandPlugin extends Plugin {
       token = deviceStore.load().tokenFor(url);
       pending = eventOutbox.pending();
     }
-    if (token == null || pending.isEmpty()) {
+    if (token == null || pending.isEmpty() || submitGate.isHalted()) {
+      return;
+    }
+    if (!eventSending.compareAndSet(false, true)) {
       return;
     }
     Map<Long, List<TransientEvent>> byAccount = new LinkedHashMap<>();
@@ -552,28 +565,39 @@ public class BankstandPlugin extends Plugin {
     BankstandClient api = pairingClient;
     executor.submit(
         () -> {
-          for (Map.Entry<Long, List<TransientEvent>> group : byAccount.entrySet()) {
-            long hash = group.getKey();
-            for (List<TransientEvent> chunk : chunkEvents(group.getValue(), MAX_EVENTS_PER_SUBMIT)) {
-              // The first attempt runs here, so a 429 or unrouted reply stops the next chunk.
-              if (!eventPacer.maySend(hash, System.currentTimeMillis())) break;
-              api
-                  .submitEventsWithRetry(
-                      url, token, hash, chunk, MAX_SUBMIT_ATTEMPTS, SUBMIT_RETRY_BASE_DELAY_MS)
-                  .whenComplete(
-                      (response, failure) -> {
-                        // The old pairing's reply says nothing about the new one.
-                        if (isReplaced(url, token)) {
-                          return;
-                        }
-                        if (failure != null) {
-                          log.debug("event drain failed for one chunk: {}", failure.getMessage());
-                        }
-                        if (eventPacer.record(hash, System.currentTimeMillis(), response, failure)) {
-                          eventOutbox.ack(EventOutbox.idsToAck(response.getAcks()));
-                        }
-                      });
+          List<CompletableFuture<?>> flights = new ArrayList<>();
+          try {
+            for (Map.Entry<Long, List<TransientEvent>> group : byAccount.entrySet()) {
+              long hash = group.getKey();
+              for (List<TransientEvent> chunk : chunkEvents(group.getValue(), MAX_EVENTS_PER_SUBMIT)) {
+                // The first attempt runs here, so a 429 or unrouted reply stops the next chunk.
+                if (!eventPacer.maySend(hash, System.currentTimeMillis())) break;
+                flights.add(api
+                    .submitEventsWithRetry(
+                        url, token, hash, chunk, MAX_SUBMIT_ATTEMPTS, SUBMIT_RETRY_BASE_DELAY_MS)
+                    .whenComplete(
+                        (response, failure) -> {
+                          // The old pairing's reply says nothing about the new one.
+                          if (isReplaced(url, token)) {
+                            return;
+                          }
+                          if (failure != null) {
+                            log.debug("event drain failed for one chunk: {}", failure.getMessage());
+                            if (failure instanceof SubmitException
+                                && ((SubmitException) failure).isAuthFailure()
+                                && submitGate.onAuthFailure()) {
+                              notice(NO_LONGER_PAIRED);
+                            }
+                          }
+                          if (eventPacer.record(hash, System.currentTimeMillis(), response, failure)) {
+                            eventOutbox.ack(EventOutbox.idsToAck(response.getAcks()));
+                          }
+                        }));
+              }
             }
+          } finally {
+            CompletableFuture.allOf(flights.toArray(new CompletableFuture<?>[0]))
+                .whenComplete((done, failure) -> eventSending.set(false));
           }
         });
   }
@@ -720,7 +744,11 @@ public class BankstandPlugin extends Plugin {
 
   /** Sends the loot outbox per account in chunks; a failure waits for the next drain. */
   private void drainLoot() {
-    if (pairingClient == null || lootOutbox == null || !isPaired() || !manifest.allows("loot")) {
+    if (pairingClient == null
+        || lootOutbox == null
+        || !isPaired()
+        || !manifest.allows("loot")
+        || submitGate.isHalted()) {
       return;
     }
     if (!lootPacer.mayDrain(System.currentTimeMillis())) {
@@ -769,6 +797,9 @@ public class BankstandPlugin extends Plugin {
           }
         } catch (SubmitException e) {
           log.debug("loot send failed: {}", e.getMessage());
+          if (e.isAuthFailure() && submitGate.onAuthFailure()) {
+            notice(NO_LONGER_PAIRED);
+          }
           if (e.getRetryAfterMillis() > 0) {
             lootPacer.pauseFor(System.currentTimeMillis(), e.getRetryAfterMillis());
           }
@@ -795,6 +826,19 @@ public class BankstandPlugin extends Plugin {
   private java.util.List<String> statusLines() {
     Player local = client.getLocalPlayer();
     String name = session.isActive() && local != null ? local.getName() : null;
+    List<String> lines = statusReportLines(name);
+    if (isPaired() && eventOutbox != null && lootOutbox != null) {
+      lines.addAll(
+          StatusReport.queueLines(
+              "events", eventOutbox.pending().size(), eventOutbox.dropped(), eventOutbox.problem()));
+      lines.addAll(
+          StatusReport.queueLines(
+              "loot drops", lootOutbox.pending().size(), lootOutbox.dropped(), lootOutbox.problem()));
+    }
+    return lines;
+  }
+
+  private List<String> statusReportLines(String name) {
     return StatusReport.lines(
         isPaired(),
         savedServerUrl(),
@@ -1634,6 +1678,15 @@ public class BankstandPlugin extends Plugin {
       SlayerTask slayerTask,
       boolean varsReadable) {
     adoptCharacter(accountHash, generation);
+    // Diary values read all zero before the game sends them, and progress never goes back, so
+    // an all-zero read never replaces known state. A new character's real zeroes still go once.
+    if (diaries != null
+        && diaryBaseline.ackedDigest() != null
+        && !diaries.containsValue("COMPLETE")
+        && (diaryTaskCounts == null || !diaryTaskCounts.values().stream().anyMatch(n -> n != 0))) {
+      diaries = null;
+      diaryTaskCounts = null;
+    }
     // An opt-in is not retroactive to items observed before it.
     Set<Integer> clog =
         isCollectionLogCaptureEnabled() ? collectionLog.observed() : Collections.emptySet();
@@ -1678,7 +1731,9 @@ public class BankstandPlugin extends Plugin {
         varsReadable && isDiaryCaptureEnabled() && manifest.allows("diaryTaskVars")
             ? DiaryTaskVars.read(client::getVarpValue, client::getVarbitValue)
             : null;
-    if (diaryTaskVars != null && CapabilityDigest.of(diaryTaskVars).equals(diaryTaskVarsAcked)) {
+    if (diaryTaskVars != null
+        && (CapabilityDigest.of(diaryTaskVars).equals(diaryTaskVarsAcked)
+            || (diaryTaskVarsAcked != null && DiaryTaskVars.isAllZero(diaryTaskVars)))) {
       diaryTaskVars = null;
     }
     // An omitted block is null or empty, so the per-block ack keys off what actually went out.
@@ -2065,7 +2120,7 @@ public class BankstandPlugin extends Plugin {
                         // player must act on, so the gate announces it.
                         log.debug("submit refused: token rejected, halting until re-paired");
                         if (submitGate.onAuthFailure()) {
-                          notice("This client is no longer paired. Pair again with a new code from bankstand.gg/account/connection.");
+                          notice(NO_LONGER_PAIRED);
                         }
                         return;
                       }
@@ -2307,9 +2362,13 @@ public class BankstandPlugin extends Plugin {
         () -> {
           try {
             PairResponse res = api.exchangePairingCode(url, rawCode);
-            if (!storeToken(res, url, ticket)) {
-              // A disconnect or a newer pairing came first, so this token is never used.
+            Stored stored = storeToken(res, url, ticket);
+            if (stored != Stored.OK) {
+              // A disconnect or a newer pairing came first, or the save failed: never used.
               api.unpairInBackground(url, res.getDeviceToken(), () -> {});
+              if (stored == Stored.UNSAVED) {
+                notice("Pairing failed. The pairing could not be saved on this computer.");
+              }
               return;
             }
             // A fresh pairing resets failure notices, and is the only thing that lifts an
@@ -2329,13 +2388,18 @@ public class BankstandPlugin extends Plugin {
 
   private void disconnect() {
     DeviceCredentials paired = deviceStore.load();
-    pairingQueues.replace(deviceStore::clear);
+    boolean[] removed = {false};
+    pairingQueues.replace(() -> removed[0] = deviceStore.clear());
     // Unsetting the legacy keys is what removes the token from a synced profile upstream.
     LegacyCredentials.forget(configManager);
     // Untick the toggle so ticking it again fires this afresh.
     configManager.setConfiguration(
         BankstandKeys.GROUP, BankstandKeys.KEY_DISCONNECT, Boolean.FALSE.toString());
-    notice("Disconnected. Nothing will be sent until you pair again.");
+    notice(
+        removed[0]
+            ? "Disconnected. Nothing will be sent until you pair again."
+            : "Disconnected for now, but the pairing could not be removed from this computer, so it"
+                + " returns after a restart. Remove the device on bankstand.gg/account/connection.");
     // Revoked where it was paired, the one server that knows the token, whatever the URL is now.
     BankstandClient api = pairingClient;
     if (api != null) {
@@ -2374,12 +2438,24 @@ public class BankstandPlugin extends Plugin {
     return new ChatMessageBuilder().append(BRAND, NOTICE_PREFIX).append(message).build();
   }
 
-  private boolean storeToken(PairResponse res, String url, long ticket) {
+  private enum Stored {
+    OK,
+    STALE,
+    UNSAVED
+  }
+
+  private Stored storeToken(PairResponse res, String url, long ticket) {
     DeviceCredentials previous = deviceStore.load();
+    boolean[] saved = {false};
     PairingQueues.Dropped dropped =
-        pairingQueues.replaceIfCurrent(ticket, () -> deviceStore.save(DeviceCredentials.of(res, url)));
+        pairingQueues.replaceIfCurrent(
+            ticket, () -> saved[0] = deviceStore.save(DeviceCredentials.of(res, url)));
     if (dropped == null) {
-      return false;
+      return Stored.STALE;
+    }
+    // The previous pairing stays in use; only its queues went, never sent under another token.
+    if (!saved[0]) {
+      return Stored.UNSAVED;
     }
     eventPacer.forgetUnrouted();
     clientThread.invoke(this::forgetAcks);
@@ -2390,7 +2466,7 @@ public class BankstandPlugin extends Plugin {
     // The old token may belong to another account or server: revoke it where it was paired.
     pairingClient.unpairInBackground(
         previous.pairedServerUrl(), previous.getToken(), () -> notice(UNPAIR_UNREACHABLE));
-    return true;
+    return Stored.OK;
   }
 
   /** The new pairing may be another account or server, so every block is sent to it afresh. */

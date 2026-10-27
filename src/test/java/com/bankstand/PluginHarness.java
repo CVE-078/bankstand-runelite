@@ -180,6 +180,19 @@ final class PluginHarness {
     return (net.runelite.client.chat.ChatMessageManager) manager;
   }
 
+  /** Every chat notice so far, as formatted text. */
+  @SuppressWarnings("unchecked")
+  List<String> notices() throws Exception {
+    Object manager = get("chatMessageManager");
+    Field queue = manager.getClass().getDeclaredField("queuedMessages");
+    queue.setAccessible(true);
+    List<String> out = new ArrayList<>();
+    for (Object message : (java.util.Collection<Object>) queue.get(manager)) {
+      out.add(((net.runelite.client.chat.QueuedMessage) message).getRuneLiteFormattedMessage());
+    }
+    return out;
+  }
+
   /** Runs what the plugin handed the client thread with invokeLater. */
   void runClientThread() throws Exception {
     ClientThread thread = (ClientThread) get("clientThread");

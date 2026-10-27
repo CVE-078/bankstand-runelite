@@ -69,13 +69,13 @@ public class PairingQueuesTest {
             Files.readAllBytes(
                 Paths.get("src", "main", "java", "com", "bankstand", "BankstandPlugin.java")),
             StandardCharsets.UTF_8);
-    int start = source.indexOf("private boolean storeToken(");
+    int start = source.indexOf("private Stored storeToken(");
     String body = source.substring(start, source.indexOf("\n  }\n", start));
 
     int previous = body.indexOf("DeviceCredentials previous = deviceStore.load();");
     int replace =
         body.indexOf(
-            "pairingQueues.replaceIfCurrent(ticket, () -> deviceStore.save(DeviceCredentials.of(res, url)));");
+            "ticket, () -> saved[0] = deviceStore.save(DeviceCredentials.of(res, url)));");
     int revoke = body.indexOf("previous.pairedServerUrl(), previous.getToken()");
     assertTrue("reads the old pairing before replacing it", previous >= 0 && previous < replace);
     assertTrue("revokes the old token at the server it was paired with", revoke > replace);
@@ -124,7 +124,7 @@ public class PairingQueuesTest {
             Files.readAllBytes(
                 Paths.get("src", "main", "java", "com", "bankstand", "BankstandPlugin.java")),
             StandardCharsets.UTF_8);
-    int start = source.indexOf("private boolean storeToken(");
+    int start = source.indexOf("private Stored storeToken(");
     String body = source.substring(start, source.indexOf("\n  }\n", start));
     assertTrue(body.contains(".repairNotice();"));
     assertTrue(body.contains("notice(discarded);"));

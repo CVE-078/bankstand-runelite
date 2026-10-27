@@ -56,7 +56,8 @@ public class DeviceCredentialStore {
     }
   }
 
-  public void save(DeviceCredentials credentials) {
+  /** False when the file could not be written; the cache then keeps the previous pairing. */
+  public boolean save(DeviceCredentials credentials) {
     Path target = file.toPath();
     Path directory = target.getParent();
     try {
@@ -76,18 +77,27 @@ public class DeviceCredentialStore {
       }
       // Only on success, so the cache always matches disk.
       cached = credentials;
+      return true;
     } catch (IOException | RuntimeException e) {
-      // Swallowed: a failed save costs one re-pair.
+      // Not logged: the message can carry the path, and the caller reports the outcome.
+      return false;
     }
   }
 
-  public void clear() {
+  /**
+   * Unpairs this process at once, whatever the disk does. False when the file could not be
+   * removed or emptied, so the pairing comes back on the next start.
+   */
+  public boolean clear() {
+    cached = DeviceCredentials.none();
     try {
       Files.deleteIfExists(file.toPath());
-      cached = DeviceCredentials.none();
+      return true;
     } catch (IOException | RuntimeException e) {
       // If the delete fails, overwrite with an empty document so no credential remains.
-      save(DeviceCredentials.none());
+      boolean emptied = save(DeviceCredentials.none());
+      cached = DeviceCredentials.none();
+      return emptied;
     }
   }
 }

@@ -8,6 +8,19 @@ public final class StatusReport {
 
   private StatusReport() {}
 
+  /** What is waiting to be sent and whether its file is healthy. Counts only, never content. */
+  static List<String> queueLines(String name, int pending, int dropped, String problem) {
+    List<String> out = new ArrayList<>();
+    out.add("Queued " + name + ": " + pending + ".");
+    if (dropped > 0) {
+      out.add("Queue full: " + dropped + " oldest " + name + " dropped this session.");
+    }
+    if (problem != null) {
+      out.add("The " + name + " queue file " + problem + ".");
+    }
+    return out;
+  }
+
   /**
    * @param paired whether a device token is stored
    * @param serverUrl where submissions go; shown because a wrong one is silent otherwise

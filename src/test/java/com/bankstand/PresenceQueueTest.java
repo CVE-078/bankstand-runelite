@@ -171,7 +171,7 @@ public class PresenceQueueTest {
       assertEquals("retryQueuedPresence must not check " + gate, -1, body.indexOf(gate));
     }
     // A queued signal must never go out under a later pairing.
-    for (String method : new String[] {"private void disconnect() {", "private boolean storeToken("}) {
+    for (String method : new String[] {"private void disconnect() {", "private Stored storeToken("}) {
       int start = source.indexOf(method);
       String methodBody = source.substring(start, source.indexOf("\n  }\n", start));
       assertTrue(method + " must drop the pairing's queues", methodBody.contains("pairingQueues.replace"));

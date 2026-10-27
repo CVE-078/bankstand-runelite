@@ -89,6 +89,19 @@ final class DiaryTaskVars {
     return block;
   }
 
+  /** True when every value reads zero, as it does before the game has sent them. */
+  @SuppressWarnings("unchecked")
+  static boolean isAllZero(Map<String, Object> block) {
+    for (Object part : block.values()) {
+      for (Integer value : ((Map<String, Integer>) part).values()) {
+        if (value != 0) {
+          return false;
+        }
+      }
+    }
+    return true;
+  }
+
   private static Map<String, Integer> values(int[] ids, IntUnaryOperator reader) {
     Map<String, Integer> values = new TreeMap<>();
     for (int id : ids) {

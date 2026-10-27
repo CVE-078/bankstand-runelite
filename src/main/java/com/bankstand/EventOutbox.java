@@ -40,6 +40,12 @@ public class EventOutbox {
   private static final Type LIST_TYPE = new TypeToken<ArrayList<OutboxEntry>>() {}.getType();
 
   private final File file;
+  // Far above a full queue's size, so only a damaged file is ever this large.
+  private static final long MAX_FILE_BYTES = 4L * 1024 * 1024;
+  // For the status report: counts and states only, never content.
+  private volatile boolean setAside;
+  private volatile boolean unsaved;
+  private volatile int dropped;
   private final Gson gson;
   private volatile Supplier<String> pairing = () -> null;
 
@@ -55,6 +61,7 @@ public class EventOutbox {
     entries.add(new OutboxEntry(accountHash, event, pairing.get()));
     while (entries.size() > MAX_PENDING) {
       OutboxEntry dropped = entries.remove(0);
+      this.dropped++;
       log.warn(
           "event outbox full ({} pending): dropped oldest entry, type={}",
           MAX_PENDING,
@@ -107,14 +114,44 @@ public class EventOutbox {
     if (!file.exists()) {
       return new ArrayList<>();
     }
+    if (file.length() > MAX_FILE_BYTES) {
+      return setAside();
+    }
     try (Reader reader = Files.newBufferedReader(file.toPath(), StandardCharsets.UTF_8)) {
       List<OutboxEntry> stored = gson.fromJson(reader, LIST_TYPE);
       return stored == null ? new ArrayList<>() : new ArrayList<>(stored);
     } catch (IOException | RuntimeException e) {
       // Not logged at more than debug: this file holds the player's captured drops.
       log.debug("event outbox unreadable, treating as empty: {}", e.getMessage());
-      return new ArrayList<>();
+      return setAside();
     }
+  }
+
+  // Moved aside, never overwritten, so a damaged queue can still be inspected or recovered.
+  private <T> List<T> setAside() {
+    setAside = true;
+    try {
+      Files.move(
+          file.toPath(),
+          file.toPath().resolveSibling(file.getName() + ".unreadable"),
+          StandardCopyOption.REPLACE_EXISTING);
+    } catch (IOException | RuntimeException e) {
+      log.debug("event outbox could not be set aside: {}", e.getMessage());
+    }
+    return new ArrayList<>();
+  }
+
+  /** What is wrong with the queue file, or null. Never its content. */
+  String problem() {
+    if (unsaved) {
+      return "could not be saved, so new items may be lost";
+    }
+    return setAside ? "was unreadable and was set aside" : null;
+  }
+
+  /** Oldest items dropped this session because the queue was full. */
+  int dropped() {
+    return dropped;
   }
 
   private void write(List<OutboxEntry> entries) {
@@ -135,7 +172,9 @@ public class EventOutbox {
       } catch (AtomicMoveNotSupportedException e) {
         Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING);
       }
+      unsaved = false;
     } catch (IOException | RuntimeException e) {
+      unsaved = true;
       // Swallowed: throwing out of a capture handler would break every detector on the tick.
       log.debug("event outbox write failed: {}", e.getMessage());
     }

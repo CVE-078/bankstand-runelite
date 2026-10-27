@@ -198,6 +198,41 @@ public class DiaryTaskVarsTest {
   }
 
   @Test
+  public void aReadBeforeTheVarsArriveNeverOverwritesKnownState() throws Exception {
+    h.varbits.put(VarbitID.FREMENNIK_MED_COUNT, 8);
+    capture();
+    assertTrue(last().has("diaryTasks"));
+    // A relog whose diary values have not arrived yet reads all zeroes.
+    h.state(GameState.LOGIN_SCREEN);
+    h.varps.clear();
+    h.varbits.clear();
+    h.logIn();
+    h.executor.runAll();
+    h.xp = 2_000;
+    capture();
+    assertEquals(2, snapshots().size());
+    for (String block : new String[] {"diaries", "diaryTasks", "diaryTaskVars"}) {
+      assertFalse(block, last().has(block));
+    }
+    // Once they arrive, the real values go out.
+    h.varps.put(VarPlayerID.FREMENNIK_ACHIEVEMENT_DIARY, 0b11111111);
+    h.varbits.put(VarbitID.FREMENNIK_MED_COUNT, 9);
+    h.xp = 3_000;
+    capture();
+    assertTrue(last().has("diaryTaskVars"));
+  }
+
+  @Test
+  public void aNewCharactersGenuineZeroReadIsStillSentOnce() throws Exception {
+    h.varps.clear();
+    h.varbits.clear();
+    capture();
+    JsonObject vars = last().getAsJsonObject("diaryTaskVars");
+    assertNotNull(vars);
+    assertTrue(last().has("diaries"));
+  }
+
+  @Test
   public void anExcludedWorldReadsAndSendsNothing() throws Exception {
     h.hopTo(EnumSet.of(WorldType.SEASONAL, WorldType.MEMBERS));
     h.executor.runAll();

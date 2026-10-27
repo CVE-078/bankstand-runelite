@@ -22,7 +22,7 @@ public class DisconnectTest {
     String body = source.substring(start, source.indexOf("\n  }\n", start));
 
     int readToken = body.indexOf("DeviceCredentials paired = deviceStore.load();");
-    int clear = body.indexOf("pairingQueues.replace(deviceStore::clear);");
+    int clear = body.indexOf("pairingQueues.replace(() -> removed[0] = deviceStore.clear());");
     int unpair = body.indexOf("api.unpairInBackground(");
     assertTrue("reads the token before forgetting it", readToken >= 0 && readToken < clear);
     assertTrue(

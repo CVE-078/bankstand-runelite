@@ -278,6 +278,13 @@ public class BankstandClient {
   }
 
   /** {@link #unpair} on the executor; runs {@code onUnreachable} when the server could not say. */
+  private volatile boolean closed;
+
+  /** On plugin shutdown: a retry that is still scheduled fails instead of dispatching. */
+  public void close() {
+    closed = true;
+  }
+
   public void unpairInBackground(String baseUrl, String deviceToken, Runnable onUnreachable) {
     executor.submit(
         () -> {
@@ -350,6 +357,10 @@ public class BankstandClient {
       int maxAttempts,
       long baseDelayMillis,
       CompletableFuture<T> result) {
+    if (closed) {
+      result.completeExceptionally(new SubmitException("Stopped."));
+      return;
+    }
     try {
       result.complete(call.call());
     } catch (SubmitException e) {

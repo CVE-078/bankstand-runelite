@@ -95,7 +95,9 @@ Under **Settings > Bankstand**:
 - **Pairing code.** Paste a code to pair. It clears itself once used.
 - **Disconnect.** Tick to forget this device's token and revoke it on the server. If the server
   cannot be reached, a chat message says so; remove the device on **Plugin connection**
-  ([bankstand.gg/account/connection](https://bankstand.gg/account/connection)).
+  ([bankstand.gg/account/connection](https://bankstand.gg/account/connection)). Sending stops at once
+  either way. If the pairing file cannot be removed from this computer, a chat message says so and
+  the pairing returns after a restart.
 - **One section per capability**, each with its own toggle. Notable drops also has its gp
   threshold.
 
