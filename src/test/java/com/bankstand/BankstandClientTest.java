@@ -463,6 +463,23 @@ public class BankstandClientTest {
     assertEquals(2, t.calls);
   }
 
+  @Test
+  public void submitEventsDoesNotRetryA429AndCarriesItsRetryAfter() throws Exception {
+    SequencedTransport t =
+        new SequencedTransport(
+            new HttpResponse(429, "{\"error\":\"rate limited\"}", "120"),
+            new HttpResponse(200, "{\"routed\":true,\"acks\":[]}"));
+    try {
+      new BankstandClient(t, new Gson(), EXECUTOR)
+          .submitEventsWithRetry(BASE, "bsd_tok", 1L, Collections.emptyList(), 3, 0L)
+          .get(GET_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+      fail("expected a 429 failure");
+    } catch (java.util.concurrent.ExecutionException e) {
+      assertEquals(120_000L, ((SubmitException) e.getCause()).getRetryAfterMillis());
+    }
+    assertEquals(1, t.calls);
+  }
+
   private static void assertGenericFailure(FakeTransport t) {
     try {
       client(t).exchangePairingCode(BASE, "ABCD-EFGH");

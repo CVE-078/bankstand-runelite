@@ -192,6 +192,7 @@ public class BankstandPlugin extends Plugin {
 
   private final LootLedger lootLedger = new LootLedger();
   private final LootSendPacer lootPacer = new LootSendPacer();
+  private final EventSendPacer eventPacer = new EventSendPacer();
   private final AtomicBoolean lootSending = new AtomicBoolean();
   private LootOutbox lootOutbox;
   private PairingQueues pairingQueues;
@@ -523,7 +524,7 @@ public class BankstandPlugin extends Plugin {
   /**
    * Drains the outbox, grouped by capturing account and split into chunks of at most {@link
    * #MAX_EVENTS_PER_SUBMIT}. Each chunk acks independently, so an invalid event only blocks its
-   * own chunk. A failed chunk waits for the next scheduled drain.
+   * own chunk. A failed chunk waits for the next drain; {@link EventSendPacer} paces the rest.
    */
   @Schedule(period = EVENT_DRAIN_INTERVAL_SECONDS, unit = ChronoUnit.SECONDS)
   public void drainEventOutbox() {
@@ -555,24 +556,21 @@ public class BankstandPlugin extends Plugin {
     executor.submit(
         () -> {
           for (Map.Entry<Long, List<TransientEvent>> group : byAccount.entrySet()) {
+            long hash = group.getKey();
             for (List<TransientEvent> chunk : chunkEvents(group.getValue(), MAX_EVENTS_PER_SUBMIT)) {
-              // Chunks retry independently; the retry is a scheduled task, never a blocked thread.
+              // The first attempt runs here, so a 429 or unrouted reply stops the next chunk.
+              if (!eventPacer.maySend(hash, System.currentTimeMillis())) break;
               api
                   .submitEventsWithRetry(
-                      url, token, group.getKey(), chunk, MAX_SUBMIT_ATTEMPTS, SUBMIT_RETRY_BASE_DELAY_MS)
+                      url, token, hash, chunk, MAX_SUBMIT_ATTEMPTS, SUBMIT_RETRY_BASE_DELAY_MS)
                   .whenComplete(
                       (response, failure) -> {
                         if (failure != null) {
-                          log.debug(
-                              "event drain failed for one account group's chunk: {}",
-                              failure.getMessage());
-                          return;
+                          log.debug("event drain failed for one chunk: {}", failure.getMessage());
                         }
-                        if (!response.isRouted()) {
-                          // Unclaimed: leave every entry pending, like a network failure.
-                          return;
+                        if (eventPacer.record(hash, System.currentTimeMillis(), response, failure)) {
+                          eventOutbox.ack(EventOutbox.idsToAck(response.getAcks()));
                         }
-                        eventOutbox.ack(EventOutbox.idsToAck(response.getAcks()));
                       });
             }
           }
@@ -1711,6 +1709,7 @@ public class BankstandPlugin extends Plugin {
       // loadAckedState repopulates lastSyncedAt; the activity log is session-only.
       lastSyncedAt.clear();
       recentActivityLog.clear();
+      eventPacer.forgetUnrouted();
       baselineGeneration = generation;
       loadAckedState(accountHash, generation);
     }
@@ -2342,6 +2341,7 @@ public class BankstandPlugin extends Plugin {
     DeviceCredentials previous = deviceStore.load();
     PairingQueues.Dropped dropped =
         pairingQueues.replace(() -> deviceStore.save(DeviceCredentials.of(res, url)));
+    eventPacer.forgetUnrouted();
     String discarded = dropped.repairNotice();
     if (discarded != null) {
       notice(discarded);
