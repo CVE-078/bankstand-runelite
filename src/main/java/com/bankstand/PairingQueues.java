@@ -42,8 +42,8 @@ final class PairingQueues {
   /** The current pairing id, as the queues read it. */
   static Supplier<String> pairingOf(DeviceCredentialStore store) {
     return () -> {
-      DeviceCredentials credentials = store.load();
-      return store.isUnreadable() ? UNKNOWN : credentials.getPairingId();
+      DeviceCredentialStore.Read read = store.read();
+      return read.unreadable ? UNKNOWN : read.credentials.getPairingId();
     };
   }
 

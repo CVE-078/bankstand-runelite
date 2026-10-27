@@ -187,4 +187,26 @@ public class DeviceCredentialStoreTest {
     after.setPairing(PairingQueues.pairingOf(store));
     assertEquals(1, after.pending().size());
   }
+
+  @Test
+  public void eachReadKeepsItsOwnReadability() throws IOException {
+    File file = newFile();
+    DeviceCredentials paired = new DeviceCredentials();
+    paired.setToken("tok_abc");
+    storeIn(file).save(paired);
+    DeviceCredentialStore store = storeIn(file);
+    org.junit.Assume.assumeTrue(file.setReadable(false) && !file.canRead());
+    DeviceCredentialStore.Read failed;
+    try {
+      failed = store.read();
+    } finally {
+      file.setReadable(true);
+    }
+    // A second reader succeeds in between; the first result must not change under it.
+    DeviceCredentialStore.Read ok = store.read();
+    assertTrue(failed.unreadable);
+    assertFalse(failed.credentials.isPaired());
+    assertFalse(ok.unreadable);
+    assertTrue(ok.credentials.isPaired());
+  }
 }

@@ -16,8 +16,8 @@ import java.nio.file.StandardCopyOption;
  * uploads all config to RuneLite's servers, and the token is a bearer credential. Per-install
  * storage also keeps each machine its own device.
  *
- * <p>A read failure means "not paired" (fail closed). Save/clear and load are never concurrent;
- * {@link #cached} is volatile so a save on one thread is seen by the next load on another.
+ * <p>A read failure means "not paired" (fail closed) and is never cached. Called from the client
+ * thread and the executor: {@link #cached} is volatile, and each read returns its own result.
  */
 public class DeviceCredentialStore {
 
@@ -26,44 +26,50 @@ public class DeviceCredentialStore {
 
   // Read on nearly every game event, so cached. Null means "not loaded yet", not "not paired".
   private volatile DeviceCredentials cached;
-  // The file exists but could not be read: treated as unpaired, never cached, read again later.
-  private volatile boolean unreadable;
 
   public DeviceCredentialStore(File file, Gson gson) {
     this.file = file;
     this.gson = gson;
   }
 
+  /** One read: the credentials, and whether the file could not be read ("not paired" is a guess). */
+  public static final class Read {
+    public final DeviceCredentials credentials;
+    public final boolean unreadable;
+
+    Read(DeviceCredentials credentials, boolean unreadable) {
+      this.credentials = credentials;
+      this.unreadable = unreadable;
+    }
+  }
+
   /** Never null. */
   public DeviceCredentials load() {
+    return read().credentials;
+  }
+
+  public Read read() {
     DeviceCredentials current = cached;
     if (current != null) {
-      return current;
+      return new Read(current, false);
     }
-    DeviceCredentials loaded = readFromDisk();
-    if (!unreadable) {
-      cached = loaded;
+    Read read = readFromDisk();
+    if (!read.unreadable) {
+      cached = read.credentials;
     }
-    return loaded;
+    return read;
   }
 
-  /** True when the last read failed, so "not paired" is a guess. */
-  public boolean isUnreadable() {
-    return unreadable;
-  }
-
-  private DeviceCredentials readFromDisk() {
-    unreadable = false;
+  private Read readFromDisk() {
     if (!file.exists()) {
-      return DeviceCredentials.none();
+      return new Read(DeviceCredentials.none(), false);
     }
     try (Reader reader = Files.newBufferedReader(file.toPath(), StandardCharsets.UTF_8)) {
       DeviceCredentials stored = gson.fromJson(reader, DeviceCredentials.class);
-      return stored == null ? DeviceCredentials.none() : stored;
+      return new Read(stored == null ? DeviceCredentials.none() : stored, false);
     } catch (IOException | RuntimeException e) {
       // Not logged, at any level: this file holds a credential.
-      unreadable = true;
-      return DeviceCredentials.none();
+      return new Read(DeviceCredentials.none(), true);
     }
   }
 
@@ -88,7 +94,6 @@ public class DeviceCredentialStore {
       }
       // Only on success, so the cache always matches disk.
       cached = credentials;
-      unreadable = false;
       return true;
     } catch (IOException | RuntimeException e) {
       // Not logged: the message can carry the path, and the caller reports the outcome.
@@ -102,7 +107,6 @@ public class DeviceCredentialStore {
    */
   public boolean clear() {
     cached = DeviceCredentials.none();
-    unreadable = false;
     try {
       Files.deleteIfExists(file.toPath());
       return true;
