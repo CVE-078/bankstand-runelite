@@ -12,6 +12,7 @@ import com.google.gson.Gson;
 import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.util.List;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
@@ -246,6 +247,53 @@ public class DeliveryHardeningTest {
     EventOutbox onDisk = new EventOutbox(events, new Gson());
     onDisk.setPairing(PairingQueues.pairingOf(h.deviceStore));
     assertEquals("written once the disk allows", 2, onDisk.pending().size());
+  }
+
+  @Test
+  public void afterAFailedWriteTheQueueInMemoryIsTheTruth() throws Exception {
+    unlock("Pet snakeling");
+    unlock("Abyssal orphan");
+    String acked = h.eventOutbox.pending().get(0).getEvent().getId();
+    assumeTrue(dir.setWritable(false));
+    try {
+      h.eventOutbox.ack(java.util.Collections.singleton(acked));
+      unlock("Tiny tempor");
+      List<String> ids = ids(h.eventOutbox.pending());
+      assertFalse("an acked entry never comes back", ids.contains(acked));
+      assertEquals(2, ids.size());
+    } finally {
+      dir.setWritable(true);
+    }
+    unlock("Smol Heredit");
+    EventOutbox onDisk = new EventOutbox(new File(dir, "events.json"), new Gson());
+    onDisk.setPairing(PairingQueues.pairingOf(h.deviceStore));
+    assertEquals(ids(h.eventOutbox.pending()), ids(onDisk.pending()));
+    assertEquals(3, onDisk.pending().size());
+  }
+
+  @Test
+  public void afterAFailedWriteTheLootQueueInMemoryIsTheTruth() throws Exception {
+    addLoot(2);
+    String acked = h.lootOutbox.pending().get(0).getEvent().getId();
+    assumeTrue(dir.setWritable(false));
+    try {
+      h.lootOutbox.ack(java.util.Collections.singleton(acked));
+      assertEquals(1, h.lootOutbox.pending().size());
+    } finally {
+      dir.setWritable(true);
+    }
+    h.lootOutbox.pending();
+    LootOutbox onDisk = new LootOutbox(new File(dir, "loot.json"), new Gson());
+    onDisk.setPairing(PairingQueues.pairingOf(h.deviceStore));
+    assertEquals(1, onDisk.pending().size());
+  }
+
+  private static List<String> ids(List<OutboxEntry> entries) {
+    List<String> ids = new java.util.ArrayList<>();
+    for (OutboxEntry entry : entries) {
+      ids.add(entry.getEvent().getId());
+    }
+    return ids;
   }
 
   @Test

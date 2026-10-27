@@ -46,8 +46,10 @@ public class LootOutbox {
   private volatile boolean setAside;
   private volatile boolean unsaved;
   private volatile int dropped;
-  // While the file cannot be read, changes are kept here and merged in once it can.
-  private final List<LootEntry> held = new ArrayList<>();
+  // What should be on disk but is not yet, cleared only by a successful write. Full when built
+  // from a successful read; otherwise only what changed while the file could not be read.
+  private List<LootEntry> unwritten;
+  private boolean unwrittenIsFull;
   private volatile boolean readFailing;
   private final Gson gson;
   private volatile Supplier<String> pairing = () -> null;
@@ -93,6 +95,8 @@ public class LootOutbox {
 
   /** Forgets every pending record, on disk too, so a restart cannot send them either. */
   public synchronized void clear() {
+    // Nothing is pending, so this is the full list whatever the last read did.
+    readFailing = false;
     write(new ArrayList<>());
   }
 
@@ -120,27 +124,29 @@ public class LootOutbox {
   // Fails closed: if a clear on re-pair could not write, the old pairing's entries still never
   // leave. They are dropped here, and from disk whenever a write succeeds.
   private List<LootEntry> current() {
-    List<LootEntry> entries = read();
-    boolean changed = false;
-    if (entries == null) {
-      readFailing = true;
-      entries = new ArrayList<>(held);
+    List<LootEntry> entries;
+    boolean flush = unwritten != null;
+    if (flush && unwrittenIsFull) {
+      entries = new ArrayList<>(unwritten);
     } else {
-      readFailing = false;
-      // Cleared by the next successful write, so a failed one cannot lose them.
-      changed = !held.isEmpty();
-      entries.addAll(held);
+      List<LootEntry> fromDisk = read();
+      readFailing = fromDisk == null;
+      entries = fromDisk == null ? new ArrayList<>() : fromDisk;
+      if (flush) {
+        entries.addAll(unwritten);
+      }
     }
     String now = pairing.get();
     // An unreadable pairing is not "another pairing": nothing is purged until it is known.
     boolean purged =
         !PairingQueues.UNKNOWN.equals(now)
             && entries.removeIf(entry -> !Objects.equals(now, entry.getPairingId()));
-    if (purged || changed) {
+    if (purged || flush) {
       write(entries);
     }
     return entries;
   }
+
 
 
   private List<LootEntry> read() {
@@ -191,10 +197,10 @@ public class LootOutbox {
   }
 
   private void write(List<LootEntry> entries) {
+    unwritten = new ArrayList<>(entries);
+    unwrittenIsFull = !readFailing;
+    // Writing now would replace the unread file with only what is in memory.
     if (readFailing) {
-      // Writing now would replace the unread file with only what is in memory.
-      held.clear();
-      held.addAll(entries);
       return;
     }
     Path target = file.toPath();
@@ -215,7 +221,7 @@ public class LootOutbox {
         Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING);
       }
       unsaved = false;
-      held.clear();
+      unwritten = null;
     } catch (IOException | RuntimeException e) {
       unsaved = true;
       log.debug("loot outbox write failed: {}", e.getMessage());
