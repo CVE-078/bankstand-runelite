@@ -202,7 +202,8 @@ public class BankstandPlugin extends Plugin {
   private final PresenceQueue presenceQueue = new PresenceQueue();
   private final AtomicBoolean presenceSending = new AtomicBoolean();
   // Transitions decided on LOGGED_IN go out a tick later.
-  private final List<PresenceSignal> presenceDueNextTick = new ArrayList<>();
+  // A LOGGED_IN whose presence waits for the settle. Client thread.
+  private boolean presenceLoginPending;
   private volatile ScheduledFuture<?> hopTimer;
   // The generation whose next capture skips the change gate; -1 when none.
   private volatile int forcedSubmitGeneration = -1;
@@ -417,9 +418,7 @@ public class BankstandPlugin extends Plugin {
     cancelHopTimer();
     presenceTracker.reset();
     presenceQueue.clear();
-    synchronized (presenceDueNextTick) {
-      presenceDueNextTick.clear();
-    }
+    presenceLoginPending = false;
     if (navButton != null) {
       clientToolbar.removeNavigation(navButton);
     }
@@ -580,7 +579,9 @@ public class BankstandPlugin extends Plugin {
   /** Offers this minute's "online" mark, while in game on a standard world. */
   private void pulsePresence() {
     long hash = presenceTracker.accountHash();
-    if (!presenceTracker.isOnStandardWorld() || hash == AccountSession.LOGGED_OUT) {
+    if (!presenceTracker.isOnStandardWorld()
+        || hash == AccountSession.LOGGED_OUT
+        || !isCaptureReady()) {
       return;
     }
     if (!isSessionCaptureEnabled()) {
@@ -1382,16 +1383,12 @@ public class BankstandPlugin extends Plugin {
       }
       ticksSinceLoggedIn = 0;
       cancelHopTimer();
-      List<PresenceSignal> due =
-          presenceTracker.onLoggedIn(
-              CaptureGate.allowsWorld(client.getWorldType()), client.getAccountHash(), System.nanoTime());
-      synchronized (presenceDueNextTick) {
-        presenceDueNextTick.addAll(due);
-      }
+      presenceLoginPending = true;
     } else if (state == GameState.LOGIN_SCREEN) {
       // Before onLogout, which clears the session this needs to attribute the read to.
       captureFinalSnapshot();
       captureGate.reset();
+      presenceLoginPending = false;
       lastSkillRead = null;
       // Loot first, so the last kills go before the logout.
       if (lootOutbox != null) {
@@ -1432,17 +1429,14 @@ public class BankstandPlugin extends Plugin {
     }
   }
 
-  /** Sends the transitions a LOGGED_IN decided, one tick after it. */
+  /** Decides a LOGGED_IN's presence once settled, by the gate every other capture uses. */
   private void flushDuePresence() {
-    List<PresenceSignal> due;
-    synchronized (presenceDueNextTick) {
-      if (presenceDueNextTick.isEmpty()) {
-        return;
-      }
-      due = new ArrayList<>(presenceDueNextTick);
-      presenceDueNextTick.clear();
+    if (!presenceLoginPending || !captureGate.isSettled()) {
+      return;
     }
-    enqueuePresence(due);
+    presenceLoginPending = false;
+    enqueuePresence(
+        presenceTracker.onLoggedIn(isCaptureReady(), client.getAccountHash(), System.nanoTime()));
   }
 
   @Subscribe

@@ -50,6 +50,7 @@ final class PluginHarness {
   Set<WorldType> world = EnumSet.of(WorldType.MEMBERS);
   int[] regions = LUMBRIDGE;
   long hash = MAIN;
+  GameState gameState = GameState.LOGGED_IN;
   String serverUrl = BankstandKeys.DEFAULT_SERVER_URL;
   final Map<String, Boolean> toggles = new HashMap<>();
 
@@ -78,6 +79,10 @@ final class PluginHarness {
                       return hash;
                     case "isClientThread":
                       return true;
+                    case "getGameState":
+                      return gameState;
+                    case "getLocalPlayer":
+                      return localPlayer();
                     default:
                       return zero(method.getReturnType());
                   }
@@ -116,6 +121,7 @@ final class PluginHarness {
     set("clientThread", clientThread);
     set("executor", executor);
     set("configManager", configManager(dir));
+    set("chatMessageManager", chatMessageManager());
     set("deviceStore", deviceStore);
     set("ackedStore", ackedStore);
     set("eventOutbox", eventOutbox);
@@ -133,10 +139,7 @@ final class PluginHarness {
 
   /** A real ConfigManager over a scratch file, built without RuneLite's injector. */
   private static ConfigManager configManager(File dir) throws Exception {
-    Field unsafeField = sun.misc.Unsafe.class.getDeclaredField("theUnsafe");
-    unsafeField.setAccessible(true);
-    sun.misc.Unsafe unsafe = (sun.misc.Unsafe) unsafeField.get(null);
-    ConfigManager manager = (ConfigManager) unsafe.allocateInstance(ConfigManager.class);
+    ConfigManager manager = (ConfigManager) unsafe().allocateInstance(ConfigManager.class);
     Class<?> dataType = Class.forName("net.runelite.client.config.ConfigData");
     Constructor<?> data = dataType.getDeclaredConstructor(File.class);
     data.setAccessible(true);
@@ -148,6 +151,36 @@ final class PluginHarness {
     handler.setAccessible(true);
     setField(manager, "handler", handler.newInstance(manager));
     return manager;
+  }
+
+  private static net.runelite.api.Player localPlayer() {
+    return (net.runelite.api.Player)
+        Proxy.newProxyInstance(
+            net.runelite.api.Player.class.getClassLoader(),
+            new Class<?>[] {net.runelite.api.Player.class},
+            (proxy, method, args) ->
+                "getName".equals(method.getName()) ? "Zezima" : zero(method.getReturnType()));
+  }
+
+  /** Collects chat notices instead of drawing them. */
+  private static net.runelite.client.chat.ChatMessageManager chatMessageManager() throws Exception {
+    Object manager = unsafe().allocateInstance(net.runelite.client.chat.ChatMessageManager.class);
+    setField(manager, "queuedMessages", new java.util.concurrent.ConcurrentLinkedQueue<>());
+    return (net.runelite.client.chat.ChatMessageManager) manager;
+  }
+
+  /** Runs what the plugin handed the client thread with invokeLater. */
+  void runClientThread() throws Exception {
+    ClientThread thread = (ClientThread) get("clientThread");
+    Method drain = ClientThread.class.getDeclaredMethod("invoke");
+    drain.setAccessible(true);
+    drain.invoke(thread);
+  }
+
+  private static sun.misc.Unsafe unsafe() throws Exception {
+    Field unsafeField = sun.misc.Unsafe.class.getDeclaredField("theUnsafe");
+    unsafeField.setAccessible(true);
+    return (sun.misc.Unsafe) unsafeField.get(null);
   }
 
   static Object zero(Class<?> type) {
