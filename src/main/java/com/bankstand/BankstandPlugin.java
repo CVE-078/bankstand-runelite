@@ -1697,6 +1697,10 @@ public class BankstandPlugin extends Plugin {
     // nothing is sent before this login's acked state has loaded, and an all-zero read never
     // replaces known or unknown state. A new character's real zeroes still go once.
     boolean ackedKnown = ackedLoadedGeneration == generation;
+    // Read again each capture until it succeeds; until then the baseline stays unknown.
+    if (ackedKnown && ackedLoadFailed) {
+      loadAckedState(accountHash, generation);
+    }
     boolean zeroDiaries =
         diaries != null
             && !diaries.containsValue("COMPLETE")
@@ -1819,8 +1823,9 @@ public class BankstandPlugin extends Plugin {
     long pairing = pairingQueues.epoch();
     executor.submit(
         () -> {
-          AckedState state = ackedStore.load(accountHash);
-          boolean failed = ackedStore.lastReadFailed();
+          AckedStateStore.Loaded loaded = ackedStore.loadChecked(accountHash);
+          AckedState state = loaded.state;
+          boolean failed = loaded.failed;
           clientThread.invoke(
               () -> {
                 if (!session.isCurrent(accountHash, generation)) {
@@ -2531,6 +2536,8 @@ public class BankstandPlugin extends Plugin {
     slayerTaskBaseline.reset();
     collectionLogBaseline.reset();
     diaryTaskVarsAcked = null;
+    // Nothing is acked on the new pairing, so an empty baseline is the truth.
+    ackedLoadFailed = false;
     lastSyncedAt.clear();
     // Queued after any earlier save, so a stale ack cannot be written back over this.
     executor.submit(ackedStore::forgetAcks);

@@ -273,6 +273,53 @@ public class DiaryTaskVarsTest {
     assertTrue(last().has("diaryTasks"));
   }
 
+  /** Logs a new character in while the acked-state file cannot be read. */
+  private File unreadableLogin() throws Exception {
+    File acked = new File(dir, "acked.json");
+    h.state(GameState.LOGIN_SCREEN);
+    h.executor.runAll();
+    org.junit.Assume.assumeTrue(acked.setReadable(false) && !acked.canRead());
+    h.hash = 77L;
+    h.varps.clear();
+    h.varbits.clear();
+    h.logIn();
+    h.executor.runAll();
+    h.xp = 2_000;
+    capture();
+    assertFalse("unknown baseline: no zero diaries", last().has("diaries"));
+    return acked;
+  }
+
+  @Test
+  public void aLaterSuccessfulReadLiftsTheFailedLoad() throws Exception {
+    capture();
+    File acked = unreadableLogin();
+    acked.setReadable(true);
+    h.xp = 3_000;
+    capture();
+    h.xp = 4_000;
+    capture();
+    assertTrue("a new character's real zeroes, once the baseline is known", last().has("diaries"));
+    assertFalse(last().has("diaryTaskVars"));
+  }
+
+  @Test
+  public void aRePairLiftsTheFailedLoad() throws Exception {
+    h.transport.byPath.put(
+        "/pair", body -> new HttpResponse(200, "{\"deviceToken\":\"tok-b\",\"deviceId\":\"d\"}"));
+    capture();
+    File acked = unreadableLogin();
+    try {
+      h.call("pair", "BBBB-BBBB");
+      h.executor.runAll();
+      h.xp = 3_000;
+      capture();
+      assertTrue("nothing is acked on the new pairing", last().has("diaries"));
+    } finally {
+      acked.setReadable(true);
+    }
+  }
+
   @Test
   public void anExcludedWorldReadsAndSendsNothing() throws Exception {
     h.hopTo(EnumSet.of(WorldType.SEASONAL, WorldType.MEMBERS));

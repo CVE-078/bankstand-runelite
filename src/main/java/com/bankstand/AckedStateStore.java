@@ -108,8 +108,20 @@ public class AckedStateStore {
     return document;
   }
 
-  boolean lastReadFailed() {
-    return lastReadFailed;
+  /** One read's state and whether that read failed, taken under one lock. */
+  static final class Loaded {
+    final AckedState state;
+    final boolean failed;
+
+    Loaded(AckedState state, boolean failed) {
+      this.state = state;
+      this.failed = failed;
+    }
+  }
+
+  synchronized Loaded loadChecked(long accountHash) {
+    AckedState state = load(accountHash);
+    return new Loaded(state, lastReadFailed);
   }
 
   private Document read() {
