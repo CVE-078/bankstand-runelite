@@ -100,7 +100,13 @@ public class DeliveryHardeningTest {
 
   private LootEntry lootEntry() throws Exception {
     LootLedger ledger = (LootLedger) h.get("lootLedger");
-    new LootCapture(
+    lootCapture(ledger)
+        .handleKill(2, "Goblin", java.util.Collections.singletonList(new net.runelite.client.game.ItemStack(526, 1)));
+    return ledger.closeAll().get(0);
+  }
+
+  private LootCapture lootCapture(LootLedger ledger) {
+    return new LootCapture(
             () -> true,
             () -> PluginHarness.MAIN,
             new LootCapture.Items() {
@@ -117,9 +123,7 @@ public class DeliveryHardeningTest {
             ledger,
             h.lootOutbox,
             () -> {},
-            java.time.Instant::now)
-        .handleKill(2, "Goblin", java.util.Collections.singletonList(new net.runelite.client.game.ItemStack(526, 1)));
-    return ledger.closeAll().get(0);
+            java.time.Instant::now);
   }
 
   @Test
@@ -130,6 +134,110 @@ public class DeliveryHardeningTest {
     ((BankstandClient) h.get("pairingClient")).close();
     new java.util.ArrayList<>(h.executor.scheduled).forEach(Runnable::run);
     assertEquals(1, h.transport.count("/events"));
+  }
+
+  private void disconnectNow() {
+    try {
+      h.call("disconnect");
+    } catch (Exception e) {
+      throw new AssertionError(e);
+    }
+  }
+
+  private void addLoot(int kills) throws Exception {
+    LootLedger ledger = (LootLedger) h.get("lootLedger");
+    LootCapture capture = lootCapture(ledger);
+    for (int npc = 1; npc <= kills; npc++) {
+      capture.handleKill(npc, "Npc " + npc, java.util.Collections.singletonList(new net.runelite.client.game.ItemStack(526, 1)));
+    }
+    h.lootOutbox.addAll(ledger.closeAll());
+  }
+
+  @Test
+  public void aLateRejectionForAReplacedTokenNeverHaltsLoot() throws Exception {
+    addLoot(1);
+    h.transport.byPath.put(
+        "/loot",
+        body -> {
+          DeviceCredentials next = h.deviceStore.load();
+          DeviceCredentials replaced = DeviceCredentials.none();
+          replaced.setToken("tok-new");
+          replaced.setServerUrl(next.getServerUrl());
+          replaced.setPairingId(next.getPairingId());
+          h.deviceStore.save(replaced);
+          return new HttpResponse(401, "");
+        });
+    drain();
+    assertFalse(((SubmitGate) h.get("submitGate")).isHalted());
+  }
+
+  @Test
+  public void aDisconnectBetweenEventChunksSendsNoFurtherChunk() throws Exception {
+    for (int i = 0; i < 51; i++) {
+      unlock("Item " + i);
+    }
+    h.transport.byPath.put(
+        "/events",
+        body -> {
+          disconnectNow();
+          return new HttpResponse(200, "{\"routed\":true,\"acks\":[]}");
+        });
+    drain();
+    assertEquals(1, h.transport.count("/events"));
+  }
+
+  @Test
+  public void aDisconnectBeforeAScheduledRetryStopsTheRetry() throws Exception {
+    h.transport.byPath.put("/events", body -> new HttpResponse(503, ""));
+    unlock("Pet snakeling");
+    drain();
+    disconnectNow();
+    new java.util.ArrayList<>(h.executor.scheduled).forEach(Runnable::run);
+    assertEquals(1, h.transport.count("/events"));
+  }
+
+  @Test
+  public void aDisconnectBetweenLootChunksSendsNoFurtherChunk() throws Exception {
+    addLoot(51);
+    h.transport.byPath.put(
+        "/loot",
+        body -> {
+          disconnectNow();
+          return new HttpResponse(200, "{\"acks\":[]}");
+        });
+    drain();
+    assertEquals(1, h.transport.count("/loot"));
+  }
+
+  @Test
+  public void aTransientReadErrorLeavesTheQueueAndItsEventsIntact() throws Exception {
+    File events = new File(dir, "events.json");
+    unlock("Pet snakeling");
+    assumeTrue(events.setReadable(false) && !events.canRead());
+    try {
+      unlock("Abyssal orphan");
+      assertNotNull(h.eventOutbox.problem());
+    } finally {
+      events.setReadable(true);
+    }
+    assertFalse(new File(dir, "events.json.unreadable").exists());
+    assertEquals(2, h.eventOutbox.pending().size());
+    assertNull(h.eventOutbox.problem());
+  }
+
+  @Test
+  public void aTransientReadErrorLeavesTheLootQueueIntact() throws Exception {
+    File loot = new File(dir, "loot.json");
+    addLoot(1);
+    assumeTrue(loot.setReadable(false) && !loot.canRead());
+    try {
+      addLoot(1);
+      assertNotNull(h.lootOutbox.problem());
+    } finally {
+      loot.setReadable(true);
+    }
+    assertFalse(new File(dir, "loot.json.unreadable").exists());
+    assertEquals(2, h.lootOutbox.pending().size());
   }
 
   // B: credentials
@@ -152,6 +260,19 @@ public class DeliveryHardeningTest {
     assertFalse(noticeText().contains("Connected"));
     assertTrue(noticeText().contains("could not be saved"));
     assertEquals("only the unused new token is revoked", 1, h.transport.count("/unpair"));
+  }
+
+  @Test
+  public void aPairingThatCannotBeSavedKeepsTheOldPairingsQueues() throws Exception {
+    h.transport.byPath.put(
+        "/pair", body -> new HttpResponse(200, "{\"deviceToken\":\"tok-new\",\"deviceId\":\"d\"}"));
+    unlock("Pet snakeling");
+    addLoot(1);
+    breakCredentialFile();
+    h.call("pair", "BBBB-BBBB");
+    h.executor.runAll();
+    assertEquals(1, h.eventOutbox.pending().size());
+    assertEquals(1, h.lootOutbox.pending().size());
   }
 
   @Test

@@ -2,6 +2,7 @@ package com.bankstand;
 
 import com.bankstand.dto.EventAck;
 import com.google.gson.Gson;
+import com.google.gson.JsonSyntaxException;
 import com.google.gson.reflect.TypeToken;
 import java.io.File;
 import java.io.IOException;
@@ -46,6 +47,9 @@ public class EventOutbox {
   private volatile boolean setAside;
   private volatile boolean unsaved;
   private volatile int dropped;
+  // While the file cannot be read, changes are kept here and merged in once it can.
+  private final List<OutboxEntry> held = new ArrayList<>();
+  private volatile boolean readFailing;
   private final Gson gson;
   private volatile Supplier<String> pairing = () -> null;
 
@@ -103,12 +107,23 @@ public class EventOutbox {
   // leave. They are dropped here, and from disk whenever a write succeeds.
   private List<OutboxEntry> current() {
     List<OutboxEntry> entries = read();
+    boolean changed = false;
+    if (entries == null) {
+      readFailing = true;
+      entries = new ArrayList<>(held);
+    } else {
+      readFailing = false;
+      changed = !held.isEmpty();
+      entries.addAll(held);
+      held.clear();
+    }
     String now = pairing.get();
-    if (entries.removeIf(entry -> !Objects.equals(now, entry.getPairingId()))) {
+    if (entries.removeIf(entry -> !Objects.equals(now, entry.getPairingId())) || changed) {
       write(entries);
     }
     return entries;
   }
+
 
   private List<OutboxEntry> read() {
     if (!file.exists()) {
@@ -120,10 +135,14 @@ public class EventOutbox {
     try (Reader reader = Files.newBufferedReader(file.toPath(), StandardCharsets.UTF_8)) {
       List<OutboxEntry> stored = gson.fromJson(reader, LIST_TYPE);
       return stored == null ? new ArrayList<>() : new ArrayList<>(stored);
-    } catch (IOException | RuntimeException e) {
-      // Not logged at more than debug: this file holds the player's captured drops.
-      log.debug("event outbox unreadable, treating as empty: {}", e.getMessage());
+    } catch (JsonSyntaxException e) {
+      // Damaged for good: kept aside, and the queue starts again empty.
+      log.debug("event outbox unparseable: {}", e.getMessage());
       return setAside();
+    } catch (IOException | RuntimeException e) {
+      // Maybe passing (a lock, a permission): left in place and read again next time.
+      log.debug("event outbox unreadable for now: {}", e.getMessage());
+      return null;
     }
   }
 
@@ -143,6 +162,9 @@ public class EventOutbox {
 
   /** What is wrong with the queue file, or null. Never its content. */
   String problem() {
+    if (readFailing) {
+      return "could not be read right now; it is kept and read again later";
+    }
     if (unsaved) {
       return "could not be saved, so new items may be lost";
     }
@@ -155,6 +177,12 @@ public class EventOutbox {
   }
 
   private void write(List<OutboxEntry> entries) {
+    if (readFailing) {
+      // Writing now would replace the unread file with only what is in memory.
+      held.clear();
+      held.addAll(entries);
+      return;
+    }
     Path target = file.toPath();
     Path directory = target.getParent();
     try {

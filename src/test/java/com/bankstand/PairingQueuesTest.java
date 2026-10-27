@@ -41,15 +41,19 @@ public class PairingQueuesTest {
     assertEquals(1, loot.pending().size());
 
     PairingQueues queues = new PairingQueues(presence, events, ledger, loot, () -> null);
-    boolean[] droppedFirst = {false};
+    boolean[] swappedFirst = {false};
     PairingQueues.Dropped dropped =
-        queues.replace(() -> droppedFirst[0] = events.pending().isEmpty());
+        queues.replace(
+            () -> {
+              swappedFirst[0] = !events.pending().isEmpty();
+              return true;
+            });
     assertEquals(1, dropped.events);
     assertEquals("one queued and one still open", 2, dropped.loot);
     assertEquals(
         "Re-paired: 1 queued event and 2 loot drops from the previous pairing were discarded.",
         dropped.repairNotice());
-    assertTrue("the queues are dropped before the pairing is swapped", droppedFirst[0]);
+    assertTrue("the pairing is swapped before its queues are dropped", swappedFirst[0]);
 
     assertEquals(0, presence.size());
     assertTrue(events.pending().isEmpty());
@@ -75,7 +79,7 @@ public class PairingQueuesTest {
     int previous = body.indexOf("DeviceCredentials previous = deviceStore.load();");
     int replace =
         body.indexOf(
-            "ticket, () -> saved[0] = deviceStore.save(DeviceCredentials.of(res, url)));");
+            "ticket, () -> deviceStore.save(DeviceCredentials.of(res, url)));");
     int revoke = body.indexOf("previous.pairedServerUrl(), previous.getToken()");
     assertTrue("reads the old pairing before replacing it", previous >= 0 && previous < replace);
     assertTrue("revokes the old token at the server it was paired with", revoke > replace);
@@ -93,7 +97,11 @@ public class PairingQueuesTest {
     java.util.concurrent.CountDownLatch swapped = new java.util.concurrent.CountDownLatch(1);
     Thread pairing;
     synchronized (queues) {
-      pairing = new Thread(() -> queues.replace(swapped::countDown));
+      pairing = new Thread(() -> queues.replace(
+                      () -> {
+                        swapped.countDown();
+                        return true;
+                      }));
       pairing.start();
       assertTrue(
           "the swap waits for the send's read",
@@ -105,16 +113,16 @@ public class PairingQueuesTest {
 
   @Test
   public void theRepairNoticeCountsWhatWasDroppedAndIsSilentWhenNothingWas() {
-    assertNull(new PairingQueues.Dropped(0, 0).repairNotice());
+    assertNull(new PairingQueues.Dropped(0, 0, true).repairNotice());
     assertEquals(
         "Re-paired: 12 queued events and 3 loot drops from the previous pairing were discarded.",
-        new PairingQueues.Dropped(12, 3).repairNotice());
+        new PairingQueues.Dropped(12, 3, true).repairNotice());
     assertEquals(
         "Re-paired: 1 loot drop from the previous pairing was discarded.",
-        new PairingQueues.Dropped(0, 1).repairNotice());
+        new PairingQueues.Dropped(0, 1, true).repairNotice());
     assertEquals(
         "Re-paired: 2 queued events from the previous pairing were discarded.",
-        new PairingQueues.Dropped(2, 0).repairNotice());
+        new PairingQueues.Dropped(2, 0, true).repairNotice());
   }
 
   @Test

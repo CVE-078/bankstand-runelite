@@ -45,31 +45,39 @@ final class PairingQueues {
   }
 
   /** Like {@link #replace}, but null when a disconnect or a newer pairing came after the ticket. */
-  synchronized Dropped replaceIfCurrent(long ticket, Runnable swapPairing) {
+  synchronized Dropped replaceIfCurrent(long ticket, java.util.function.BooleanSupplier swapPairing) {
     return ticket == epoch ? replace(swapPairing) : null;
   }
 
   /** Drops the old queues and swaps the stored pairing as one step. Returns what it dropped. */
-  synchronized Dropped replace(Runnable swapPairing) {
+  synchronized Dropped replace(java.util.function.BooleanSupplier swapPairing) {
     epoch++;
-    // Dropped first: a crash in between loses the queue, never sends it with the new token.
-    Dropped dropped =
-        new Dropped(events.pending().size(), loot.pending().size() + ledger.closeAll().size());
+    int eventCount = events.pending().size();
+    int lootCount = loot.pending().size();
+    // Swapped first: if it fails, the old pairing and its queues stay as they were. A crash
+    // before the clear is safe too: entries are tagged with their pairing and never sent under
+    // another one.
+    if (!swapPairing.getAsBoolean()) {
+      return new Dropped(0, 0, false);
+    }
+    lootCount += ledger.closeAll().size();
     presence.clear();
     events.clear();
     loot.clear();
-    swapPairing.run();
-    return dropped;
+    return new Dropped(eventCount, lootCount, true);
   }
 
   /** Counts only, so the notice can never carry a token, device id, server URL or account. */
   static final class Dropped {
     final int events;
     final int loot;
+    // False when the new pairing could not be stored; nothing was dropped.
+    final boolean swapped;
 
-    Dropped(int events, int loot) {
+    Dropped(int events, int loot, boolean swapped) {
       this.events = events;
       this.loot = loot;
+      this.swapped = swapped;
     }
 
     /** The chat line for a re-pair, or null when nothing was dropped. */

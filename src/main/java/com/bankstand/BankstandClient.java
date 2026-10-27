@@ -180,8 +180,28 @@ public class BankstandClient {
       List<TransientEvent> events,
       int maxAttempts,
       long baseDelayMillis) {
+    return submitEventsWithRetry(
+        baseUrl, deviceToken, accountHash, events, maxAttempts, baseDelayMillis, () -> true);
+  }
+
+  /** {@code stillCurrent} is checked before every attempt, retries included. */
+  public CompletableFuture<SubmitEventsResponse> submitEventsWithRetry(
+      String baseUrl,
+      String deviceToken,
+      long accountHash,
+      List<TransientEvent> events,
+      int maxAttempts,
+      long baseDelayMillis,
+      java.util.function.BooleanSupplier stillCurrent) {
     return withRetry(
-        () -> submitEvents(baseUrl, deviceToken, accountHash, events), maxAttempts, baseDelayMillis);
+        () -> {
+          if (!stillCurrent.getAsBoolean()) {
+            throw new SubmitException("Pairing changed.");
+          }
+          return submitEvents(baseUrl, deviceToken, accountHash, events);
+        },
+        maxAttempts,
+        baseDelayMillis);
   }
 
   /**

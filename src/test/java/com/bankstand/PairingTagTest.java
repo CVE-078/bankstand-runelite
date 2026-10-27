@@ -54,7 +54,11 @@ public class PairingTagTest {
     // The disk refuses the clear: the old entries stay in the files.
     Assume.assumeTrue(dir.setWritable(false));
     try {
-      queues.replace(() -> pairing[0] = "pairing-b");
+      queues.replace(
+          () -> {
+            pairing[0] = "pairing-b";
+            return true;
+          });
     } finally {
       dir.setWritable(true);
     }

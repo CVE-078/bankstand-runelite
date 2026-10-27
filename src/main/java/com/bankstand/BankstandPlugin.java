@@ -245,6 +245,9 @@ public class BankstandPlugin extends Plugin {
   private int baselineGeneration = -1;
   // Digest of the raw diary task values last stored. Client thread.
   private String diaryTaskVarsAcked;
+  // The generation whose acked state has loaded, and whether that read failed. Client thread.
+  private int ackedLoadedGeneration = -1;
+  private boolean ackedLoadFailed;
   private volatile BankstandClient pairingClient;
   // Set when a guided read finishes COMPLETE; cleared only once the server acknowledged a
   // submission carrying the flag, so a failed send keeps it pending.
@@ -570,11 +573,19 @@ public class BankstandPlugin extends Plugin {
             for (Map.Entry<Long, List<TransientEvent>> group : byAccount.entrySet()) {
               long hash = group.getKey();
               for (List<TransientEvent> chunk : chunkEvents(group.getValue(), MAX_EVENTS_PER_SUBMIT)) {
-                // The first attempt runs here, so a 429 or unrouted reply stops the next chunk.
-                if (!eventPacer.maySend(hash, System.currentTimeMillis())) break;
+                // The first attempt runs here, so a 429, unrouted reply or re-pair stops the next chunk.
+                if (!eventPacer.maySend(hash, System.currentTimeMillis()) || isReplaced(url, token)) {
+                  break;
+                }
                 flights.add(api
                     .submitEventsWithRetry(
-                        url, token, hash, chunk, MAX_SUBMIT_ATTEMPTS, SUBMIT_RETRY_BASE_DELAY_MS)
+                        url,
+                        token,
+                        hash,
+                        chunk,
+                        MAX_SUBMIT_ATTEMPTS,
+                        SUBMIT_RETRY_BASE_DELAY_MS,
+                        () -> !isReplaced(url, token))
                     .whenComplete(
                         (response, failure) -> {
                           // The old pairing's reply says nothing about the new one.
@@ -785,7 +796,8 @@ public class BankstandPlugin extends Plugin {
     for (Map.Entry<Long, List<LootEvent>> group : byAccount.entrySet()) {
       for (List<LootEvent> chunk : chunk(group.getValue(), MAX_EVENTS_PER_SUBMIT)) {
         BankstandClient client = pairingClient;
-        if (client == null) {
+        // A disconnect or re-pair since this drain started: nothing more goes out under it.
+        if (client == null || isReplaced(url, token)) {
           return;
         }
         try {
@@ -797,6 +809,9 @@ public class BankstandPlugin extends Plugin {
           }
         } catch (SubmitException e) {
           log.debug("loot send failed: {}", e.getMessage());
+          if (isReplaced(url, token)) {
+            return;
+          }
           if (e.isAuthFailure() && submitGate.onAuthFailure()) {
             notice(NO_LONGER_PAIRED);
           }
@@ -1678,12 +1693,16 @@ public class BankstandPlugin extends Plugin {
       SlayerTask slayerTask,
       boolean varsReadable) {
     adoptCharacter(accountHash, generation);
-    // Diary values read all zero before the game sends them, and progress never goes back, so
-    // an all-zero read never replaces known state. A new character's real zeroes still go once.
-    if (diaries != null
-        && diaryBaseline.ackedDigest() != null
-        && !diaries.containsValue("COMPLETE")
-        && (diaryTaskCounts == null || !diaryTaskCounts.values().stream().anyMatch(n -> n != 0))) {
+    // Diary values read all zero before the game sends them, and progress never goes back. So
+    // nothing is sent before this login's acked state has loaded, and an all-zero read never
+    // replaces known or unknown state. A new character's real zeroes still go once.
+    boolean ackedKnown = ackedLoadedGeneration == generation;
+    boolean zeroDiaries =
+        diaries != null
+            && !diaries.containsValue("COMPLETE")
+            && (diaryTaskCounts == null || diaryTaskCounts.values().stream().allMatch(n -> n == 0));
+    if (!ackedKnown
+        || (zeroDiaries && (ackedLoadFailed || diaryBaseline.ackedDigest() != null))) {
       diaries = null;
       diaryTaskCounts = null;
     }
@@ -1731,9 +1750,11 @@ public class BankstandPlugin extends Plugin {
         varsReadable && isDiaryCaptureEnabled() && manifest.allows("diaryTaskVars")
             ? DiaryTaskVars.read(client::getVarpValue, client::getVarbitValue)
             : null;
+    // Never all zero: a too-early read and a new character look the same, and unknown is safe.
     if (diaryTaskVars != null
-        && (CapabilityDigest.of(diaryTaskVars).equals(diaryTaskVarsAcked)
-            || (diaryTaskVarsAcked != null && DiaryTaskVars.isAllZero(diaryTaskVars)))) {
+        && (!ackedKnown
+            || DiaryTaskVars.isAllZero(diaryTaskVars)
+            || CapabilityDigest.of(diaryTaskVars).equals(diaryTaskVarsAcked))) {
       diaryTaskVars = null;
     }
     // An omitted block is null or empty, so the per-block ack keys off what actually went out.
@@ -1791,6 +1812,7 @@ public class BankstandPlugin extends Plugin {
    */
   private void loadAckedState(long accountHash, int generation) {
     if (ackedStore == null) {
+      ackedLoadedGeneration = generation;
       return;
     }
     // A re-pair during the read forgets acks; applying this read after it would undo that.
@@ -1798,10 +1820,16 @@ public class BankstandPlugin extends Plugin {
     executor.submit(
         () -> {
           AckedState state = ackedStore.load(accountHash);
+          boolean failed = ackedStore.lastReadFailed();
           clientThread.invoke(
               () -> {
-                if (!session.isCurrent(accountHash, generation)
-                    || pairingQueues.epoch() != pairing) {
+                if (!session.isCurrent(accountHash, generation)) {
+                  return;
+                }
+                ackedLoadedGeneration = generation;
+                // After a re-pair nothing is acked, so an empty baseline is the truth.
+                ackedLoadFailed = failed && pairingQueues.epoch() == pairing;
+                if (pairingQueues.epoch() != pairing) {
                   return;
                 }
                 skillBaseline.restore(state.getSkills());
@@ -2389,7 +2417,12 @@ public class BankstandPlugin extends Plugin {
   private void disconnect() {
     DeviceCredentials paired = deviceStore.load();
     boolean[] removed = {false};
-    pairingQueues.replace(() -> removed[0] = deviceStore.clear());
+    // Always swapped: clear() unpairs this process even when the disk cannot follow.
+    pairingQueues.replace(
+        () -> {
+          removed[0] = deviceStore.clear();
+          return true;
+        });
     // Unsetting the legacy keys is what removes the token from a synced profile upstream.
     LegacyCredentials.forget(configManager);
     // Untick the toggle so ticking it again fires this afresh.
@@ -2446,15 +2479,14 @@ public class BankstandPlugin extends Plugin {
 
   private Stored storeToken(PairResponse res, String url, long ticket) {
     DeviceCredentials previous = deviceStore.load();
-    boolean[] saved = {false};
     PairingQueues.Dropped dropped =
         pairingQueues.replaceIfCurrent(
-            ticket, () -> saved[0] = deviceStore.save(DeviceCredentials.of(res, url)));
+            ticket, () -> deviceStore.save(DeviceCredentials.of(res, url)));
     if (dropped == null) {
       return Stored.STALE;
     }
-    // The previous pairing stays in use; only its queues went, never sent under another token.
-    if (!saved[0]) {
+    // The previous pairing and its queues stay in use.
+    if (!dropped.swapped) {
       return Stored.UNSAVED;
     }
     eventPacer.forgetUnrouted();

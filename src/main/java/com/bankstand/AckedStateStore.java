@@ -25,6 +25,8 @@ public class AckedStateStore {
   }
 
   private final File file;
+  // Whether the last read hit a file it could not read, as opposed to no file at all.
+  private volatile boolean lastReadFailed;
   private final Gson gson;
 
   public AckedStateStore(File file, Gson gson) {
@@ -70,14 +72,20 @@ public class AckedStateStore {
     write(document);
   }
 
+  boolean lastReadFailed() {
+    return lastReadFailed;
+  }
+
   private Document read() {
     Document document = null;
+    lastReadFailed = false;
     if (file.exists()) {
       try (Reader reader = Files.newBufferedReader(file.toPath(), StandardCharsets.UTF_8)) {
         document = gson.fromJson(reader, Document.class);
       } catch (IOException | RuntimeException e) {
         // Not logged: the document holds an account hash and a collection log.
         document = null;
+        lastReadFailed = true;
       }
     }
     if (document == null) {

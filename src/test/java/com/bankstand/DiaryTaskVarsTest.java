@@ -223,13 +223,54 @@ public class DiaryTaskVarsTest {
   }
 
   @Test
-  public void aNewCharactersGenuineZeroReadIsStillSentOnce() throws Exception {
+  public void anAllZeroBlockIsNeverSentEvenForANewCharacter() throws Exception {
     h.varps.clear();
     h.varbits.clear();
     capture();
-    JsonObject vars = last().getAsJsonObject("diaryTaskVars");
-    assertNotNull(vars);
-    assertTrue(last().has("diaries"));
+    assertFalse("unknown beats a zero that may be too early", last().has("diaryTaskVars"));
+    assertTrue("a loaded, empty baseline: the zero counts are real", last().has("diaries"));
+  }
+
+  @Test
+  public void aZeroReadBeforeThisLoginsLoadFinishesSendsNoDiaryBlock() throws Exception {
+    h.state(GameState.LOGIN_SCREEN);
+    h.executor.runAll();
+    h.hash = 77L;
+    h.varps.clear();
+    h.varbits.clear();
+    h.logIn();
+    // Queued at LOGGED_IN, before the identity submit the settle ticks queue.
+    Runnable load = h.executor.take();
+    h.executor.runAll();
+    h.xp = 2_000;
+    capture();
+    for (String block : new String[] {"diaries", "diaryTasks", "diaryTaskVars"}) {
+      assertFalse(block, last().has(block));
+    }
+    load.run();
+    h.executor.runAll();
+    h.varbits.put(VarbitID.FREMENNIK_MED_COUNT, 2);
+    h.xp = 3_000;
+    capture();
+    assertTrue("a real read after the load goes out", last().has("diaryTasks"));
+  }
+
+  @Test
+  public void aZeroReadAfterAFailedLoadSendsNoDiaryBlock() throws Exception {
+    java.nio.file.Files.write(
+        new File(dir, "acked.json").toPath(), "{broken".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+    h = start();
+    h.varps.clear();
+    h.varbits.clear();
+    h.xp = 2_000;
+    capture();
+    for (String block : new String[] {"diaries", "diaryTasks", "diaryTaskVars"}) {
+      assertFalse(block, last().has(block));
+    }
+    h.varbits.put(VarbitID.FREMENNIK_MED_COUNT, 2);
+    h.xp = 3_000;
+    capture();
+    assertTrue(last().has("diaryTasks"));
   }
 
   @Test
