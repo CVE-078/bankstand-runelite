@@ -229,6 +229,17 @@ public class PairingReplacementTest {
   }
 
   @Test
+  public void aShutdownMidPairingStoresNothingAndRevokesTheNewToken() throws Exception {
+    h.call("pair", "AAAA-AAAA");
+    Runnable pairing = h.executor.take();
+    h.plugin.shutDown();
+    pairing.run();
+    h.executor.runAll();
+    assertEquals("device-token", token());
+    assertEquals("only the orphaned new token is revoked", 1, h.transport.count("/unpair"));
+  }
+
+  @Test
   public void disconnectWithoutAClientStillForgetsThePairing() throws Exception {
     h.set("pairingClient", null);
     h.call("disconnect");

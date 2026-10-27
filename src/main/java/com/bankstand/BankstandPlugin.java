@@ -395,6 +395,10 @@ public class BankstandPlugin extends Plugin {
     if (api != null) {
       api.close();
     }
+    // A pairing reply still in flight is now stale: never stored, and its token revoked.
+    if (pairingQueues != null) {
+      pairingQueues.beginPairing();
+    }
     if (notableDropCapture != null) {
       eventBus.unregister(notableDropCapture);
     }
@@ -2452,7 +2456,7 @@ public class BankstandPlugin extends Plugin {
         () -> {
           try {
             PairResponse res = api.exchangePairingCode(url, rawCode);
-            Stored stored = storeToken(res, url, ticket);
+            Stored stored = storeToken(res, url, ticket, api);
             if (stored != Stored.OK) {
               // A disconnect or a newer pairing came first, or the save failed: never used.
               api.unpairInBackground(url, res.getDeviceToken(), () -> {});
@@ -2540,7 +2544,7 @@ public class BankstandPlugin extends Plugin {
     UNSAVED
   }
 
-  private Stored storeToken(PairResponse res, String url, long ticket) {
+  private Stored storeToken(PairResponse res, String url, long ticket, BankstandClient api) {
     DeviceCredentials previous = deviceStore.load();
     PairingQueues.Dropped dropped =
         pairingQueues.replaceIfCurrent(
@@ -2567,7 +2571,7 @@ public class BankstandPlugin extends Plugin {
       notice(discarded);
     }
     // The old token may belong to another account or server: revoke it where it was paired.
-    pairingClient.unpairInBackground(
+    api.unpairInBackground(
         previous.pairedServerUrl(), previous.getToken(), () -> notice(UNPAIR_UNREACHABLE));
     return Stored.OK;
   }
