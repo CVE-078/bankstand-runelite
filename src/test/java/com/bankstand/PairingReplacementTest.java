@@ -173,6 +173,28 @@ public class PairingReplacementTest {
   }
 
   @Test
+  public void aPairingThatChangesNothingNeverBlocksTheLoad() throws Exception {
+    submitSnapshot();
+    h.executor.runAll();
+    // A restart; a pairing starts during the load and fails to save, so nothing was forgotten.
+    h = new PluginHarness(folder.getRoot());
+    h.transport.byPath.put(
+        "/pair", body -> new HttpResponse(200, "{\"deviceToken\":\"tok-b\",\"deviceId\":\"d\"}"));
+    h.onClientThread = false;
+    h.logIn();
+    Runnable load = h.executor.take();
+    java.io.File device = new java.io.File(folder.getRoot(), "device.json");
+    assertTrue(device.delete());
+    assertTrue(new java.io.File(device, "x").mkdirs());
+    h.call("pair", "BBBB-BBBB");
+    h.executor.runAll();
+    load.run();
+    h.runClientThread();
+    h.executor.runAll();
+    assertTrue("the acks on disk were restored", questsAcked());
+  }
+
+  @Test
   public void disconnectWithoutAClientStillForgetsThePairing() throws Exception {
     h.set("pairingClient", null);
     h.call("disconnect");

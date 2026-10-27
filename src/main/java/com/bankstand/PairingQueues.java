@@ -31,7 +31,9 @@ final class PairingQueues {
     this.loot = loot;
   }
 
-  // Bumped by every pairing request and every replace, so a slow pairing reply can tell it is stale.
+  // Bumped by every pairing request and every replace, so a slow pairing reply is told apart.
+  private long tickets;
+  // Bumped only when the stored pairing really changed, so a reader knows its acks were forgotten.
   private long epoch;
 
   /** Read while the credential file cannot be: the queues then keep everything as it is. */
@@ -45,24 +47,24 @@ final class PairingQueues {
     };
   }
 
-  /** Changes whenever a pairing starts or is replaced. */
+  /** Changes only when the stored pairing changes. */
   synchronized long epoch() {
     return epoch;
   }
 
   /** Taken before a pairing request; hand it back to {@link #replaceIfCurrent}. */
   synchronized long beginPairing() {
-    return ++epoch;
+    return ++tickets;
   }
 
   /** Like {@link #replace}, but null when a disconnect or a newer pairing came after the ticket. */
   synchronized Dropped replaceIfCurrent(long ticket, java.util.function.BooleanSupplier swapPairing) {
-    return ticket == epoch ? replace(swapPairing) : null;
+    return ticket == tickets ? replace(swapPairing) : null;
   }
 
   /** Drops the old queues and swaps the stored pairing as one step. Returns what it dropped. */
   synchronized Dropped replace(java.util.function.BooleanSupplier swapPairing) {
-    epoch++;
+    tickets++;
     int eventCount = events.pending().size();
     int lootCount = loot.pending().size();
     // Swapped first: if it fails, the old pairing and its queues stay as they were. A crash
@@ -71,6 +73,7 @@ final class PairingQueues {
     if (!swapPairing.getAsBoolean()) {
       return new Dropped(0, 0, false);
     }
+    epoch++;
     lootCount += ledger.closeAll().size();
     presence.clear();
     events.clear();
