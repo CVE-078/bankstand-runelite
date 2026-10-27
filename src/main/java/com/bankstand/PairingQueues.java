@@ -34,6 +34,17 @@ final class PairingQueues {
   // Bumped by every pairing request and every replace, so a slow pairing reply can tell it is stale.
   private long epoch;
 
+  /** Read while the credential file cannot be: the queues then keep everything as it is. */
+  static final String UNKNOWN = "unknown";
+
+  /** The current pairing id, as the queues read it. */
+  static Supplier<String> pairingOf(DeviceCredentialStore store) {
+    return () -> {
+      DeviceCredentials credentials = store.load();
+      return store.isUnreadable() ? UNKNOWN : credentials.getPairingId();
+    };
+  }
+
   /** Changes whenever a pairing starts or is replaced. */
   synchronized long epoch() {
     return epoch;

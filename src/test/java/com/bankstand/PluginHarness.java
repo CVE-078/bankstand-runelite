@@ -145,7 +145,7 @@ final class PluginHarness {
             eventOutbox,
             (LootLedger) get("lootLedger"),
             lootOutbox,
-            () -> deviceStore.load().getPairingId()));
+            PairingQueues.pairingOf(deviceStore)));
   }
 
   /** A real ConfigManager over a scratch file, built without RuneLite's injector. */

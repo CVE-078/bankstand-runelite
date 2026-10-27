@@ -159,4 +159,32 @@ public class DeviceCredentialStoreTest {
 
     assertFalse(store.load().isPaired());
   }
+
+  @Test
+  public void anUnreadableFileIsRetriedAndNeverPurgesTheQueues() throws IOException {
+    File file = newFile();
+    DeviceCredentials paired = new DeviceCredentials();
+    paired.setToken("tok_abc");
+    paired.setPairingId("p1");
+    storeIn(file).save(paired);
+    File events = new File(file.getParentFile(), "events.json");
+    EventOutbox writer = new EventOutbox(events, new Gson());
+    writer.setPairing(PairingQueues.pairingOf(storeIn(file)));
+    writer.add(1L, new TransientEvent("e1", TransientEvent.TYPE_PET_DROP, "2026-10-27T10:00:00Z", java.util.Collections.emptyMap()));
+
+    org.junit.Assume.assumeTrue(file.setReadable(false) && !file.canRead());
+    DeviceCredentialStore store = storeIn(file);
+    try {
+      assertFalse("unknown is not paired", store.load().isPaired());
+      EventOutbox reader = new EventOutbox(events, new Gson());
+      reader.setPairing(PairingQueues.pairingOf(store));
+      reader.pending();
+    } finally {
+      file.setReadable(true);
+    }
+    assertTrue("read again, not cached as unpaired", store.load().isPaired());
+    EventOutbox after = new EventOutbox(events, new Gson());
+    after.setPairing(PairingQueues.pairingOf(store));
+    assertEquals(1, after.pending().size());
+  }
 }

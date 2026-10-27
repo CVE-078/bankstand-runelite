@@ -347,7 +347,7 @@ public class BankstandPlugin extends Plugin {
             eventOutbox,
             lootLedger,
             lootOutbox,
-            () -> deviceStore.load().getPairingId());
+            PairingQueues.pairingOf(deviceStore));
     lootCapture =
         new LootCapture(
             this::isLootCaptureEnabled,

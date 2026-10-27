@@ -26,6 +26,8 @@ public class DeviceCredentialStore {
 
   // Read on nearly every game event, so cached. Null means "not loaded yet", not "not paired".
   private volatile DeviceCredentials cached;
+  // The file exists but could not be read: treated as unpaired, never cached, read again later.
+  private volatile boolean unreadable;
 
   public DeviceCredentialStore(File file, Gson gson) {
     this.file = file;
@@ -39,11 +41,19 @@ public class DeviceCredentialStore {
       return current;
     }
     DeviceCredentials loaded = readFromDisk();
-    cached = loaded;
+    if (!unreadable) {
+      cached = loaded;
+    }
     return loaded;
   }
 
+  /** True when the last read failed, so "not paired" is a guess. */
+  public boolean isUnreadable() {
+    return unreadable;
+  }
+
   private DeviceCredentials readFromDisk() {
+    unreadable = false;
     if (!file.exists()) {
       return DeviceCredentials.none();
     }
@@ -52,6 +62,7 @@ public class DeviceCredentialStore {
       return stored == null ? DeviceCredentials.none() : stored;
     } catch (IOException | RuntimeException e) {
       // Not logged, at any level: this file holds a credential.
+      unreadable = true;
       return DeviceCredentials.none();
     }
   }
@@ -77,6 +88,7 @@ public class DeviceCredentialStore {
       }
       // Only on success, so the cache always matches disk.
       cached = credentials;
+      unreadable = false;
       return true;
     } catch (IOException | RuntimeException e) {
       // Not logged: the message can carry the path, and the caller reports the outcome.
@@ -90,6 +102,7 @@ public class DeviceCredentialStore {
    */
   public boolean clear() {
     cached = DeviceCredentials.none();
+    unreadable = false;
     try {
       Files.deleteIfExists(file.toPath());
       return true;

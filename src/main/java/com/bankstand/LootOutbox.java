@@ -133,7 +133,11 @@ public class LootOutbox {
       held.clear();
     }
     String now = pairing.get();
-    if (entries.removeIf(entry -> !Objects.equals(now, entry.getPairingId())) || changed) {
+    // An unreadable pairing is not "another pairing": nothing is purged until it is known.
+    boolean purged =
+        !PairingQueues.UNKNOWN.equals(now)
+            && entries.removeIf(entry -> !Objects.equals(now, entry.getPairingId()));
+    if (purged || changed) {
       write(entries);
     }
     return entries;
