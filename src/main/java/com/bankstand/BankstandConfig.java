@@ -118,9 +118,10 @@ public interface BankstandConfig extends Config {
       // The full name renders truncated in the config panel.
       name = "Diary progress",
       description =
-          "Sends which achievement diary tiers you have completed and how many tasks you"
-              + " have done in each tier. When the game announces a finished diary task in"
-              + " chat, it also sends that task's tier and area.",
+          "Sends which achievement diary tiers you have completed, how many tasks you have"
+              + " done in each tier, which rewards you have claimed and the game's per-task"
+              + " diary values. When the game announces a finished diary task in chat, it also"
+              + " sends that task's tier and area.",
       section = progressSection,
       position = 3)
   default boolean collectDiaries() {

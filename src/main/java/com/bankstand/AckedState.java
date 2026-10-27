@@ -33,12 +33,6 @@ public class AckedState {
    */
   private Map<String, Long> lastSyncedAt;
 
-  /**
-   * Last raw value of each diary varplayer, keyed by id. Raw, not a digest, because per-task
-   * detection XORs against the prior bits.
-   */
-  private Map<Integer, Integer> diaryTaskBits;
-
   /** Digest of the raw per-task diary values the server last stored. */
   private String diaryTaskVars;
 
@@ -48,7 +42,6 @@ public class AckedState {
     state.collectionLogItems = new LinkedHashSet<>();
     state.collectionLogAcked = -1;
     state.lastSyncedAt = new LinkedHashMap<>();
-    state.diaryTaskBits = new LinkedHashMap<>();
     return state;
   }
 
@@ -131,17 +124,5 @@ public class AckedState {
 
   public void setLastSyncedAt(Map<String, Long> lastSyncedAt) {
     this.lastSyncedAt = new LinkedHashMap<>(lastSyncedAt);
-  }
-
-  // Never null, even if the stored file omits the field.
-  public Map<Integer, Integer> getDiaryTaskBits() {
-    if (diaryTaskBits == null) {
-      diaryTaskBits = new LinkedHashMap<>();
-    }
-    return diaryTaskBits;
-  }
-
-  public void setDiaryTaskBits(Map<Integer, Integer> bits) {
-    this.diaryTaskBits = new LinkedHashMap<>(bits);
   }
 }

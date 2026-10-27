@@ -361,21 +361,18 @@ public class WorldIsolationTest {
     assertTrue(pending.get(1).getEvent().getPayload().toString().contains("Pet snakeling"));
   }
 
-  /** The next character never meets the previous one's log or diary bits, even before a capture. */
+  /** The next character never meets the previous one's log, even before a capture. */
   @Test
   public void anAccountSwitchForgetsTheLastCharactersStateAtLogin() throws Exception {
     logIn();
     CollectionLogAccumulator log = (CollectionLogAccumulator) get("collectionLog");
     log.restore(new HashSet<>(Collections.singletonList(13262)));
-    DiaryTaskBits bits = (DiaryTaskBits) get("diaryTaskBits");
-    bits.restore(Collections.singletonMap(4499, 1));
 
     state(GameState.LOGIN_SCREEN);
     hash = ALT;
     state(GameState.LOGGED_IN);
 
     assertTrue(log.observed().isEmpty());
-    assertTrue(bits.snapshot().isEmpty());
   }
 
   @Test

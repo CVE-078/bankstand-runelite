@@ -49,7 +49,6 @@ public class AckedStateStore {
     copy.setCollectionLogItems(stored.getCollectionLogItems());
     copy.setCollectionLogAcked(stored.getCollectionLogAcked());
     copy.setLastSyncedAt(stored.getLastSyncedAt());
-    copy.setDiaryTaskBits(stored.getDiaryTaskBits());
     return copy;
   }
 
@@ -60,13 +59,12 @@ public class AckedStateStore {
     write(document);
   }
 
-  /** For a new pairing, which may be another account or server: keeps what was seen, not acks. */
+  /** For a new pairing, which may be another account or server: keeps the browsed log, not acks. */
   public void forgetAcks() {
     Document document = read();
     for (Map.Entry<String, AckedState> entry : document.accounts.entrySet()) {
       AckedState kept = AckedState.empty();
       kept.setCollectionLogItems(entry.getValue().getCollectionLogItems());
-      kept.setDiaryTaskBits(entry.getValue().getDiaryTaskBits());
       entry.setValue(kept);
     }
     write(document);

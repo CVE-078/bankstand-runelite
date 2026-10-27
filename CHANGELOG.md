@@ -14,6 +14,7 @@ Every notable change to the Bankstand RuneLite plugin. Internal-only changes (re
 - Switching characters forgets the previous one's state at login, so nothing captured before the first sync can mix the two.
 - The account type is remembered across restarts, so it is not sent again after every restart.
 - If you paired with a self-hosted or test server before this version, pair again.
+- With Diary progress on, the game's per-task diary values and reward claims are sent with your diaries, so Bankstand can show which tasks are done.
 
 ## v0.3.0
 

@@ -37,7 +37,9 @@ Each capability has its own toggle and its own section under **Settings > Bankst
 - **Quest progress** (opt-in). Each quest's state: not started, started or finished. For a quest
   too new for RuneLite's quest list, the quest name from the quest-complete scroll.
 - **Diary progress** (opt-in). A completed task count per diary tier, whether the tier reads
-  complete, and the moment a task completes, from the game's chat line.
+  complete, whether its reward has been claimed, and the game's raw per-task diary values, from
+  which Bankstand works out which tasks are done. Also the moment a task completes, from the game's
+  chat line, with its tier and area only.
 - **Combat achievements** (opt-in). A completed count per tier and per boss (where the game has a
   counter), the task name when the game announces a completion in chat, and tier completions. Tasks
   done before you turned this on are counted but not named.
@@ -71,7 +73,6 @@ Last Man Standing game, or before the welcome screen is closed after login.
 
 ## What it never captures
 
-- Which specific diary task you completed. Only the moment, tier and area.
 - Bank value, worn equipment, inventory or your location.
 - Anything about other players. Loot from a player kill is never captured.
 - The game's own kill counters. The Loot log only counts kills that dropped something.

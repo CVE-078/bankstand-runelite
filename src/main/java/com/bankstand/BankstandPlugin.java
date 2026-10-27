@@ -165,8 +165,6 @@ public class BankstandPlugin extends Plugin {
   private final QuestBaseline questBaseline = new QuestBaseline();
   private final DiaryBaseline diaryBaseline = new DiaryBaseline();
   // Resolves diary task identity. Inert until the manifest lists verified regions.
-  private final DiaryTaskBits diaryTaskBits = new DiaryTaskBits();
-  private final DiaryTaskManifest diaryTaskManifest = DiaryTaskManifest.shipped();
   private final AccountTypeBaseline accountTypeBaseline = new AccountTypeBaseline();
   private final CombatAchievementBaseline combatAchievementBaseline =
       new CombatAchievementBaseline();
@@ -308,10 +306,6 @@ public class BankstandPlugin extends Plugin {
             eventOutbox,
             gated(this::isDiaryTaskCompletionCaptureEnabled),
             this::currentAccountHash,
-            client::getVarpValue,
-            diaryTaskBits,
-            diaryTaskManifest,
-            () -> saveAckedState(currentAccountHash()),
             onEmit);
     questCompletionCapture =
         new QuestCompletionCapture(
@@ -1712,7 +1706,6 @@ public class BankstandPlugin extends Plugin {
       skillBaseline.reset();
       questBaseline.reset();
       diaryBaseline.reset();
-      diaryTaskBits.reset();
       combatAchievementBaseline.reset();
       accountTypeBaseline.reset();
       slayerTaskBaseline.reset();
@@ -1750,7 +1743,6 @@ public class BankstandPlugin extends Plugin {
                 skillBaseline.restore(state.getSkills());
                 questBaseline.restore(state.getQuests());
                 diaryBaseline.restore(state.getDiaries());
-                diaryTaskBits.restore(state.getDiaryTaskBits());
                 combatAchievementBaseline.restore(state.getCombatAchievements());
                 accountTypeBaseline.restore(state.getAccountType());
                 diaryTaskVarsAcked = state.getDiaryTaskVars();
@@ -1776,7 +1768,6 @@ public class BankstandPlugin extends Plugin {
     state.setSkills(skillBaseline.ackedDigest());
     state.setQuests(questBaseline.ackedDigest());
     state.setDiaries(diaryBaseline.ackedDigest());
-    state.setDiaryTaskBits(diaryTaskBits.snapshot());
     state.setCombatAchievements(combatAchievementBaseline.ackedDigest());
     state.setAccountType(accountTypeBaseline.ackedValue());
     state.setDiaryTaskVars(diaryTaskVarsAcked);
