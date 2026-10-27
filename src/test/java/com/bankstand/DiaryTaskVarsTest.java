@@ -258,20 +258,38 @@ public class DiaryTaskVarsTest {
 
   @Test
   public void aZeroReadAfterAFailedLoadSendsNoDiaryBlock() throws Exception {
-    java.nio.file.Files.write(
-        new File(dir, "acked.json").toPath(), "{broken".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+    capture();
+    File acked = new File(dir, "acked.json");
+    org.junit.Assume.assumeTrue(acked.setReadable(false) && !acked.canRead());
+    try {
+      h = start();
+      h.varps.clear();
+      h.varbits.clear();
+      h.xp = 2_000;
+      capture();
+      for (String block : new String[] {"diaries", "diaryTasks", "diaryTaskVars"}) {
+        assertFalse(block, last().has(block));
+      }
+      h.varbits.put(VarbitID.FREMENNIK_MED_COUNT, 2);
+      h.xp = 3_000;
+      capture();
+      assertTrue(last().has("diaryTasks"));
+    } finally {
+      acked.setReadable(true);
+    }
+  }
+
+  @Test
+  public void aDamagedStateFileIsSetAsideAndReplaced() throws Exception {
+    File acked = new File(dir, "acked.json");
+    java.nio.file.Files.write(acked.toPath(), "{broken".getBytes(java.nio.charset.StandardCharsets.UTF_8));
     h = start();
-    h.varps.clear();
-    h.varbits.clear();
     h.xp = 2_000;
     capture();
-    for (String block : new String[] {"diaries", "diaryTasks", "diaryTaskVars"}) {
-      assertFalse(block, last().has(block));
-    }
-    h.varbits.put(VarbitID.FREMENNIK_MED_COUNT, 2);
-    h.xp = 3_000;
-    capture();
-    assertTrue(last().has("diaryTasks"));
+    assertTrue("kept for inspection", new File(dir, "acked.json.unreadable").exists());
+    assertNotNull(
+        "a fresh file is written",
+        new AckedStateStore(acked, new Gson()).load(PluginHarness.MAIN).getSkills());
   }
 
   /** Logs a new character in while the acked-state file cannot be read. */

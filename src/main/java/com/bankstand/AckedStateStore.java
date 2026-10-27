@@ -131,13 +131,21 @@ public class AckedStateStore {
       try (Reader reader = Files.newBufferedReader(file.toPath(), StandardCharsets.UTF_8)) {
         document = gson.fromJson(reader, Document.class);
       } catch (IOException | RuntimeException e) {
-        lastReadFailed = true;
         // Maybe passing: never treated as empty, or a save would erase every other character.
         if (!ReadFailures.isDamaged(e)) {
+          lastReadFailed = true;
           return null;
         }
-        // Damaged for good: start again, which re-sends everything once.
+        // Damaged for good: kept aside, and read as "nothing known", so the next save replaces it.
         document = null;
+        try {
+          Files.move(
+              file.toPath(),
+              file.toPath().resolveSibling(file.getName() + ".unreadable"),
+              StandardCopyOption.REPLACE_EXISTING);
+        } catch (IOException | RuntimeException moveFailure) {
+          // The next save replaces it anyway.
+        }
       }
     }
     if (document == null) {
