@@ -110,6 +110,45 @@ public class ThrottlingTest {
     assertEquals(2, h.transport.count("/events"));
   }
 
+  /** Starts a drain and holds back its event send, the last task it queues. */
+  private Runnable startEventDrain() {
+    h.plugin.drainEventOutbox();
+    java.util.List<Runnable> queued = new java.util.ArrayList<>();
+    for (Runnable task; (task = h.executor.take()) != null; ) {
+      queued.add(task);
+    }
+    queued.subList(0, queued.size() - 1).forEach(Runnable::run);
+    return queued.get(queued.size() - 1);
+  }
+
+  @Test
+  public void aReplyToAReplacedPairingNeitherHoldsNorPauses() throws Exception {
+    h.transport.byPath.put(
+        "/pair",
+        body ->
+            new HttpResponse(
+                200, "{\"deviceToken\":\"tok-" + body.hashCode() + "\",\"deviceId\":\"d\"}"));
+    unlock("Pet snakeling");
+    unlock("Abyssal orphan");
+    Runnable oldDrain = startEventDrain();
+    h.call("pair", "BBBB-BBBB");
+    h.executor.runAll();
+
+    h.transport.byPath.put(
+        "/events", body -> new HttpResponse(200, "{\"routed\":false,\"acks\":[]}"));
+    oldDrain.run();
+    assertEquals("the old reply arrived", 1, h.transport.count("/events"));
+    assertTrue("no unrouted hold", eventPacer().maySend(PluginHarness.MAIN, System.currentTimeMillis()));
+
+    h.transport.byPath.put("/events", body -> new HttpResponse(429, RATE_LIMITED, "120"));
+    unlock("Pet snakeling");
+    oldDrain = startEventDrain();
+    h.call("pair", "AAAA-AAAA");
+    h.executor.runAll();
+    oldDrain.run();
+    assertTrue("no pause", eventPacer().maySend(PluginHarness.MAIN, System.currentTimeMillis()));
+  }
+
   @Test
   public void aLoot429PausesLootSends() throws Exception {
     h.transport.byPath.put("/loot", body -> new HttpResponse(429, RATE_LIMITED, "120"));

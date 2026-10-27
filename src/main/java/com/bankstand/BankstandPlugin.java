@@ -562,6 +562,10 @@ public class BankstandPlugin extends Plugin {
                       url, token, hash, chunk, MAX_SUBMIT_ATTEMPTS, SUBMIT_RETRY_BASE_DELAY_MS)
                   .whenComplete(
                       (response, failure) -> {
+                        // The old pairing's reply says nothing about the new one.
+                        if (isReplaced(url, token)) {
+                          return;
+                        }
                         if (failure != null) {
                           log.debug("event drain failed for one chunk: {}", failure.getMessage());
                         }
@@ -1502,11 +1506,12 @@ public class BankstandPlugin extends Plugin {
         // The local player is gone; the server keeps the name it has.
         null,
         skills,
-        isQuestCaptureEnabled() ? readQuestStates() : null,
-        isDiaryCaptureEnabled() ? readDiaryStates() : null,
-        isDiaryCaptureEnabled() ? readDiaryTaskCounts() : null,
-        // Not read: the varps may already be gone.
-        null);
+        // Skills alone: the varps may already be cleared, and only skills have a plausibility check.
+        null,
+        null,
+        null,
+        null,
+        false);
   }
 
   @Schedule(period = CAPTURE_INTERVAL_SECONDS, unit = ChronoUnit.SECONDS)
@@ -1560,7 +1565,7 @@ public class BankstandPlugin extends Plugin {
                   ? slayerTaskStart.read(true)
                   : null;
           onSkillsCaptured(
-              accountHash, generation, name, skills, quests, diaries, diaryTasks, slayerTask);
+              accountHash, generation, name, skills, quests, diaries, diaryTasks, slayerTask, true);
         });
   }
 
@@ -1626,23 +1631,24 @@ public class BankstandPlugin extends Plugin {
       Map<String, String> quests,
       Map<String, String> diaries,
       Map<String, Integer> diaryTaskCounts,
-      SlayerTask slayerTask) {
+      SlayerTask slayerTask,
+      boolean varsReadable) {
     adoptCharacter(accountHash, generation);
     // An opt-in is not retroactive to items observed before it.
     Set<Integer> clog =
         isCollectionLogCaptureEnabled() ? collectionLog.observed() : Collections.emptySet();
     // Not read at all when off: an opt-in is about what leaves the client.
     Map<String, Integer> combatAchievements =
-        isCombatAchievementCaptureEnabled()
+        varsReadable && isCombatAchievementCaptureEnabled()
             ? readCombatAchievementCounts()
             : Collections.emptyMap();
     Map<String, Integer> combatAchievementBossCounts =
-        isCombatAchievementCaptureEnabled()
+        varsReadable && isCombatAchievementCaptureEnabled()
             ? readCombatAchievementBossCounts()
             : Collections.emptyMap();
     // Null when off, or when the varbit holds an unknown value: a wrong badge is worse than none.
     String accountType =
-        isAccountTypeCaptureEnabled()
+        varsReadable && isAccountTypeCaptureEnabled()
             ? AccountTypes.keyFor(client.getVarbitValue(AccountTypes.ACCOUNT_TYPE_VARBIT))
             : null;
     SubmitPlan plan =
@@ -1669,7 +1675,7 @@ public class BankstandPlugin extends Plugin {
     forcedSubmitGeneration = -1;
     // A rider: never a reason to submit, so a server that strips it cannot cause a resend loop.
     Map<String, Object> diaryTaskVars =
-        isDiaryCaptureEnabled() && manifest.allows("diaryTaskVars")
+        varsReadable && isDiaryCaptureEnabled() && manifest.allows("diaryTaskVars")
             ? DiaryTaskVars.read(client::getVarpValue, client::getVarbitValue)
             : null;
     if (diaryTaskVars != null && CapabilityDigest.of(diaryTaskVars).equals(diaryTaskVarsAcked)) {
@@ -1732,12 +1738,15 @@ public class BankstandPlugin extends Plugin {
     if (ackedStore == null) {
       return;
     }
+    // A re-pair during the read forgets acks; applying this read after it would undo that.
+    long pairing = pairingQueues.epoch();
     executor.submit(
         () -> {
           AckedState state = ackedStore.load(accountHash);
           clientThread.invoke(
               () -> {
-                if (!session.isCurrent(accountHash, generation)) {
+                if (!session.isCurrent(accountHash, generation)
+                    || pairingQueues.epoch() != pairing) {
                   return;
                 }
                 skillBaseline.restore(state.getSkills());
@@ -2328,8 +2337,11 @@ public class BankstandPlugin extends Plugin {
         BankstandKeys.GROUP, BankstandKeys.KEY_DISCONNECT, Boolean.FALSE.toString());
     notice("Disconnected. Nothing will be sent until you pair again.");
     // Revoked where it was paired, the one server that knows the token, whatever the URL is now.
-    pairingClient.unpairInBackground(
-        paired.pairedServerUrl(), paired.getToken(), () -> notice(UNPAIR_UNREACHABLE));
+    BankstandClient api = pairingClient;
+    if (api != null) {
+      api.unpairInBackground(
+          paired.pairedServerUrl(), paired.getToken(), () -> notice(UNPAIR_UNREACHABLE));
+    }
   }
 
   private void clearPairingCode() {

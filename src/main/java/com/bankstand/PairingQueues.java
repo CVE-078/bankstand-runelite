@@ -34,6 +34,11 @@ final class PairingQueues {
   // Bumped by every pairing request and every replace, so a slow pairing reply can tell it is stale.
   private long epoch;
 
+  /** Changes whenever a pairing starts or is replaced. */
+  synchronized long epoch() {
+    return epoch;
+  }
+
   /** Taken before a pairing request; hand it back to {@link #replaceIfCurrent}. */
   synchronized long beginPairing() {
     return ++epoch;

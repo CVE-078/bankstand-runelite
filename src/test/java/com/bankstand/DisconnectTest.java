@@ -23,7 +23,7 @@ public class DisconnectTest {
 
     int readToken = body.indexOf("DeviceCredentials paired = deviceStore.load();");
     int clear = body.indexOf("pairingQueues.replace(deviceStore::clear);");
-    int unpair = body.indexOf("pairingClient.unpairInBackground(");
+    int unpair = body.indexOf("api.unpairInBackground(");
     assertTrue("reads the token before forgetting it", readToken >= 0 && readToken < clear);
     assertTrue(
         "revokes at the server it was paired with, not the one now configured",

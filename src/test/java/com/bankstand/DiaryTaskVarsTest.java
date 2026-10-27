@@ -175,6 +175,29 @@ public class DiaryTaskVarsTest {
   }
 
   @Test
+  public void theLogoutReadSendsSkillsButNoVarBasedBlock() throws Exception {
+    h.varbits.put(VarbitID.ARDOUGNE_EASY_COUNT, 3);
+    capture();
+    h.ticks(1);
+    // A cleared client: every varp and varbit reads zero, but XP moved on.
+    h.varps.clear();
+    h.varbits.clear();
+    h.xp = 2_000;
+    h.state(GameState.LOGIN_SCREEN);
+    h.executor.runAll();
+    assertEquals(2, snapshots().size());
+    JsonObject logout = last();
+    assertTrue(logout.has("skills"));
+    for (String block :
+        new String[] {
+          "diaries", "diaryTasks", "diaryTaskVars", "combatAchievements",
+          "combatAchievementBossCounts", "accountType", "quests", "slayerTask"
+        }) {
+      assertFalse(block, logout.has(block));
+    }
+  }
+
+  @Test
   public void anExcludedWorldReadsAndSendsNothing() throws Exception {
     h.hopTo(EnumSet.of(WorldType.SEASONAL, WorldType.MEMBERS));
     h.executor.runAll();

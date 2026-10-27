@@ -52,6 +52,8 @@ final class PluginHarness {
   long hash = MAIN;
   GameState gameState = GameState.LOGGED_IN;
   int xp;
+  // False queues clientThread.invoke work until runClientThread, so a test can order it.
+  boolean onClientThread = true;
   final Map<Integer, Integer> varps = new HashMap<>();
   final Map<Integer, Integer> varbits = new HashMap<>();
   String serverUrl = BankstandKeys.DEFAULT_SERVER_URL;
@@ -81,7 +83,7 @@ final class PluginHarness {
                     case "getAccountHash":
                       return hash;
                     case "isClientThread":
-                      return true;
+                      return onClientThread;
                     case "getGameState":
                       return gameState;
                     case "getLocalPlayer":
@@ -183,7 +185,13 @@ final class PluginHarness {
     ClientThread thread = (ClientThread) get("clientThread");
     Method drain = ClientThread.class.getDeclaredMethod("invoke");
     drain.setAccessible(true);
-    drain.invoke(thread);
+    boolean was = onClientThread;
+    onClientThread = true;
+    try {
+      drain.invoke(thread);
+    } finally {
+      onClientThread = was;
+    }
   }
 
   private static sun.misc.Unsafe unsafe() throws Exception {

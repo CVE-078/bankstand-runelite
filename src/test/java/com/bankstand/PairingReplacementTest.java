@@ -122,6 +122,34 @@ public class PairingReplacementTest {
   }
 
   @Test
+  public void aLoadStartedBeforeARePairNeverRestoresTheOldAcks() throws Exception {
+    submitSnapshot();
+    h.executor.runAll();
+    assertTrue(questsAcked());
+
+    // A restart: the load is queued at login, and a re-pair lands while it is in flight.
+    h = new PluginHarness(folder.getRoot());
+    h.transport.byPath.put(
+        "/pair", body -> new HttpResponse(200, "{\"deviceToken\":\"tok-b\",\"deviceId\":\"d\"}"));
+    h.onClientThread = false;
+    h.logIn();
+    Runnable load = h.executor.take();
+    h.call("pair", "BBBB-BBBB");
+    h.executor.runAll();
+    load.run();
+    h.runClientThread();
+    h.executor.runAll();
+    assertFalse(questsAcked());
+  }
+
+  @Test
+  public void disconnectWithoutAClientStillForgetsThePairing() throws Exception {
+    h.set("pairingClient", null);
+    h.call("disconnect");
+    assertFalse(h.deviceStore.load().isPaired());
+  }
+
+  @Test
   public void pairingWithAnotherServerResendsEveryBlock() throws Exception {
     ((CollectionLogAccumulator) h.get("collectionLog")).restore(new LinkedHashSet<>(clog));
     submitSnapshot();

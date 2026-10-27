@@ -63,8 +63,8 @@ Each capability has its own toggle and its own section under **Settings > Bankst
   finish one, from the game's completion message. Also when you got the task, if the plugin was
   running to see it; kept in a local file so a restart does not lose it.
 
-It also takes one last capture when you log out. A cleared client reads as zeroes, and that read is
-dropped rather than sent.
+It also takes one last capture when you log out. That capture sends skill XP only, and only if no
+skill went down, since a cleared client reads as zeroes; everything else waits for the next login.
 
 Only regular worlds are read: free, members, PvP, Bounty, high-risk and total-level worlds. Nothing
 is read or sent on any other world type (Leagues, Deadman, tournament, PvP Arena, beta, no-save,
