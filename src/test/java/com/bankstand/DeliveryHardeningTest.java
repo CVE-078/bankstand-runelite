@@ -378,6 +378,20 @@ public class DeliveryHardeningTest {
   }
 
   @Test
+  public void aParseableButMalformedQueueIsSetAside() throws Exception {
+    File events = new File(dir, "events.json");
+    for (String body : new String[] {"[null]", "[{}]", "[{\"accountHash\":1,\"event\":{}}]"}) {
+      Files.write(events.toPath(), body.getBytes(StandardCharsets.UTF_8));
+      assertTrue(body, h.eventOutbox.pending().isEmpty());
+      assertNotNull(body, h.eventOutbox.problem());
+    }
+    File loot = new File(dir, "loot.json");
+    Files.write(loot.toPath(), "[null, {}]".getBytes(StandardCharsets.UTF_8));
+    assertTrue(h.lootOutbox.pending().isEmpty());
+    assertNotNull(h.lootOutbox.problem());
+  }
+
+  @Test
   public void anUnwritableQueueIsReportedAndRecoversWhenWritable() throws Exception {
     assumeTrue(dir.setWritable(false));
     try {

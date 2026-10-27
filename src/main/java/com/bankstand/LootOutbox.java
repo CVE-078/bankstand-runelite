@@ -158,7 +158,16 @@ public class LootOutbox {
     }
     try (Reader reader = Files.newBufferedReader(file.toPath(), StandardCharsets.UTF_8)) {
       List<LootEntry> stored = gson.fromJson(reader, LIST_TYPE);
-      return stored == null ? new ArrayList<>() : new ArrayList<>(stored);
+      if (stored == null) {
+        return new ArrayList<>();
+      }
+      // Valid JSON can still lack what every reader of an entry needs.
+      for (LootEntry entry : stored) {
+        if (entry == null || entry.getEvent() == null || entry.getEvent().getId() == null) {
+          return setAside();
+        }
+      }
+      return new ArrayList<>(stored);
     } catch (IOException | RuntimeException e) {
       log.debug("loot outbox unreadable: {}", e.getMessage());
       // Damaged for good: kept aside. Maybe passing (a lock, a permission): left in place.
