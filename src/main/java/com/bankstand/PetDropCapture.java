@@ -16,9 +16,10 @@ import net.runelite.client.util.Text;
 
 /**
  * Detects pet drops with a prime-then-resolve pattern, because the game's first message never
- * names the pet. A prime line arms the detector; the NEXT game message alone may resolve the
- * name (collection-log or untradeable-drop line) and consumes the prime whether it matches or
- * not. Only names in {@link #KNOWN_PETS} emit. That set is a starting set, not exhaustive.
+ * names the pet. A prime line arms the detector for the next {@link #WINDOW} game messages, since
+ * other lines (pet insurance) can come before the collection-log or untradeable-drop line. The
+ * first known pet in that window resolves and consumes the prime, so one prime emits once. Only
+ * names in {@link #KNOWN_PETS} emit. That set is a starting set, not exhaustive.
  */
 public class PetDropCapture extends BaseCapture {
 
@@ -93,7 +94,11 @@ public class PetDropCapture extends BaseCapture {
     return pets;
   }
 
-  private boolean primed;
+  // Big enough for the kill-count, insurance and collection-log lines; small enough that a stale
+  // prime cannot resolve an unrelated later drop.
+  static final int WINDOW = 4;
+
+  private int primedFor;
 
   public PetDropCapture(EventOutbox outbox, BooleanSupplier enabled, LongSupplier accountHash) {
     super(outbox, enabled, accountHash);
@@ -117,23 +122,23 @@ public class PetDropCapture extends BaseCapture {
 
   /**
    * The toggle gates only emitting, never the prime/consume tracking: otherwise disabling between
-   * prime and resolve would leave {@link #primed} stuck and a later message could resolve it.
+   * prime and resolve would leave {@link #primedFor} stuck and a later message could resolve it.
    */
   void handleMessage(String message) {
     if (isPrimeMessage(message)) {
-      primed = true;
+      primedFor = WINDOW;
       return;
     }
-    if (!primed) {
+    if (primedFor == 0) {
       return;
     }
-    // One-shot: consumed whether or not this message resolves anything.
-    primed = false;
-    if (!isEnabled()) return;
+    primedFor--;
     String name = resolvePetName(message);
     if (name == null) {
       return;
     }
+    primedFor = 0;
+    if (!isEnabled()) return;
     emit(TransientEvent.TYPE_PET_DROP, payload(name));
   }
 
@@ -143,15 +148,11 @@ public class PetDropCapture extends BaseCapture {
 
   /** Null means nothing to emit: not a resolve line, or not a known pet. */
   static String resolvePetName(String message) {
-    String fromLog = matchGroup(COLLECTION_LOG_PATTERN, message);
-    if (fromLog != null && KNOWN_PETS.contains(fromLog)) {
-      return fromLog;
+    String name = matchGroup(COLLECTION_LOG_PATTERN, message);
+    if (name == null) {
+      name = matchGroup(UNTRADEABLE_DROP_PATTERN, message);
     }
-    String fromDrop = matchGroup(UNTRADEABLE_DROP_PATTERN, message);
-    if (fromDrop != null && KNOWN_PETS.contains(fromDrop)) {
-      return fromDrop;
-    }
-    return null;
+    return name != null && KNOWN_PETS.contains(name) ? name : null;
   }
 
   private static String matchGroup(Pattern pattern, String message) {
