@@ -2475,7 +2475,12 @@ public class BankstandPlugin extends Plugin {
             // auth halt.
             noticeGate.onSuccess();
             lastFailureReason = null;
-            notice("Connected. Your progress will sync from now on.");
+            // Saved for the server it was made with; a URL changed meanwhile means not paired here.
+            notice(
+                isPaired()
+                    ? "Connected. Your progress will sync from now on."
+                    : "Paired with " + url + ", but the Server URL changed since. Pair again with a"
+                        + " code from the server it points to now.");
           } catch (PairingException e) {
             // The message is generic; the raw code and token are never logged.
             notice("Pairing failed. " + e.getMessage());

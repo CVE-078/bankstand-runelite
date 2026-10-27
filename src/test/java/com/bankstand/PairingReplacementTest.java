@@ -240,6 +240,16 @@ public class PairingReplacementTest {
   }
 
   @Test
+  public void aPairingAnsweredAfterTheServerUrlChangedIsNotReportedAsConnected() throws Exception {
+    h.call("pair", "AAAA-AAAA");
+    h.serverUrl = "https://other.example";
+    h.executor.runAll();
+    String said = String.join("\n", h.notices());
+    assertFalse(said, said.contains("Connected."));
+    assertTrue(said, said.contains("Server URL changed"));
+  }
+
+  @Test
   public void disconnectWithoutAClientStillForgetsThePairing() throws Exception {
     h.set("pairingClient", null);
     h.call("disconnect");
