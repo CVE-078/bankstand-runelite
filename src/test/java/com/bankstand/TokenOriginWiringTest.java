@@ -33,7 +33,7 @@ public class TokenOriginWiringTest {
   @Test
   public void aNewPairingRecordsTheServerItWasMadeWith() throws IOException {
     String source = plugin();
-    assertTrue(source.contains("storeToken(res, url);"));
+    assertTrue(source.contains("storeToken(res, url, ticket)"));
     assertTrue(source.contains("deviceStore.save(DeviceCredentials.of(res, url))"));
   }
 

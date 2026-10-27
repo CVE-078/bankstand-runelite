@@ -668,6 +668,10 @@ public class BankstandPlugin extends Plugin {
                 next.getState(),
                 next.elapsedMillis(System.nanoTime()),
                 next.getLoot());
+        // Answered for a pairing since replaced: its queue is gone, so this says nothing.
+        if (isReplaced(url, token)) {
+          continue;
+        }
         presenceQueue.onAnswered(next);
         if (res.isApplied()) {
           lastSyncedAt.put(Capability.SESSIONS.key, System.currentTimeMillis());
@@ -677,6 +681,9 @@ public class BankstandPlugin extends Plugin {
         }
       } catch (SubmitException e) {
         log.debug("presence send failed: {}", e.getMessage());
+        if (isReplaced(url, token)) {
+          continue;
+        }
         if (e.isRetryable()) {
           presenceQueue.onRetryableFailure(next);
         } else {
@@ -2056,6 +2063,9 @@ public class BankstandPlugin extends Plugin {
                       }
                       return;
                     }
+                    if (isReplaced(url, token)) {
+                      return;
+                    }
                     // Advance each baseline only for a block the server wrote, on the client
                     // thread, and only if this login is still current.
                     clientThread.invoke(
@@ -2257,9 +2267,9 @@ public class BankstandPlugin extends Plugin {
                       }
                       return;
                     }
-                    // Drop the result unless this login instance is still current: the retry
-                    // backoff can span a relog.
-                    if (session.isCurrent(accountHash, generation)) {
+                    // Drop the result unless this login instance and pairing are still current:
+                    // the retry backoff can span a relog or a re-pair.
+                    if (session.isCurrent(accountHash, generation) && !isReplaced(url, token)) {
                       notice(identityNoticeFor(res.isVerified(), res.getLinkedRsn(), res.getOutcome()));
                     }
                   });
@@ -2272,12 +2282,17 @@ public class BankstandPlugin extends Plugin {
       return;
     }
     String url = savedServerUrl();
+    long ticket = pairingQueues.beginPairing();
     notice("Pairing with " + url + "...");
     executor.submit(
         () -> {
           try {
             PairResponse res = api.exchangePairingCode(url, rawCode);
-            storeToken(res, url);
+            if (!storeToken(res, url, ticket)) {
+              // A disconnect or a newer pairing came first, so this token is never used.
+              api.unpairInBackground(url, res.getDeviceToken(), () -> {});
+              return;
+            }
             // A fresh pairing resets failure notices, and is the only thing that lifts an
             // auth halt.
             noticeGate.onSuccess();
@@ -2337,11 +2352,15 @@ public class BankstandPlugin extends Plugin {
     return new ChatMessageBuilder().append(BRAND, NOTICE_PREFIX).append(message).build();
   }
 
-  private void storeToken(PairResponse res, String url) {
+  private boolean storeToken(PairResponse res, String url, long ticket) {
     DeviceCredentials previous = deviceStore.load();
     PairingQueues.Dropped dropped =
-        pairingQueues.replace(() -> deviceStore.save(DeviceCredentials.of(res, url)));
+        pairingQueues.replaceIfCurrent(ticket, () -> deviceStore.save(DeviceCredentials.of(res, url)));
+    if (dropped == null) {
+      return false;
+    }
     eventPacer.forgetUnrouted();
+    clientThread.invoke(this::forgetAcks);
     String discarded = dropped.repairNotice();
     if (discarded != null) {
       notice(discarded);
@@ -2349,6 +2368,21 @@ public class BankstandPlugin extends Plugin {
     // The old token may belong to another account or server: revoke it where it was paired.
     pairingClient.unpairInBackground(
         previous.pairedServerUrl(), previous.getToken(), () -> notice(UNPAIR_UNREACHABLE));
+    return true;
+  }
+
+  /** The new pairing may be another account or server, so every block is sent to it afresh. */
+  private void forgetAcks() {
+    skillBaseline.reset();
+    questBaseline.reset();
+    diaryBaseline.reset();
+    combatAchievementBaseline.reset();
+    accountTypeBaseline.reset();
+    slayerTaskBaseline.reset();
+    collectionLogBaseline.reset();
+    lastSyncedAt.clear();
+    // Queued after any earlier save, so a stale ack cannot be written back over this.
+    executor.submit(ackedStore::forgetAcks);
   }
 
   // Normalised, so a blank or padded value never reaches the socket; a cleared field gets prod.

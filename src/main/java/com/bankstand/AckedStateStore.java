@@ -59,6 +59,18 @@ public class AckedStateStore {
     write(document);
   }
 
+  /** For a new pairing, which may be another account or server: keeps what was seen, not acks. */
+  public void forgetAcks() {
+    Document document = read();
+    for (Map.Entry<String, AckedState> entry : document.accounts.entrySet()) {
+      AckedState kept = AckedState.empty();
+      kept.setCollectionLogItems(entry.getValue().getCollectionLogItems());
+      kept.setDiaryTaskBits(entry.getValue().getDiaryTaskBits());
+      entry.setValue(kept);
+    }
+    write(document);
+  }
+
   private Document read() {
     Document document = null;
     if (file.exists()) {

@@ -31,8 +31,22 @@ final class PairingQueues {
     this.loot = loot;
   }
 
+  // Bumped by every pairing request and every replace, so a slow pairing reply can tell it is stale.
+  private long epoch;
+
+  /** Taken before a pairing request; hand it back to {@link #replaceIfCurrent}. */
+  synchronized long beginPairing() {
+    return ++epoch;
+  }
+
+  /** Like {@link #replace}, but null when a disconnect or a newer pairing came after the ticket. */
+  synchronized Dropped replaceIfCurrent(long ticket, Runnable swapPairing) {
+    return ticket == epoch ? replace(swapPairing) : null;
+  }
+
   /** Drops the old queues and swaps the stored pairing as one step. Returns what it dropped. */
   synchronized Dropped replace(Runnable swapPairing) {
+    epoch++;
     // Dropped first: a crash in between loses the queue, never sends it with the new token.
     Dropped dropped =
         new Dropped(events.pending().size(), loot.pending().size() + ledger.closeAll().size());
