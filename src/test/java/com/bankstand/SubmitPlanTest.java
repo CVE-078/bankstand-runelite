@@ -40,7 +40,7 @@ public class SubmitPlanTest {
       log.advance(2);
     }
 
-    BankstandPlugin.SubmitPlan plan(
+    SubmitPlan plan(
         Map<String, Integer> s, Map<String, String> q, Map<String, String> d, Set<Integer> c) {
       return TestPlans.plan(skills, s, quests, q, diaries, d, log, c);
     }
@@ -50,7 +50,7 @@ public class SubmitPlanTest {
   public void sendsNothingWhenNothingMoved() {
     Acked acked = new Acked();
 
-    BankstandPlugin.SubmitPlan plan =
+    SubmitPlan plan =
         acked.plan(
             skills("attack", 100),
             states("COOKS_ASSISTANT", "FINISHED"),
@@ -64,7 +64,7 @@ public class SubmitPlanTest {
   public void anXpChangeCarriesSkillsAlone() {
     Acked acked = new Acked();
 
-    BankstandPlugin.SubmitPlan plan =
+    SubmitPlan plan =
         acked.plan(
             skills("attack", 200),
             states("COOKS_ASSISTANT", "FINISHED"),
@@ -81,7 +81,7 @@ public class SubmitPlanTest {
   public void aQuestChangeCarriesQuestsAndNotTheOtherRiders() {
     Acked acked = new Acked();
 
-    BankstandPlugin.SubmitPlan plan =
+    SubmitPlan plan =
         acked.plan(
             skills("attack", 100),
             states("COOKS_ASSISTANT", "IN_PROGRESS"),
@@ -98,7 +98,7 @@ public class SubmitPlanTest {
   public void aDiaryChangeCarriesDiariesAlone() {
     Acked acked = new Acked();
 
-    BankstandPlugin.SubmitPlan plan =
+    SubmitPlan plan =
         acked.plan(
             skills("attack", 100),
             states("COOKS_ASSISTANT", "FINISHED"),
@@ -114,7 +114,7 @@ public class SubmitPlanTest {
   public void aGrownCollectionLogCarriesTheLogAlone() {
     Acked acked = new Acked();
 
-    BankstandPlugin.SubmitPlan plan =
+    SubmitPlan plan =
         acked.plan(
             skills("attack", 100),
             states("COOKS_ASSISTANT", "FINISHED"),
@@ -131,7 +131,7 @@ public class SubmitPlanTest {
   public void anOptInThatIsOffNeverContributesAndIsNeverSent() {
     Acked acked = new Acked();
 
-    BankstandPlugin.SubmitPlan plan = acked.plan(skills("attack", 100), null, null, NO_LOG);
+    SubmitPlan plan = acked.plan(skills("attack", 100), null, null, NO_LOG);
 
     assertFalse(plan.shouldSubmit());
     assertFalse(plan.includesQuests());
@@ -145,7 +145,7 @@ public class SubmitPlanTest {
     SkillBaseline skills = new SkillBaseline();
     skills.advance(skills("attack", 100));
 
-    BankstandPlugin.SubmitPlan plan =
+    SubmitPlan plan =
         TestPlans.plan(
             skills,
             skills("attack", 100),
@@ -165,7 +165,7 @@ public class SubmitPlanTest {
   /** Absent means "not observed", so an empty block is never sent. */
   @Test
   public void anEmptyBlockIsNeverSent() {
-    BankstandPlugin.SubmitPlan plan =
+    SubmitPlan plan =
         TestPlans.plan(
             new SkillBaseline(),
             skills("attack", 100),
@@ -185,7 +185,7 @@ public class SubmitPlanTest {
   public void severalChangesRideTogether() {
     Acked acked = new Acked();
 
-    BankstandPlugin.SubmitPlan plan =
+    SubmitPlan plan =
         acked.plan(
             skills("attack", 200),
             states("COOKS_ASSISTANT", "IN_PROGRESS"),
@@ -208,7 +208,7 @@ public class SubmitPlanTest {
     CombatAchievementBaseline combat = new CombatAchievementBaseline();
     combat.advance(skills("easy", 23));
 
-    BankstandPlugin.SubmitPlan plan =
+    SubmitPlan plan =
         TestPlans.plan(
             acked.skills,
             skills("attack", 200),
@@ -233,7 +233,7 @@ public class SubmitPlanTest {
   public void aCompleteEnumerationCarriesTheLogEvenWithNoNewItems() {
     Acked acked = new Acked();
 
-    BankstandPlugin.SubmitPlan plan =
+    SubmitPlan plan =
         TestPlans.plan(
             acked.skills,
             skills("attack", 100),
@@ -259,7 +259,7 @@ public class SubmitPlanTest {
   public void aPendingEnumerationNeverCarriesAnEmptyLog() {
     Acked acked = new Acked();
 
-    BankstandPlugin.SubmitPlan plan =
+    SubmitPlan plan =
         TestPlans.plan(
             acked.skills,
             skills("attack", 200),
@@ -283,7 +283,7 @@ public class SubmitPlanTest {
   public void anOrdinaryLogChangeNeverClaimsFullEnumeration() {
     Acked acked = new Acked();
 
-    BankstandPlugin.SubmitPlan plan =
+    SubmitPlan plan =
         TestPlans.plan(
             acked.skills,
             skills("attack", 100),
@@ -307,7 +307,7 @@ public class SubmitPlanTest {
   public void theShorterOverloadNeverClaimsFullEnumeration() {
     Acked acked = new Acked();
 
-    BankstandPlugin.SubmitPlan plan =
+    SubmitPlan plan =
         acked.plan(
             skills("attack", 100),
             states("COOKS_ASSISTANT", "FINISHED"),

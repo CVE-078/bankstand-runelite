@@ -59,10 +59,13 @@ final class PanelModel {
   static final class CapabilityRow {
     final String name;
     final Long lastSyncedAtMs;
+    // The server kept its saved progress over this login's last read.
+    final boolean held;
 
-    CapabilityRow(String name, Long lastSyncedAtMs) {
+    CapabilityRow(String name, Long lastSyncedAtMs, boolean held) {
       this.name = name;
       this.lastSyncedAtMs = lastSyncedAtMs;
+      this.held = held;
     }
   }
 

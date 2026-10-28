@@ -37,7 +37,7 @@ public class AckedStateRestartTest {
     final CollectionLogAccumulator log = new CollectionLogAccumulator();
     final CollectionLogBaseline logBaseline = new CollectionLogBaseline();
 
-    BankstandPlugin.SubmitPlan plan(
+    SubmitPlan plan(
         Map<String, Integer> s, Map<String, String> q, Map<String, String> d) {
       return TestPlans.plan(skills, s, quests, q, diaries, d, logBaseline, log.observed());
     }
@@ -123,7 +123,7 @@ public class AckedStateRestartTest {
 
     Client afterRestart = new Client();
     afterRestart.restore(store());
-    BankstandPlugin.SubmitPlan plan =
+    SubmitPlan plan =
         afterRestart.plan(skills(999), quests("FINISHED"), diaries());
 
     assertTrue(plan.shouldSubmit());
