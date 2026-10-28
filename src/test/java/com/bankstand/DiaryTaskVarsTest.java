@@ -56,8 +56,12 @@ public class DiaryTaskVarsTest {
     harness.varbits.put(VarbitID.ATJUN_EASY_BANANA, 5);
     harness.varbits.put(VarbitID.WESTERN_EASY_REWARD, 1);
     harness.xp = 1_000;
+    // The slayer read needs a real client once the login is old enough.
+    harness.toggles.put("collectSlayer", false);
     harness.logIn();
     harness.executor.runAll();
+    // Past the hold an unknown baseline gets, so a first read goes out.
+    harness.ticks(DiaryBaseline.HOLD_TICKS);
     return harness;
   }
 
@@ -147,6 +151,7 @@ public class DiaryTaskVarsTest {
     h.hash = 77L;
     h.logIn();
     h.executor.runAll();
+    h.ticks(DiaryBaseline.HOLD_TICKS);
     capture();
     assertEquals(2, snapshots().size());
     assertTrue(last().has("diaryTaskVars"));
@@ -254,6 +259,7 @@ public class DiaryTaskVarsTest {
     h.executor.runAll();
     h.varbits.put(VarbitID.FREMENNIK_MED_COUNT, 2);
     h.xp = 3_000;
+    h.ticks(DiaryBaseline.HOLD_TICKS);
     capture();
     assertTrue("a real read after the load goes out", last().has("diaryTasks"));
   }
@@ -341,6 +347,7 @@ public class DiaryTaskVarsTest {
     h.xp = 3_000;
     capture();
     h.xp = 4_000;
+    h.ticks(DiaryBaseline.HOLD_TICKS);
     capture();
     assertTrue("a new character's real zeroes, once the baseline is known", last().has("diaries"));
     assertFalse(last().has("diaryTaskVars"));
@@ -441,6 +448,7 @@ public class DiaryTaskVarsTest {
     h.xp = 4_000;
     capture(); // the retry loads
     h.xp = 5_000;
+    h.ticks(DiaryBaseline.HOLD_TICKS);
     capture();
     assertTrue("nothing is acked on the new pairing", last().has("diaries"));
   }

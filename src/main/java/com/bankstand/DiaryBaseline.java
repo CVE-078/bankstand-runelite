@@ -70,13 +70,17 @@ public class DiaryBaseline {
         && (counts == null || counts.values().stream().allMatch(n -> n == 0));
   }
 
-  /** Whether a read soon after login is below the acked values, so not all of it has arrived. */
+  /**
+   * Whether a read soon after login may not have fully arrived: below the acked values, or with
+   * nothing acked to compare against (a new pairing or device). A time bound, not a comparison.
+   */
   boolean holds(
       int ticksSinceLogin,
       Map<String, String> readFlags,
       Map<String, Integer> readCounts,
       Map<String, Object> readVars) {
-    return ticksSinceLogin < HOLD_TICKS && isBelowAcked(readFlags, readCounts, readVars);
+    return ticksSinceLogin < HOLD_TICKS
+        && (acked == null || isBelowAcked(readFlags, readCounts, readVars));
   }
 
   /** Whether any part of a read is below what the server took. Unknown parts never are. */

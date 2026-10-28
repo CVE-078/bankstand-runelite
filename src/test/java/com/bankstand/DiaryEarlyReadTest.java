@@ -36,6 +36,8 @@ public class DiaryEarlyReadTest {
   @Before
   public void setUp() throws Exception {
     h = start(true);
+    // Nothing is acked yet, so the first read waits out the hold.
+    h.ticks(DiaryBaseline.HOLD_TICKS);
     capture();
   }
 
@@ -108,6 +110,12 @@ public class DiaryEarlyReadTest {
     return body.getAsJsonObject("diaryTasks").get(tier).getAsInt();
   }
 
+  /** A hop: same account and baselines, with the login clock restarted. */
+  private void soonAfterLogin() {
+    h.hopTo(EnumSet.of(WorldType.MEMBERS));
+    h.executor.runAll();
+  }
+
   private void relog(long hash) throws Exception {
     h.state(GameState.LOGIN_SCREEN);
     h.executor.runAll();
@@ -168,6 +176,7 @@ public class DiaryEarlyReadTest {
 
   @Test
   public void dStepOnlyTheTaskVarsLaggingStillHoldsTheWholeDiaryRead() throws Exception {
+    soonAfterLogin();
     progress(h);
     h.varbits.put(DiaryVarbits.ALL.get("VARROCK_HARD"), 1);
     h.varps.put(VarPlayerID.VARROCK_ACHIEVEMENT_DIARY, 0b001);
@@ -181,6 +190,7 @@ public class DiaryEarlyReadTest {
 
   @Test
   public void dStepALowerCountAloneHoldsTheBlock() throws Exception {
+    soonAfterLogin();
     h.varbits.put(VarbitID.VARROCK_MED_COUNT, 2);
     h.varbits.put(DiaryVarbits.ALL.get("VARROCK_HARD"), 1);
     capture();
@@ -189,6 +199,7 @@ public class DiaryEarlyReadTest {
 
   @Test
   public void aHeldReadNeverCausesASubmitOfItsOwn() throws Exception {
+    soonAfterLogin();
     h.varbits.put(DiaryVarbits.ALL.get("VARROCK_MEDIUM"), 0);
     for (int i = 0; i < 3; i++) {
       h.plugin.captureSkills();
@@ -237,13 +248,72 @@ public class DiaryEarlyReadTest {
   }
 
   @Test
-  public void fStepANewAccountsZeroRead() throws Exception {
+  public void iStepANewAccountsZeroReadGoesOnceAfterTheHold() throws Exception {
     relog(77L);
     capture();
+    assertNoDiaryBlock(last());
+    h.ticks(DiaryBaseline.HOLD_TICKS);
+    capture();
     JsonObject b = last();
-    assertTrue(b.has("diaries"));
     assertEquals("INCOMPLETE", flag(b, "VARROCK_EASY"));
     assertEquals(0, count(b, "VARROCK_EASY"));
-    assertFalse(b.has("diaryTaskVars"));
+    assertFalse("all-zero vars stay unknown", b.has("diaryTaskVars"));
+    capture();
+    assertNoDiaryBlock(last());
+  }
+
+  @Test
+  public void gStepNoAckedStateHoldsEvenRealValuesUntilTheWindowEnds() throws Exception {
+    relog(77L);
+    capture();
+    assertNoDiaryBlock(last());
+    progress(h);
+    capture();
+    assertNoDiaryBlock(last());
+    h.ticks(DiaryBaseline.HOLD_TICKS);
+    capture();
+    assertEquals("COMPLETE", flag(last(), "VARROCK_MEDIUM"));
+    assertEquals(13, count(last(), "VARROCK_MEDIUM"));
+    assertTrue(last().has("diaryTaskVars"));
+    capture();
+    assertNoDiaryBlock(last());
+  }
+
+  @Test
+  public void hStepNoAckedStateHoldsAPartialLoadThenSendsTheCurrentRead() throws Exception {
+    relog(77L);
+    h.varbits.put(DiaryVarbits.ALL.get("VARROCK_EASY"), 1);
+    h.varbits.put(VarbitID.VARROCK_EASY_COUNT, 14);
+    capture();
+    assertNoDiaryBlock(last());
+    h.ticks(DiaryBaseline.HOLD_TICKS);
+    capture();
+    assertEquals("COMPLETE", flag(last(), "VARROCK_EASY"));
+    assertEquals("INCOMPLETE", flag(last(), "VARROCK_MEDIUM"));
+  }
+
+  @Test
+  public void aHeldUnknownBaselineReadNeverCausesASubmitOfItsOwn() throws Exception {
+    relog(77L);
+    capture();
+    int sent = snapshots().size();
+    progress(h);
+    for (int i = 0; i < 3; i++) {
+      h.plugin.captureSkills();
+      h.runClientThread();
+      h.executor.runAll();
+    }
+    assertEquals(sent, snapshots().size());
+  }
+
+  @Test
+  public void aRePairThenAnEarlyZeroReadSendsNoDiaryBlock() throws Exception {
+    h.transport.byPath.put(
+        "/pair", body -> new HttpResponse(200, "{\"deviceToken\":\"tok-b\",\"deviceId\":\"d\"}"));
+    h.call("pair", "BBBB-BBBB");
+    h.executor.runAll();
+    relog(PluginHarness.MAIN);
+    capture();
+    assertNoDiaryBlock(last());
   }
 }

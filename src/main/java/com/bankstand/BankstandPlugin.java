@@ -1705,8 +1705,8 @@ public class BankstandPlugin extends Plugin {
     adoptCharacter(accountHash, generation);
     // Diary values read all zero before the game sends them, and progress never goes back. So
     // nothing is sent before this login's acked state has loaded, and an all-zero read never
-    // replaces known or unknown state. A new character's real zeroes still go once. A read below
-    // the acked values soon after login is held whole; after HOLD_TICKS it is believed and sent.
+    // replaces known state. Until HOLD_TICKS after login, a read below the acked values (a data
+    // check) or with nothing acked (a time bound only) is held whole; after that it is sent.
     boolean ackedKnown = ackedLoadedGeneration == generation;
     // Read again each capture until it succeeds; until then the baseline stays unknown.
     if (ackedKnown && ackedLoadFailed) {
