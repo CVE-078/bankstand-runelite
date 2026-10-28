@@ -64,6 +64,42 @@ public class DeliveryHardeningTest {
   }
 
   @Test
+  public void anUncheckedThrowInARetryNeverStopsDeliveryForGood() throws Exception {
+    h.transport.byPath.put("/events", body -> new HttpResponse(503, ""));
+    unlock("Pet snakeling");
+    String id = h.eventOutbox.pending().get(0).getEvent().getId();
+    drain();
+    List<String> noticesBefore = h.notices();
+    h.transport.byPath.put(
+        "/events",
+        body -> {
+          throw new IllegalStateException("bug");
+        });
+    for (Runnable retry : new java.util.ArrayList<>(h.executor.scheduled)) {
+      h.executor.scheduled.remove(retry);
+      try {
+        retry.run();
+      } catch (RuntimeException swallowed) {
+        // A real scheduled executor keeps a task's throw in its future, where nobody reads it.
+      }
+    }
+    assertFalse(
+        "the flight is released",
+        ((java.util.concurrent.atomic.AtomicBoolean) h.get("eventSending")).get());
+    assertEquals("kept, not acked or dropped", 1, h.eventOutbox.pending().size());
+    assertFalse(((SubmitGate) h.get("submitGate")).isHalted());
+    assertEquals("no chat notice for it", noticesBefore, h.notices());
+    h.transport.byPath.put(
+        "/events",
+        body ->
+            new HttpResponse(
+                200, "{\"routed\":true,\"acks\":[{\"id\":\"" + id + "\",\"outcome\":\"stored\"}]}"));
+    drain();
+    assertEquals(3, h.transport.count("/events"));
+    assertTrue("sent and acked by a later drain", h.eventOutbox.pending().isEmpty());
+  }
+
+  @Test
   public void anEventCapturedDuringAnUploadSurvivesItsSuccess() throws Exception {
     unlock("Pet snakeling");
     String first = h.eventOutbox.pending().get(0).getEvent().getId();
