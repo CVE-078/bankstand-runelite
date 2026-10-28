@@ -188,8 +188,7 @@ public class BankstandPlugin extends Plugin {
   private SlayerTaskCompletionCapture slayerTaskCompletionCapture;
   private SlayerTaskStart slayerTaskStart;
   private final SlayerTaskBaseline slayerTaskBaseline = new SlayerTaskBaseline();
-  // Ticks since the last LOGGED_IN. Client thread.
-  private int ticksSinceLoggedIn;
+  private int ticksSinceLoggedIn; // Since the last LOGGED_IN. Client thread.
 
   private final LootLedger lootLedger = new LootLedger();
   private final LootSendPacer lootPacer = new LootSendPacer();
@@ -206,8 +205,7 @@ public class BankstandPlugin extends Plugin {
   private final PresenceTracker presenceTracker = new PresenceTracker();
   private final PresenceQueue presenceQueue = new PresenceQueue();
   private final AtomicBoolean presenceSending = new AtomicBoolean();
-  // Transitions decided on LOGGED_IN go out a tick later.
-  // A LOGGED_IN whose presence waits for the settle. Client thread.
+  // A LOGGED_IN whose presence waits for the settle, then goes out a tick later. Client thread.
   private boolean presenceLoginPending;
   private volatile ScheduledFuture<?> hopTimer;
   // The generation whose next capture skips the change gate; -1 when none.
@@ -220,7 +218,7 @@ public class BankstandPlugin extends Plugin {
   private final RecentActivityLog recentActivityLog = new RecentActivityLog();
   // Written on the client thread, read on the EDT. Keyed by capability name.
   private final Map<String, Long> lastSyncedAt = new ConcurrentHashMap<>();
-  // Set from the HTTP completion thread, read on the client thread.
+  // Snapshot or event drain, so a stuck queue never looks fine. Set on HTTP threads.
   private volatile String lastFailureReason;
 
   /**
@@ -595,6 +593,8 @@ public class BankstandPlugin extends Plugin {
                           if (isReplaced(url, token)) {
                             return;
                           }
+                          lastFailureReason = failure == null ? null : failure.getMessage();
+                          refreshPanel();
                           if (failure != null) {
                             log.debug("event drain failed for one chunk: {}", failure.getMessage());
                             if (failure instanceof SubmitException

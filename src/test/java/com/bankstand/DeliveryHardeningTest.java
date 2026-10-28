@@ -100,6 +100,33 @@ public class DeliveryHardeningTest {
   }
 
   @Test
+  public void aFailingEventDrainShowsOnThePanelUntilTheNextGoodDrain() throws Exception {
+    h.transport.byPath.put("/events", body -> new HttpResponse(503, ""));
+    unlock("Pet snakeling");
+    String id = h.eventOutbox.pending().get(0).getEvent().getId();
+    drain();
+    h.transport.byPath.put(
+        "/events",
+        body -> {
+          throw new IllegalStateException("bug");
+        });
+    for (Runnable retry : new java.util.ArrayList<>(h.executor.scheduled)) {
+      h.executor.scheduled.remove(retry);
+      retry.run();
+    }
+    PanelModel failing = (PanelModel) h.call("buildPanelModel");
+    assertEquals(PanelPresentation.SyncDot.AMBER, failing.dot);
+    assertEquals("Unexpected error.", failing.lastFailureReason);
+    h.transport.byPath.put(
+        "/events",
+        body ->
+            new HttpResponse(
+                200, "{\"routed\":true,\"acks\":[{\"id\":\"" + id + "\",\"outcome\":\"stored\"}]}"));
+    drain();
+    assertNull(((PanelModel) h.call("buildPanelModel")).lastFailureReason);
+  }
+
+  @Test
   public void anEventCapturedDuringAnUploadSurvivesItsSuccess() throws Exception {
     unlock("Pet snakeling");
     String first = h.eventOutbox.pending().get(0).getEvent().getId();
