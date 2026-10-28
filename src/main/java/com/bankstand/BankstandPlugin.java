@@ -2297,7 +2297,7 @@ public class BankstandPlugin extends Plugin {
                     // nothing. Only the recovery is announced, so a healthy client is quiet.
                     submitGate.onSuccess();
                     lastSubmitAtMs = System.currentTimeMillis();
-                    failures.snapshotSucceeded();
+                    failures.snapshotSucceeded(accountHash, generation);
                     // Stored blocks only, never the body.
                     log.debug(
                         "submit {}: reason={} storedBlocks=[{}]",

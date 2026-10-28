@@ -262,6 +262,46 @@ public class DeliveryHardeningTest {
   }
 
   @Test
+  public void aLateSuccessFromThePreviousAccountLeavesTheNewOnesFailure() throws Exception {
+    int[] mainCalls = {0};
+    // A fails once, then its retry succeeds; B fails until told otherwise.
+    h.transport.byPath.put(
+        "/submit",
+        body ->
+            body.contains("\"accountHash\":\"" + PluginHarness.MAIN + "\"")
+                ? new HttpResponse(mainCalls[0]++ == 0 ? 503 : 200, mainCalls[0] == 1 ? "" : STORED)
+                : new HttpResponse(400, ""));
+    h.toggles.put("collectQuests", false);
+    h.toggles.put("collectSlayer", false);
+    ((SubmitGate) h.get("submitGate")).onSuccess();
+    h.xp = ++xp;
+    h.plugin.captureSkills();
+    h.runClientThread();
+    h.executor.runAll();
+    assertEquals("A's retry is pending", 1, h.executor.scheduled.size());
+    List<Runnable> aRetry = new java.util.ArrayList<>(h.executor.scheduled);
+    h.executor.scheduled.clear();
+    switchTo(77L);
+    ((SubmitGate) h.get("submitGate")).onSuccess();
+    h.xp = ++xp;
+    h.plugin.captureSkills();
+    h.runClientThread();
+    h.executor.runAll();
+    String reason = panel().lastFailureReason;
+    assertNotNull("B's own failure", reason);
+    h.executor.scheduled.clear();
+    for (Runnable retry : aRetry) {
+      retry.run();
+    }
+    h.executor.runAll();
+    assertTrue("A succeeded late", mainCalls[0] >= 2);
+    assertEquals(reason, panel().lastFailureReason);
+    h.transport.byPath.put("/submit", body -> new HttpResponse(200, STORED));
+    snapshot(200);
+    assertNull(panel().lastFailureReason);
+  }
+
+  @Test
   public void anAuthHaltStillShowsAfterAnAccountSwitch() throws Exception {
     snapshot(401);
     String reason = panel().lastFailureReason;
@@ -273,7 +313,7 @@ public class DeliveryHardeningTest {
   @Test
   public void aSnapshotSuccessRefreshesThePanel() {
     int[] refreshes = {0};
-    new SyncFailures(() -> refreshes[0]++, (hash, gen) -> true).snapshotSucceeded();
+    new SyncFailures(() -> refreshes[0]++, (hash, gen) -> true).snapshotSucceeded(0L, 0);
     assertEquals(1, refreshes[0]);
   }
 

@@ -44,8 +44,11 @@ final class SyncFailures {
     onChange.run();
   }
 
-  void snapshotSucceeded() {
-    snapshot = null;
+  /** Clears only the same login's failure: another login's success says nothing about it. */
+  void snapshotSucceeded(long accountHash, int generation) {
+    if (snapshotAccount == accountHash && snapshotGeneration == generation) {
+      snapshot = null;
+    }
     onChange.run();
   }
 
