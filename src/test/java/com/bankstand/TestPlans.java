@@ -114,6 +114,7 @@ final class TestPlans {
         quests,
         diaryBaseline,
         diaries,
+        null,
         collectionLogBaseline,
         collectionLogItems,
         combatAchievementBaseline,

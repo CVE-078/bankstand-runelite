@@ -1749,7 +1749,7 @@ public class BankstandPlugin extends Plugin {
             questBaseline,
             quests,
             diaryBaseline,
-            diaries,
+            diaries, diaryTaskCounts,
             collectionLogBaseline,
             clog,
             combatAchievementBaseline,
@@ -2000,7 +2000,7 @@ public class BankstandPlugin extends Plugin {
       QuestBaseline questBaseline,
       Map<String, String> quests,
       DiaryBaseline diaryBaseline,
-      Map<String, String> diaries,
+      Map<String, String> diaries, Map<String, Integer> diaryTaskCounts,
       CollectionLogBaseline collectionLogBaseline,
       Set<Integer> collectionLogItems,
       CombatAchievementBaseline combatAchievementBaseline,
@@ -2013,7 +2013,7 @@ public class BankstandPlugin extends Plugin {
     boolean sendQuests =
         quests != null && !quests.isEmpty() && questBaseline.changedSince(quests);
     boolean sendDiaries =
-        diaries != null && !diaries.isEmpty() && diaryBaseline.changedSince(diaries);
+        diaries != null && !diaries.isEmpty() && diaryBaseline.changedSince(diaries, diaryTaskCounts);
     // The collection log counts toward the decision on its own. A pending full enumeration also
     // forces it, since a COMPLETE read can reveal no new ids. An empty log has no block to ride on.
     boolean sendCollectionLog =

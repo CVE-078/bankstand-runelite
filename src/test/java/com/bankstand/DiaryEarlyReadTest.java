@@ -210,6 +210,27 @@ public class DiaryEarlyReadTest {
   }
 
   @Test
+  public void aCountRiseWithoutAFlagChangeResendsTheDiaryBlocksOnce() throws Exception {
+    h.varbits.put(VarbitID.VARROCK_HARD_COUNT, 3);
+    capture();
+    assertEquals("COMPLETE", flag(last(), "VARROCK_MEDIUM"));
+    assertEquals(3, count(last(), "VARROCK_HARD"));
+    capture();
+    assertNoDiaryBlock(last());
+  }
+
+  @Test
+  public void aHeldCountRiseNeverCausesASubmitOfItsOwn() throws Exception {
+    soonAfterLogin();
+    h.varbits.put(DiaryVarbits.ALL.get("VARROCK_MEDIUM"), 0);
+    h.varbits.put(VarbitID.VARROCK_HARD_COUNT, 3);
+    h.plugin.captureSkills();
+    h.runClientThread();
+    h.executor.runAll();
+    assertEquals(1, snapshots().size());
+  }
+
+  @Test
   public void aLowerReadLongAfterLoginIsBelievedSoTheHoldIsBounded() throws Exception {
     h.varbits.put(VarbitID.VARROCK_MED_COUNT, 12);
     h.ticks(DiaryBaseline.HOLD_TICKS);
@@ -378,8 +399,7 @@ public class DiaryEarlyReadTest {
     assertEquals(0b111, varp(last()));
     h.varbits.put(VarbitID.VARROCK_EASY_COUNT, 14);
     capture();
-    // The change gate keys on the tier flags, so a count alone only moves the rider.
-    assertFalse(last().has("diaryTasks"));
+    assertEquals(14, count(last(), "VARROCK_EASY"));
     assertEquals(14, last().getAsJsonObject("diaryTaskVars").getAsJsonObject("varbits")
         .get(Integer.toString(VarbitID.VARROCK_EASY_COUNT)).getAsInt());
   }

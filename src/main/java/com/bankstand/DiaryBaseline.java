@@ -20,6 +20,12 @@ public class DiaryBaseline {
     return !CapabilityDigest.of(current).equals(acked);
   }
 
+  /** Counts too, so a tier's count rising without its flag still resends. Unknown counts never do. */
+  public boolean changedSince(Map<String, String> current, Map<String, Integer> currentCounts) {
+    return changedSince(current)
+        || (currentCounts != null && counts != null && !currentCounts.equals(counts));
+  }
+
   public void advance(Map<String, String> ackedNow) {
     advance(ackedNow, null);
   }

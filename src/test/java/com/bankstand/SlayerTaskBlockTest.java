@@ -32,6 +32,7 @@ public class SlayerTaskBlockTest {
         null,
         new DiaryBaseline(),
         null,
+        null,
         new CollectionLogBaseline(),
         Collections.emptySet(),
         new CombatAchievementBaseline(),
