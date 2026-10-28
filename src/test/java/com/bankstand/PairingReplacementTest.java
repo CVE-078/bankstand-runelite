@@ -163,11 +163,11 @@ public class PairingReplacementTest {
 
   @Test
   public void pairingAndDisconnectClearTheLastFailure() throws Exception {
-    ((SyncFailures) h.get("failures")).snapshotFailed(new SubmitException("Bankstand is busy."));
+    ((SyncFailures) h.get("failures")).snapshotFailed(new SubmitException("Bankstand is busy."), PluginHarness.MAIN, h.generation());
     h.call("pair", "AAAA-AAAA");
     h.executor.runAll();
     assertNull(((SyncFailures) h.get("failures")).shown());
-    ((SyncFailures) h.get("failures")).snapshotFailed(new SubmitException("Bankstand is busy."));
+    ((SyncFailures) h.get("failures")).snapshotFailed(new SubmitException("Bankstand is busy."), PluginHarness.MAIN, h.generation());
     h.call("disconnect");
     assertNull(((SyncFailures) h.get("failures")).shown());
   }

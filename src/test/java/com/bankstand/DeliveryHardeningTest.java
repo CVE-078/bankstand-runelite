@@ -233,6 +233,35 @@ public class DeliveryHardeningTest {
   }
 
   @Test
+  public void aSnapshotFailureLandingAfterASwitchIsNotTheNewAccounts() throws Exception {
+    // Only A's capture fails; B's own submits succeed.
+    h.transport.byPath.put(
+        "/submit",
+        body ->
+            body.contains("\"accountHash\":\"" + PluginHarness.MAIN + "\"")
+                ? new HttpResponse(503, "")
+                : new HttpResponse(200, STORED));
+    h.toggles.put("collectQuests", false);
+    h.toggles.put("collectSlayer", false);
+    ((SubmitGate) h.get("submitGate")).onSuccess();
+    h.xp = ++xp;
+    h.plugin.captureSkills();
+    h.runClientThread();
+    h.executor.runAll();
+    assertEquals("A's retry is pending", 1, h.executor.scheduled.size());
+    switchTo(77L);
+    while (!h.executor.scheduled.isEmpty()) {
+      Runnable retry = h.executor.scheduled.remove(0);
+      retry.run();
+      h.executor.runAll();
+    }
+    assertNull(panel().lastFailureReason);
+    h.transport.byPath.put("/submit", body -> new HttpResponse(200, STORED));
+    switchTo(PluginHarness.MAIN);
+    assertNull("back on A, the old login's failure stays gone", panel().lastFailureReason);
+  }
+
+  @Test
   public void anAuthHaltStillShowsAfterAnAccountSwitch() throws Exception {
     snapshot(401);
     String reason = panel().lastFailureReason;
@@ -244,7 +273,7 @@ public class DeliveryHardeningTest {
   @Test
   public void aSnapshotSuccessRefreshesThePanel() {
     int[] refreshes = {0};
-    new SyncFailures(() -> refreshes[0]++).snapshotSucceeded();
+    new SyncFailures(() -> refreshes[0]++, (hash, gen) -> true).snapshotSucceeded();
     assertEquals(1, refreshes[0]);
   }
 

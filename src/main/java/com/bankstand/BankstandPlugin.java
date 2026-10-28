@@ -218,7 +218,7 @@ public class BankstandPlugin extends Plugin {
   private final RecentActivityLog recentActivityLog = new RecentActivityLog();
   // Written on the client thread, read on the EDT. Keyed by capability name.
   private final Map<String, Long> lastSyncedAt = new ConcurrentHashMap<>();
-  private final SyncFailures failures = new SyncFailures(this::refreshPanel);
+  private final SyncFailures failures = new SyncFailures(this::refreshPanel, session::isCurrent);
 
   /**
    * What the server currently ingests. Never null: falls back to the cached manifest, then the
@@ -2196,7 +2196,7 @@ public class BankstandPlugin extends Plugin {
                         return;
                       }
                       // Shown on the panel's header dot and failure footer.
-                      failures.snapshotFailed(e);
+                      failures.snapshotFailed(e, accountHash, generation);
                       if (e.isAuthFailure()) {
                         // Retrying cannot fix a revoked token. This is the one failure the
                         // player must act on, so the gate announces it.
