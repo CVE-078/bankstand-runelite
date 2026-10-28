@@ -8,6 +8,16 @@ final class SlayerTaskBaseline {
     return current != null && !current.equals(acked);
   }
 
+  /** The read, or null while no task may be varps not yet sent: as {@link AccountTypeBaseline}. */
+  SlayerTask unlessHeld(int ticksSinceLogin, SlayerTask read) {
+    boolean held =
+        ticksSinceLogin < DiaryBaseline.HOLD_TICKS
+            && read != null
+            && !read.active
+            && (acked == null || acked.active);
+    return held ? null : read;
+  }
+
   void advance(SlayerTask ackedNow) {
     acked = ackedNow;
   }

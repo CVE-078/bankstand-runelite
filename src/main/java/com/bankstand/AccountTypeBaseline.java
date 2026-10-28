@@ -12,6 +12,18 @@ public class AccountTypeBaseline {
     return current != null && !current.equals(acked);
   }
 
+  /**
+   * The read, or null while it may be the unloaded varbit: regular soon after login, unless regular
+   * is what was acked. An iron type cannot come from an unloaded varbit, so it is never held.
+   */
+  String unlessHeld(int ticksSinceLogin, String read) {
+    boolean held =
+        ticksSinceLogin < DiaryBaseline.HOLD_TICKS
+            && "regular".equals(read)
+            && !"regular".equals(acked);
+    return held ? null : read;
+  }
+
   public void advance(String ackedNow) {
     acked = ackedNow;
   }

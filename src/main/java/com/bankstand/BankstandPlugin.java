@@ -1754,10 +1754,10 @@ public class BankstandPlugin extends Plugin {
             combatAchievementBaseline,
             combatAchievements,
             accountTypeBaseline,
-            accountType,
+            accountTypeBaseline.unlessHeld(ticksSinceLoggedIn, accountType),
             pendingFullEnumeration,
             slayerTaskBaseline,
-            slayerTask);
+            slayerTaskBaseline.unlessHeld(ticksSinceLoggedIn, slayerTask));
     if (!plan.shouldSubmit() && forcedSubmitGeneration != generation) {
       return;
     }

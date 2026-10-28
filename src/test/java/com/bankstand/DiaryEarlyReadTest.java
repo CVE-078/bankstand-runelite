@@ -500,7 +500,7 @@ public class DiaryEarlyReadTest {
   }
 
   @Test
-  public void freshEarlyReadsOfSkillsAccountTypeAndCombatAchievementsAreNotHeld()
+  public void freshEarlyReadsOfSkillsAndCombatAchievementsAreNotHeld()
       throws Exception {
     relog(77L);
     h.xp = 0;
@@ -510,8 +510,8 @@ public class DiaryEarlyReadTest {
     JsonObject body = last();
     assertNoDiaryBlock(body);
     assertEquals(0, body.getAsJsonObject("skills").getAsJsonObject("attack").get("xp").getAsInt());
-    // An ironman whose varbit has not arrived reads as regular.
-    assertEquals("regular", body.get("accountType").getAsString());
+    // An ironman whose varbit has not arrived reads as regular, so regular waits out the window.
+    assertFalse(body.has("accountType"));
     assertEquals(0, body.getAsJsonObject("combatAchievements").get("easy").getAsInt());
   }
 }
