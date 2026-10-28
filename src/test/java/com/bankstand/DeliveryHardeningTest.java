@@ -126,6 +126,79 @@ public class DeliveryHardeningTest {
     assertNull(((PanelModel) h.call("buildPanelModel")).lastFailureReason);
   }
 
+  private static final String STORED = "{\"accepted\":true,\"stored\":true,\"storedBlocks\":[\"skills\"]}";
+  private int xp = 1_000;
+
+  private static HttpResponse acked(String body) {
+    String id = new Gson().fromJson(body, com.google.gson.JsonObject.class)
+        .getAsJsonArray("events").get(0).getAsJsonObject().get("id").getAsString();
+    return new HttpResponse(
+        200, "{\"routed\":true,\"acks\":[{\"id\":\"" + id + "\",\"outcome\":\"stored\"}]}");
+  }
+
+  private void snapshot(int status) throws Exception {
+    h.toggles.put("collectQuests", false);
+    h.toggles.put("collectSlayer", false);
+    h.transport.byPath.put("/submit", body -> new HttpResponse(status, status == 200 ? STORED : ""));
+    ((SubmitGate) h.get("submitGate")).onSuccess();
+    h.xp = ++xp;
+    h.plugin.captureSkills();
+    h.runClientThread();
+    h.executor.runAll();
+  }
+
+  private PanelModel panel() throws Exception {
+    return (PanelModel) h.call("buildPanelModel");
+  }
+
+  @Test
+  public void aSnapshotFailureSurvivesASuccessfulDrain() throws Exception {
+    snapshot(400);
+    String reason = panel().lastFailureReason;
+    assertNotNull(reason);
+    h.transport.byPath.put("/events", DeliveryHardeningTest::acked);
+    unlock("Pet snakeling");
+    drain();
+    assertTrue(h.eventOutbox.pending().isEmpty());
+    assertEquals(PanelPresentation.SyncDot.AMBER, panel().dot);
+    assertEquals(reason, panel().lastFailureReason);
+  }
+
+  @Test
+  public void anEventFailureSurvivesASuccessfulSnapshot() throws Exception {
+    h.transport.byPath.put("/events", body -> new HttpResponse(400, ""));
+    unlock("Pet snakeling");
+    drain();
+    snapshot(200);
+    assertEquals(PanelPresentation.SyncDot.AMBER, panel().dot);
+    assertEquals("Bankstand rejected the update.", panel().lastFailureReason);
+  }
+
+  @Test
+  public void aDrainWithOneFailedChunkStaysAmberAndRecoveryClearsToGreen() throws Exception {
+    snapshot(200);
+    new CollectionLogUnlockCapture(h.eventOutbox, () -> true, () -> 77L)
+        .handleMessage("New item added to your collection log: Pet snakeling");
+    unlock("Pet snakeling");
+    String failing = h.eventOutbox.pending().get(0).getEvent().getId();
+    h.transport.byPath.put(
+        "/events", body -> body.contains(failing) ? new HttpResponse(400, "") : acked(body));
+    drain();
+    assertEquals(2, h.transport.count("/events"));
+    assertEquals(1, h.eventOutbox.pending().size());
+    assertEquals(PanelPresentation.SyncDot.AMBER, panel().dot);
+    h.transport.byPath.put("/events", DeliveryHardeningTest::acked);
+    drain();
+    assertTrue(h.eventOutbox.pending().isEmpty());
+    assertEquals(PanelPresentation.SyncDot.GREEN, panel().dot);
+    assertNull(panel().lastFailureReason);
+  }
+
+  @Test
+  public void aFailureWithNoMessageStillShows() {
+    assertEquals(SyncFailures.FALLBACK, SyncFailures.reason(new RuntimeException()));
+  }
+
   @Test
   public void anEventCapturedDuringAnUploadSurvivesItsSuccess() throws Exception {
     unlock("Pet snakeling");

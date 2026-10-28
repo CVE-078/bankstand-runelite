@@ -218,8 +218,8 @@ public class BankstandPlugin extends Plugin {
   private final RecentActivityLog recentActivityLog = new RecentActivityLog();
   // Written on the client thread, read on the EDT. Keyed by capability name.
   private final Map<String, Long> lastSyncedAt = new ConcurrentHashMap<>();
-  // Snapshot or event drain, so a stuck queue never looks fine. Set on HTTP threads.
-  private volatile String lastFailureReason;
+  // The panel's failure line, kept per path.
+  private final SyncFailures failures = new SyncFailures(this::refreshPanel);
 
   /**
    * What the server currently ingests. Never null: falls back to the cached manifest, then the
@@ -571,6 +571,7 @@ public class BankstandPlugin extends Plugin {
     executor.submit(
         () -> {
           List<CompletableFuture<?>> flights = new ArrayList<>();
+          SyncFailures.Drain drain = failures.startDrain();
           try {
             for (Map.Entry<Long, List<TransientEvent>> group : byAccount.entrySet()) {
               long hash = group.getKey();
@@ -593,9 +594,8 @@ public class BankstandPlugin extends Plugin {
                           if (isReplaced(url, token)) {
                             return;
                           }
-                          lastFailureReason = failure == null ? null : failure.getMessage();
-                          refreshPanel();
                           if (failure != null) {
+                            drain.failed(failure);
                             log.debug("event drain failed for one chunk: {}", failure.getMessage());
                             if (failure instanceof SubmitException
                                 && ((SubmitException) failure).isAuthFailure()
@@ -611,7 +611,7 @@ public class BankstandPlugin extends Plugin {
             }
           } finally {
             CompletableFuture.allOf(flights.toArray(new CompletableFuture<?>[0]))
-                .whenComplete((done, failure) -> eventSending.set(false));
+                .whenComplete((done, failure) -> drain.finish(flights.size(), eventSending));
           }
         });
   }
@@ -1356,14 +1356,14 @@ public class BankstandPlugin extends Plugin {
     List<PanelModel.CapabilityRow> rows =
         capabilityRows(enabledCapabilitySet(), lastSyncedAt);
     PanelPresentation.SyncDot dot =
-        PanelPresentation.resolveDot(isPaired(), lastSubmitAtMs > 0L, lastFailureReason != null);
+        PanelPresentation.resolveDot(isPaired(), lastSubmitAtMs > 0L, failures.any());
     return new PanelModel(
         isPaired(),
         name == null || name.isEmpty() ? null : name,
         dot,
         rows,
         recentActivityLog.recent(),
-        lastFailureReason,
+        failures.shown(),
         savedServerUrl(),
         PanelModel.shouldOfferSessions(config.collectLoot(), config.collectSessions()));
   }
@@ -2196,8 +2196,7 @@ public class BankstandPlugin extends Plugin {
                         return;
                       }
                       // Shown on the panel's header dot and failure footer.
-                      lastFailureReason = e.getMessage();
-                      refreshPanel();
+                      failures.snapshotFailed(e);
                       if (e.isAuthFailure()) {
                         // Retrying cannot fix a revoked token. This is the one failure the
                         // player must act on, so the gate announces it.
@@ -2298,7 +2297,7 @@ public class BankstandPlugin extends Plugin {
                     // nothing. Only the recovery is announced, so a healthy client is quiet.
                     submitGate.onSuccess();
                     lastSubmitAtMs = System.currentTimeMillis();
-                    lastFailureReason = null;
+                    failures.snapshotSucceeded();
                     // Stored blocks only, never the body.
                     log.debug(
                         "submit {}: reason={} storedBlocks=[{}]",
@@ -2481,7 +2480,7 @@ public class BankstandPlugin extends Plugin {
             // A fresh pairing resets failure notices, and is the only thing that lifts an
             // auth halt.
             noticeGate.onSuccess();
-            lastFailureReason = null;
+            failures.clear();
             // Saved for the server it was made with; a URL changed meanwhile means not paired here.
             notice(
                 isPaired()
@@ -2507,7 +2506,7 @@ public class BankstandPlugin extends Plugin {
           removed[0] = deviceStore.clear();
           return true;
         });
-    lastFailureReason = null;
+    failures.clear();
     // Unsetting the legacy keys is what removes the token from a synced profile upstream.
     LegacyCredentials.forget(configManager);
     // Untick the toggle so ticking it again fires this afresh.

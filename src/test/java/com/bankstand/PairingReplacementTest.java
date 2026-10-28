@@ -157,19 +157,19 @@ public class PairingReplacementTest {
         });
     submitSnapshot();
     h.executor.runAll();
-    assertNull(h.get("lastFailureReason"));
+    assertNull(((SyncFailures) h.get("failures")).shown());
     assertFalse(((SubmitGate) h.get("submitGate")).isHalted());
   }
 
   @Test
   public void pairingAndDisconnectClearTheLastFailure() throws Exception {
-    h.set("lastFailureReason", "Bankstand is busy.");
+    ((SyncFailures) h.get("failures")).snapshotFailed(new SubmitException("Bankstand is busy."));
     h.call("pair", "AAAA-AAAA");
     h.executor.runAll();
-    assertNull(h.get("lastFailureReason"));
-    h.set("lastFailureReason", "Bankstand is busy.");
+    assertNull(((SyncFailures) h.get("failures")).shown());
+    ((SyncFailures) h.get("failures")).snapshotFailed(new SubmitException("Bankstand is busy."));
     h.call("disconnect");
-    assertNull(h.get("lastFailureReason"));
+    assertNull(((SyncFailures) h.get("failures")).shown());
   }
 
   @Test
