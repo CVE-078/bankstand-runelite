@@ -13,6 +13,10 @@ final class SyncFailures {
   private final Runnable onChange;
   private volatile String snapshot;
   private volatile String events;
+  // An auth failure halts every account, so a switch keeps it.
+  private volatile boolean snapshotAuth;
+  // Bumped by clear(), so a drain from before a re-pair or disconnect writes nothing.
+  private volatile int epoch;
 
   SyncFailures(Runnable onChange) {
     this.onChange = onChange;
@@ -26,15 +30,26 @@ final class SyncFailures {
 
   void snapshotFailed(Throwable failure) {
     snapshot = reason(failure);
+    snapshotAuth = failure instanceof SubmitException && ((SubmitException) failure).isAuthFailure();
     onChange.run();
   }
 
   void snapshotSucceeded() {
     snapshot = null;
+    onChange.run();
+  }
+
+  /** The previous account's snapshot failure is not the new one's. */
+  void accountChanged() {
+    if (!snapshotAuth) {
+      snapshot = null;
+    }
+    onChange.run();
   }
 
   /** Pairing or disconnecting starts over. */
   void clear() {
+    epoch++;
     snapshot = null;
     events = null;
   }
@@ -54,6 +69,7 @@ final class SyncFailures {
 
   /** One drain's chunks. */
   final class Drain {
+    private final int startEpoch = epoch;
     private volatile String failed;
 
     void failed(Throwable failure) {
@@ -64,9 +80,10 @@ final class SyncFailures {
 
     /** Records the outcome, then releases the flight. Clears only if every sent chunk succeeded. */
     void finish(int sentChunks, AtomicBoolean flight) {
-      if (failed != null) {
+      // A drain started under a pairing since replaced or removed says nothing about this one.
+      if (startEpoch == epoch && failed != null) {
         events = failed;
-      } else if (sentChunks > 0) {
+      } else if (startEpoch == epoch && sentChunks > 0) {
         events = null;
       }
       flight.set(false);

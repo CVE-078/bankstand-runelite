@@ -218,7 +218,6 @@ public class BankstandPlugin extends Plugin {
   private final RecentActivityLog recentActivityLog = new RecentActivityLog();
   // Written on the client thread, read on the EDT. Keyed by capability name.
   private final Map<String, Long> lastSyncedAt = new ConcurrentHashMap<>();
-  // The panel's failure line, kept per path.
   private final SyncFailures failures = new SyncFailures(this::refreshPanel);
 
   /**
@@ -1810,9 +1809,10 @@ public class BankstandPlugin extends Plugin {
       collectionLogBaseline.reset();
       // A pending COMPLETE claim is about the log just reset, so it must not survive a relog.
       pendingFullEnumeration = false;
-      // loadAckedState repopulates lastSyncedAt; the activity log is session-only.
+      // loadAckedState repopulates lastSyncedAt; activity and failures are per account.
       lastSyncedAt.clear();
       recentActivityLog.clear();
+      failures.accountChanged();
       eventPacer.forgetUnrouted();
       baselineGeneration = generation;
       loadAckedState(accountHash, generation);

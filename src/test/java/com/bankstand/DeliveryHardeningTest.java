@@ -195,6 +195,60 @@ public class DeliveryHardeningTest {
   }
 
   @Test
+  public void aDrainFinishingAfterARePairLeavesNoStaleFailure() throws Exception {
+    unlock("Pet snakeling");
+    new CollectionLogUnlockCapture(h.eventOutbox, () -> true, () -> 77L)
+        .handleMessage("New item added to your collection log: Pet snakeling");
+    String failing = h.eventOutbox.pending().get(0).getEvent().getId();
+    h.transport.byPath.put(
+        "/events", body -> new HttpResponse(body.contains(failing) ? 400 : 503, ""));
+    drain();
+    assertEquals("the slower chunk awaits its retry", 1, h.executor.scheduled.size());
+    h.transport.byPath.put(
+        "/pair", body -> new HttpResponse(200, "{\"deviceToken\":\"tok-b\",\"deviceId\":\"d\"}"));
+    h.call("pair", "BBBB-BBBB");
+    h.executor.runAll();
+    for (Runnable retry : new java.util.ArrayList<>(h.executor.scheduled)) {
+      h.executor.scheduled.remove(retry);
+      retry.run();
+    }
+    assertNull(panel().lastFailureReason);
+    assertFalse(PanelPresentation.SyncDot.AMBER.equals(panel().dot));
+  }
+
+  private void switchTo(long hash) throws Exception {
+    h.state(net.runelite.api.GameState.LOGIN_SCREEN);
+    h.executor.runAll();
+    h.hash = hash;
+    h.logIn();
+    h.executor.runAll();
+  }
+
+  @Test
+  public void anAccountSwitchDropsThePreviousAccountsSnapshotFailure() throws Exception {
+    snapshot(400);
+    assertNotNull(panel().lastFailureReason);
+    switchTo(77L);
+    assertNull(panel().lastFailureReason);
+  }
+
+  @Test
+  public void anAuthHaltStillShowsAfterAnAccountSwitch() throws Exception {
+    snapshot(401);
+    String reason = panel().lastFailureReason;
+    assertNotNull(reason);
+    switchTo(77L);
+    assertEquals(reason, panel().lastFailureReason);
+  }
+
+  @Test
+  public void aSnapshotSuccessRefreshesThePanel() {
+    int[] refreshes = {0};
+    new SyncFailures(() -> refreshes[0]++).snapshotSucceeded();
+    assertEquals(1, refreshes[0]);
+  }
+
+  @Test
   public void aFailureWithNoMessageStillShows() {
     assertEquals(SyncFailures.FALLBACK, SyncFailures.reason(new RuntimeException()));
   }
