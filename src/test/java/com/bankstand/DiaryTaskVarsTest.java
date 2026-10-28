@@ -216,6 +216,8 @@ public class DiaryTaskVarsTest {
       assertFalse(block, last().has(block));
     }
     // Once they arrive, the real values go out.
+    h.varbits.put(VarbitID.ATJUN_EASY_BANANA, 5);
+    h.varbits.put(VarbitID.WESTERN_EASY_REWARD, 1);
     h.varps.put(VarPlayerID.FREMENNIK_ACHIEVEMENT_DIARY, 0b11111111);
     h.varbits.put(VarbitID.FREMENNIK_MED_COUNT, 9);
     h.xp = 3_000;

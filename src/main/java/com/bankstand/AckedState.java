@@ -36,6 +36,32 @@ public class AckedState {
   /** Digest of the raw per-task diary values the server last stored. */
   private String diaryTaskVars;
 
+  // The acked diary values, not digests: a later read below them is too early to send.
+  private Map<String, String> diaryFlags;
+  private Map<String, Integer> diaryCounts;
+  private Map<String, Map<String, Integer>> diaryTaskVarValues;
+
+  public Map<String, String> getDiaryFlags() {
+    return diaryFlags;
+  }
+
+  public Map<String, Integer> getDiaryCounts() {
+    return diaryCounts;
+  }
+
+  public Map<String, Map<String, Integer>> getDiaryTaskVarValues() {
+    return diaryTaskVarValues;
+  }
+
+  public void setDiaryFloor(
+      Map<String, String> flags,
+      Map<String, Integer> counts,
+      Map<String, Map<String, Integer>> varValues) {
+    diaryFlags = flags;
+    diaryCounts = counts;
+    diaryTaskVarValues = varValues;
+  }
+
   /** The state of a character nothing is known about yet: everything resends once. */
   public static AckedState empty() {
     AckedState state = new AckedState();

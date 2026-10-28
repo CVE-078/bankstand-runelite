@@ -1705,18 +1705,23 @@ public class BankstandPlugin extends Plugin {
     adoptCharacter(accountHash, generation);
     // Diary values read all zero before the game sends them, and progress never goes back. So
     // nothing is sent before this login's acked state has loaded, and an all-zero read never
-    // replaces known or unknown state. A new character's real zeroes still go once.
+    // replaces known or unknown state. A new character's real zeroes still go once. A read below
+    // the acked values soon after login is held whole; after HOLD_TICKS it is believed and sent.
     boolean ackedKnown = ackedLoadedGeneration == generation;
     // Read again each capture until it succeeds; until then the baseline stays unknown.
     if (ackedKnown && ackedLoadFailed) {
       loadAckedState(accountHash, generation);
     }
-    boolean zeroDiaries =
-        diaries != null
-            && !diaries.containsValue("COMPLETE")
-            && (diaryTaskCounts == null || diaryTaskCounts.values().stream().allMatch(n -> n == 0));
-    if (!ackedKnown
-        || (zeroDiaries && (ackedLoadFailed || diaryBaseline.ackedDigest() != null))) {
+    // A rider: never a reason to submit, so a server that strips it cannot cause a resend loop.
+    Map<String, Object> diaryTaskVars =
+        varsReadable && isDiaryCaptureEnabled() && manifest.allows("diaryTaskVars")
+            ? DiaryTaskVars.read(client::getVarpValue, client::getVarbitValue)
+            : null;
+    boolean held =
+        !ackedKnown || diaryBaseline.holds(ticksSinceLoggedIn, diaries, diaryTaskCounts, diaryTaskVars);
+    if (held
+        || (DiaryBaseline.isAllZero(diaries, diaryTaskCounts)
+            && (ackedLoadFailed || diaryBaseline.ackedDigest() != null))) {
       diaries = null;
       diaryTaskCounts = null;
     }
@@ -1754,19 +1759,13 @@ public class BankstandPlugin extends Plugin {
             pendingFullEnumeration,
             slayerTaskBaseline,
             slayerTask);
-    boolean forced = forcedSubmitGeneration == generation;
-    if (!plan.shouldSubmit() && !forced) {
+    if (!plan.shouldSubmit() && forcedSubmitGeneration != generation) {
       return;
     }
     forcedSubmitGeneration = -1;
-    // A rider: never a reason to submit, so a server that strips it cannot cause a resend loop.
-    Map<String, Object> diaryTaskVars =
-        varsReadable && isDiaryCaptureEnabled() && manifest.allows("diaryTaskVars")
-            ? DiaryTaskVars.read(client::getVarpValue, client::getVarbitValue)
-            : null;
     // Never all zero: a too-early read and a new character look the same, and unknown is safe.
     if (diaryTaskVars != null
-        && (!ackedKnown
+        && (held
             || DiaryTaskVars.isAllZero(diaryTaskVars)
             || CapabilityDigest.of(diaryTaskVars).equals(diaryTaskVarsAcked))) {
       diaryTaskVars = null;
@@ -1876,7 +1875,7 @@ public class BankstandPlugin extends Plugin {
       questBaseline.restore(state.getQuests());
     }
     if (!merge || diaryBaseline.ackedDigest() == null) {
-      diaryBaseline.restore(state.getDiaries());
+      diaryBaseline.restore(state);
     }
     if (!merge || combatAchievementBaseline.ackedDigest() == null) {
       combatAchievementBaseline.restore(state.getCombatAchievements());
@@ -1912,7 +1911,7 @@ public class BankstandPlugin extends Plugin {
     AckedState state = AckedState.empty();
     state.setSkills(skillBaseline.ackedDigest());
     state.setQuests(questBaseline.ackedDigest());
-    state.setDiaries(diaryBaseline.ackedDigest());
+    diaryBaseline.saveTo(state);
     state.setCombatAchievements(combatAchievementBaseline.ackedDigest());
     state.setAccountType(accountTypeBaseline.ackedValue());
     state.setDiaryTaskVars(diaryTaskVarsAcked);
@@ -2240,7 +2239,7 @@ public class BankstandPlugin extends Plugin {
                             }
                             boolean diariesAdvanced = shouldAdvanceDiaries(res, diaries != null);
                             if (diariesAdvanced) {
-                              diaryBaseline.advance(diaries);
+                              diaryBaseline.advance(diaries, diaryTaskCounts);
                             }
                             boolean collectionLogAdvanced =
                                 shouldAdvanceCollectionLog(res, !collectionLogItems.isEmpty());
@@ -2266,6 +2265,7 @@ public class BankstandPlugin extends Plugin {
                                 shouldAdvanceSlayerTask(res, slayerTask != null);
                             if (diaryTaskVars != null && res.isBlockStored("diaryTaskVars")) {
                               diaryTaskVarsAcked = CapabilityDigest.of(diaryTaskVars);
+                              diaryBaseline.advanceVars(diaryTaskVars);
                             }
                             if (slayerTaskAdvanced) {
                               slayerTaskBaseline.advance(slayerTask);
