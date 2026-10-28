@@ -316,4 +316,182 @@ public class DiaryEarlyReadTest {
     capture();
     assertNoDiaryBlock(last());
   }
+
+  // Fresh pairing: what the client sends for a character with nothing acked. Evidence only.
+
+  private static int varp(JsonObject body) {
+    return body.getAsJsonObject("diaryTaskVars").getAsJsonObject("varps")
+        .get(Integer.toString(VarPlayerID.VARROCK_ACHIEVEMENT_DIARY)).getAsInt();
+  }
+
+  private static int reward(JsonObject body) {
+    return body.getAsJsonObject("diaryTaskVars").getAsJsonObject("varbits")
+        .get(Integer.toString(VarbitID.VARROCK_EASY_REWARD)).getAsInt();
+  }
+
+  @Test
+  public void freshPartialValuesStillThereAtTick200AreSentAsReadThenTheFullReadFollows()
+      throws Exception {
+    relog(77L);
+    h.varbits.put(DiaryVarbits.ALL.get("VARROCK_EASY"), 1);
+    h.varbits.put(VarbitID.VARROCK_EASY_COUNT, 14);
+    h.varps.put(VarPlayerID.VARROCK_ACHIEVEMENT_DIARY, 0b001);
+    h.ticks(DiaryBaseline.HOLD_TICKS - CaptureGate.SETTLE_TICKS - 1);
+    capture();
+    assertNoDiaryBlock(last());
+    h.ticks(1);
+    capture();
+    assertEquals("COMPLETE", flag(last(), "VARROCK_EASY"));
+    assertEquals("INCOMPLETE", flag(last(), "VARROCK_MEDIUM"));
+    assertEquals(0, count(last(), "VARROCK_MEDIUM"));
+    assertEquals(0b001, varp(last()));
+    progress(h);
+    capture();
+    assertEquals("COMPLETE", flag(last(), "VARROCK_MEDIUM"));
+    assertEquals(13, count(last(), "VARROCK_MEDIUM"));
+    assertEquals(0b111, varp(last()));
+  }
+
+  @Test
+  public void freshCountsBeforeTaskBitsSendZeroBitsThenTheBitsRideTheNextSubmit()
+      throws Exception {
+    relog(77L);
+    h.ticks(DiaryBaseline.HOLD_TICKS);
+    h.varbits.put(VarbitID.VARROCK_EASY_COUNT, 14);
+    capture();
+    assertEquals(14, count(last(), "VARROCK_EASY"));
+    assertEquals(0, varp(last()));
+    h.varps.put(VarPlayerID.VARROCK_ACHIEVEMENT_DIARY, 0b111);
+    capture();
+    assertFalse("flags and counts unchanged", last().has("diaries"));
+    assertEquals(0b111, varp(last()));
+  }
+
+  @Test
+  public void freshTaskBitsBeforeCountsSendZeroCountsThenTheCounts() throws Exception {
+    relog(77L);
+    h.ticks(DiaryBaseline.HOLD_TICKS);
+    h.varps.put(VarPlayerID.VARROCK_ACHIEVEMENT_DIARY, 0b111);
+    capture();
+    assertEquals("INCOMPLETE", flag(last(), "VARROCK_EASY"));
+    assertEquals(0, count(last(), "VARROCK_EASY"));
+    assertEquals(0b111, varp(last()));
+    h.varbits.put(VarbitID.VARROCK_EASY_COUNT, 14);
+    capture();
+    // The change gate keys on the tier flags, so a count alone only moves the rider.
+    assertFalse(last().has("diaryTasks"));
+    assertEquals(14, last().getAsJsonObject("diaryTaskVars").getAsJsonObject("varbits")
+        .get(Integer.toString(VarbitID.VARROCK_EASY_COUNT)).getAsInt());
+  }
+
+  @Test
+  public void freshTierFlagAndRewardAfterTheCountsEachGoOutWhenTheyLand() throws Exception {
+    relog(77L);
+    h.ticks(DiaryBaseline.HOLD_TICKS);
+    h.varbits.put(VarbitID.VARROCK_EASY_COUNT, 14);
+    capture();
+    assertEquals("INCOMPLETE", flag(last(), "VARROCK_EASY"));
+    h.varbits.put(DiaryVarbits.ALL.get("VARROCK_EASY"), 1);
+    capture();
+    assertEquals("COMPLETE", flag(last(), "VARROCK_EASY"));
+    assertFalse("tier flags are not in the rider", last().has("diaryTaskVars"));
+    h.varbits.put(VarbitID.VARROCK_EASY_REWARD, 1);
+    capture();
+    assertFalse("a reward alone only changes the rider", last().has("diaries"));
+    assertEquals(1, reward(last()));
+  }
+
+  @Test
+  public void freshATierFlagBeforeItsCountSendsCompleteWithACountOfZero() throws Exception {
+    relog(77L);
+    h.ticks(DiaryBaseline.HOLD_TICKS);
+    h.varbits.put(DiaryVarbits.ALL.get("VARROCK_EASY"), 1);
+    capture();
+    assertEquals("COMPLETE", flag(last(), "VARROCK_EASY"));
+    assertEquals(0, count(last(), "VARROCK_EASY"));
+  }
+
+  @Test
+  public void freshAHopDuringTheHoldRestartsTheWindow() throws Exception {
+    relog(77L);
+    progress(h);
+    h.ticks(150);
+    soonAfterLogin();
+    h.ticks(100);
+    capture();
+    assertNoDiaryBlock(last());
+    h.ticks(DiaryBaseline.HOLD_TICKS);
+    capture();
+    assertEquals("COMPLETE", flag(last(), "VARROCK_MEDIUM"));
+  }
+
+  @Test
+  public void freshALogoutDuringTheHoldRestartsTheWindow() throws Exception {
+    relog(77L);
+    h.ticks(150);
+    relog(77L);
+    progress(h);
+    h.ticks(100);
+    capture();
+    assertNoDiaryBlock(last());
+  }
+
+  @Test
+  public void freshASwitchDuringTheHoldNeverSendsTheFirstAccountsDiaryUnderTheSecond()
+      throws Exception {
+    relog(77L);
+    progress(h);
+    h.ticks(150);
+    capture();
+    relog(88L);
+    h.varbits.put(DiaryVarbits.ALL.get("VARROCK_EASY"), 1);
+    h.varbits.put(VarbitID.VARROCK_EASY_COUNT, 14);
+    h.ticks(100);
+    capture();
+    assertNoDiaryBlock(last());
+    h.ticks(DiaryBaseline.HOLD_TICKS);
+    capture();
+    assertEquals("88", last().get("accountHash").getAsString());
+    assertEquals("COMPLETE", flag(last(), "VARROCK_EASY"));
+    assertEquals("INCOMPLETE", flag(last(), "VARROCK_MEDIUM"));
+    for (JsonObject body : snapshots()) {
+      if ("77".equals(body.get("accountHash").getAsString())) {
+        assertNoDiaryBlock(body);
+      }
+    }
+  }
+
+  @Test
+  public void freshARestartBeforeTheFirstAckHoldsAgain() throws Exception {
+    h.transport.byPath.put("/submit", body -> new HttpResponse(400, ""));
+    relog(77L);
+    progress(h);
+    h.ticks(DiaryBaseline.HOLD_TICKS);
+    capture();
+    assertEquals("sent but refused", "COMPLETE", flag(last(), "VARROCK_MEDIUM"));
+    h = start(false);
+    relog(77L);
+    progress(h);
+    capture();
+    assertNoDiaryBlock(last());
+    h.ticks(DiaryBaseline.HOLD_TICKS);
+    capture();
+    assertEquals("COMPLETE", flag(last(), "VARROCK_MEDIUM"));
+  }
+
+  @Test
+  public void freshEarlyReadsOfSkillsAccountTypeAndCombatAchievementsAreNotHeld()
+      throws Exception {
+    relog(77L);
+    h.xp = 0;
+    h.plugin.captureSkills();
+    h.runClientThread();
+    h.executor.runAll();
+    JsonObject body = last();
+    assertNoDiaryBlock(body);
+    assertEquals(0, body.getAsJsonObject("skills").getAsJsonObject("attack").get("xp").getAsInt());
+    // An ironman whose varbit has not arrived reads as regular.
+    assertEquals("regular", body.get("accountType").getAsString());
+    assertEquals(0, body.getAsJsonObject("combatAchievements").get("easy").getAsInt());
+  }
 }
