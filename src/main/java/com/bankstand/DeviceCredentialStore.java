@@ -77,12 +77,13 @@ public class DeviceCredentialStore {
   public boolean save(DeviceCredentials credentials) {
     Path target = file.toPath();
     Path directory = target.getParent();
+    Path temp = null;
     try {
       if (directory != null) {
         Files.createDirectories(directory);
       }
       // Temp then move, so a crash midway leaves the previous pairing intact.
-      Path temp = Files.createTempFile(directory, "device", ".tmp");
+      temp = Files.createTempFile(directory, "device", ".tmp");
       try (Writer writer = Files.newBufferedWriter(temp, StandardCharsets.UTF_8)) {
         gson.toJson(credentials, writer);
       }
@@ -96,6 +97,14 @@ public class DeviceCredentialStore {
       cached = credentials;
       return true;
     } catch (IOException | RuntimeException e) {
+      // The temp file holds the token; unpair only deletes the real file.
+      if (temp != null) {
+        try {
+          Files.deleteIfExists(temp);
+        } catch (IOException | RuntimeException ignored) {
+          // Nothing more to do; the save already reports failure.
+        }
+      }
       // Not logged: the message can carry the path, and the caller reports the outcome.
       return false;
     }

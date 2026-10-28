@@ -47,6 +47,20 @@ public class DeviceCredentialStoreTest {
   }
 
   @Test
+  public void aFailedSaveLeavesNoCopyOfTheTokenBehind() throws IOException {
+    File file = newFile();
+    // A non-empty directory where the file goes makes the final move fail.
+    assertTrue(new File(file, "x").mkdirs());
+    DeviceCredentials saved = new DeviceCredentials();
+    saved.setToken("tok_abc");
+
+    assertFalse(storeIn(file).save(saved));
+
+    String[] left = file.getParentFile().list((dir, name) -> name.endsWith(".tmp"));
+    assertEquals(0, left.length);
+  }
+
+  @Test
   public void readsAsUnpairedWhenNothingWasEverWritten() throws IOException {
     DeviceCredentials loaded = storeIn(newFile()).load();
 
