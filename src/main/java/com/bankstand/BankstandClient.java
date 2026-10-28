@@ -352,16 +352,13 @@ public class BankstandClient {
     return (long) (window * randomFraction);
   }
 
-  /**
-   * Retries are scheduled on {@link #executor}, never slept (Plugin Hub rejects
-   * {@code Thread.sleep}). The first attempt runs on the calling thread, which must not be
-   * the client thread.
-   */
   /** Checked before every attempt, retries included, so a replaced token is never sent. */
   public void setCurrentPairing(BiPredicate<String, String> current) {
     this.current = current;
   }
 
+  // Retries are scheduled on the executor, never slept (Plugin Hub rejects Thread.sleep).
+  // The first attempt runs on the calling thread, which must not be the client thread.
   private <T> CompletableFuture<T> withRetry(
       String baseUrl, String deviceToken, SubmitCall<T> call, int maxAttempts, long baseDelayMillis) {
     SubmitCall<T> guarded =
@@ -400,6 +397,9 @@ public class BankstandClient {
           () -> attempt(call, attemptNumber + 1, maxAttempts, baseDelayMillis, result),
           delay,
           TimeUnit.MILLISECONDS);
+    } catch (RuntimeException e) {
+      // A scheduled retry has no caller to throw to; left open, the future would never finish.
+      result.completeExceptionally(new SubmitException("Unexpected error."));
     }
   }
 

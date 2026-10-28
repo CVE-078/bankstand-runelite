@@ -464,6 +464,22 @@ public class BankstandClientTest {
   }
 
   @Test
+  public void anUncheckedThrowOnARetryStillCompletesTheFuture() throws Exception {
+    // The retry finds no scripted step, so the transport throws IllegalStateException.
+    SequencedTransport t = new SequencedTransport(new IOException("blip"));
+    try {
+      new BankstandClient(t, new Gson(), EXECUTOR)
+          .submitEventsWithRetry(BASE, "bsd_tok", 1L, Collections.emptyList(), 3, 0L)
+          .get(GET_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+      fail("expected a failure");
+    } catch (ExecutionException e) {
+      assertTrue(e.getCause() instanceof SubmitException);
+      assertFalse(((SubmitException) e.getCause()).isRetryable());
+    }
+    assertEquals(2, t.calls);
+  }
+
+  @Test
   public void submitEventsDoesNotRetryA429AndCarriesItsRetryAfter() throws Exception {
     SequencedTransport t =
         new SequencedTransport(
