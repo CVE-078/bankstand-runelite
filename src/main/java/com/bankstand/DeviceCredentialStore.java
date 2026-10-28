@@ -16,8 +16,8 @@ import java.nio.file.StandardCopyOption;
  * uploads all config to RuneLite's servers, and the token is a bearer credential. Per-install
  * storage also keeps each machine its own device.
  *
- * <p>A read failure means "not paired" (fail closed). Save/clear and load are never concurrent;
- * {@link #cached} is volatile so a save on one thread is seen by the next load on another.
+ * <p>A read failure means "not paired" (fail closed) and is never cached. Called from the client
+ * thread and the executor: {@link #cached} is volatile, and each read returns its own result.
  */
 public class DeviceCredentialStore {
 
@@ -32,39 +32,58 @@ public class DeviceCredentialStore {
     this.gson = gson;
   }
 
-  /** Never null. */
-  public DeviceCredentials load() {
-    DeviceCredentials current = cached;
-    if (current != null) {
-      return current;
+  /** One read: the credentials, and whether the file could not be read ("not paired" is a guess). */
+  public static final class Read {
+    public final DeviceCredentials credentials;
+    public final boolean unreadable;
+
+    Read(DeviceCredentials credentials, boolean unreadable) {
+      this.credentials = credentials;
+      this.unreadable = unreadable;
     }
-    DeviceCredentials loaded = readFromDisk();
-    cached = loaded;
-    return loaded;
   }
 
-  private DeviceCredentials readFromDisk() {
+  /** Never null. */
+  public DeviceCredentials load() {
+    return read().credentials;
+  }
+
+  public Read read() {
+    DeviceCredentials current = cached;
+    if (current != null) {
+      return new Read(current, false);
+    }
+    Read read = readFromDisk();
+    if (!read.unreadable) {
+      cached = read.credentials;
+    }
+    return read;
+  }
+
+  private Read readFromDisk() {
     if (!file.exists()) {
-      return DeviceCredentials.none();
+      return new Read(DeviceCredentials.none(), false);
     }
     try (Reader reader = Files.newBufferedReader(file.toPath(), StandardCharsets.UTF_8)) {
       DeviceCredentials stored = gson.fromJson(reader, DeviceCredentials.class);
-      return stored == null ? DeviceCredentials.none() : stored;
+      return new Read(stored == null ? DeviceCredentials.none() : stored, false);
     } catch (IOException | RuntimeException e) {
       // Not logged, at any level: this file holds a credential.
-      return DeviceCredentials.none();
+      return new Read(DeviceCredentials.none(), true);
     }
   }
 
-  public void save(DeviceCredentials credentials) {
+  /** False when the file could not be written; the cache then keeps the previous pairing. */
+  public boolean save(DeviceCredentials credentials) {
     Path target = file.toPath();
     Path directory = target.getParent();
+    Path temp = null;
     try {
       if (directory != null) {
         Files.createDirectories(directory);
       }
       // Temp then move, so a crash midway leaves the previous pairing intact.
-      Path temp = Files.createTempFile(directory, "device", ".tmp");
+      temp = Files.createTempFile(directory, "device", ".tmp");
       try (Writer writer = Files.newBufferedWriter(temp, StandardCharsets.UTF_8)) {
         gson.toJson(credentials, writer);
       }
@@ -76,18 +95,35 @@ public class DeviceCredentialStore {
       }
       // Only on success, so the cache always matches disk.
       cached = credentials;
+      return true;
     } catch (IOException | RuntimeException e) {
-      // Swallowed: a failed save costs one re-pair.
+      // The temp file holds the token; unpair only deletes the real file.
+      if (temp != null) {
+        try {
+          Files.deleteIfExists(temp);
+        } catch (IOException | RuntimeException ignored) {
+          // Nothing more to do; the save already reports failure.
+        }
+      }
+      // Not logged: the message can carry the path, and the caller reports the outcome.
+      return false;
     }
   }
 
-  public void clear() {
+  /**
+   * Unpairs this process at once, whatever the disk does. False when the file could not be
+   * removed or emptied, so the pairing comes back on the next start.
+   */
+  public boolean clear() {
+    cached = DeviceCredentials.none();
     try {
       Files.deleteIfExists(file.toPath());
-      cached = DeviceCredentials.none();
+      return true;
     } catch (IOException | RuntimeException e) {
       // If the delete fails, overwrite with an empty document so no credential remains.
-      save(DeviceCredentials.none());
+      boolean emptied = save(DeviceCredentials.none());
+      cached = DeviceCredentials.none();
+      return emptied;
     }
   }
 }

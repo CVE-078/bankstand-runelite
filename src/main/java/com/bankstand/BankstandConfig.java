@@ -51,9 +51,10 @@ public interface BankstandConfig extends Config {
       keyName = BankstandKeys.KEY_SERVER_URL,
       name = "Server URL",
       description =
-          "Where to send your data. Leave this alone unless you are running Bankstand"
-              + " locally. Must be https; plain http only works for localhost. A stale"
-              + " address here makes every update fail silently.",
+          "Where to send your data. Leave this alone unless you run Bankstand yourself."
+              + " Must be https; plain http only works for localhost. A pairing belongs to the"
+              + " server it was made with: point this elsewhere and nothing is sent until you"
+              + " pair with that server.",
       section = advancedSection,
       position = 1)
   default String serverBaseUrl() {
@@ -64,8 +65,8 @@ public interface BankstandConfig extends Config {
       keyName = BankstandKeys.KEY_PAIRING_CODE,
       name = "Pairing code",
       description =
-          "Generate a code at Bankstand > Account > Connect RuneLite, then paste it here."
-              + " It is exchanged for a device token and cleared.",
+          "Get a code on bankstand.gg/account/connection (Plugin connection), then paste it"
+              + " here. It is exchanged for a device token and cleared.",
       section = connectionSection,
       position = 1)
   default String pairingCode() {
@@ -76,7 +77,8 @@ public interface BankstandConfig extends Config {
       keyName = BankstandKeys.KEY_DISCONNECT,
       name = "Disconnect",
       description =
-          "Tick to forget this device's pairing. Nothing is sent until you pair again.",
+          "Tick to forget this device's pairing and revoke it on the server. Nothing is sent"
+              + " until you pair again.",
       section = connectionSection,
       position = 2)
   default boolean disconnect() {
@@ -88,8 +90,11 @@ public interface BankstandConfig extends Config {
       name = "Skill XP",
       description =
           "Sends your XP in each skill, your account hash and your display name while you"
-              + " are paired. This is what identifies your character to Bankstand, so"
-              + " turning it off stops the connection doing anything useful.",
+              + " are paired. This links your character to Bankstand, so your other captures"
+              + " only reach your account once it has linked. It also carries your quest,"
+              + " diary, combat achievement, collection log, account type and Slayer task"
+              + " progress. Drops, pets, loot, sessions and chat-announced completions follow"
+              + " their own toggles.",
       section = progressSection,
       position = 1)
   default boolean collectSkills() {
@@ -100,8 +105,8 @@ public interface BankstandConfig extends Config {
       keyName = BankstandKeys.KEY_COLLECT_QUESTS,
       name = "Quest progress",
       description =
-          "Sends which quests you have not started, started and finished, so your guides"
-              + " can read from the game rather than inferring it.",
+          "Sends which quests you have not started, started and finished, so your progress"
+              + " pages read it from the game rather than inferring it.",
       section = progressSection,
       position = 2)
   default boolean collectQuests() {
@@ -113,9 +118,10 @@ public interface BankstandConfig extends Config {
       // The full name renders truncated in the config panel.
       name = "Diary progress",
       description =
-          "Sends which achievement diary tiers you have completed and how many tasks you"
-              + " have done in each tier. When the game announces a finished diary task in"
-              + " chat, it also sends that task's tier and area.",
+          "Sends which achievement diary tiers you have completed, how many tasks you have"
+              + " done in each tier, which rewards you have claimed and the game's per-task"
+              + " diary values. When the game announces a finished diary task in chat, it also"
+              + " sends that task's tier and area.",
       section = progressSection,
       position = 3)
   default boolean collectDiaries() {

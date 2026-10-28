@@ -1,6 +1,7 @@
 package com.bankstand;
 
 import java.util.Locale;
+import okhttp3.HttpUrl;
 
 /**
  * Storage keys and defaults. Config keys must match {@link BankstandConfig}, since the plugin
@@ -70,24 +71,22 @@ public final class BankstandKeys {
     if (!lower.startsWith("http://")) {
       return DEFAULT_SERVER_URL;
     }
-    String rest = url.substring("http://".length());
-    return isLocalhost(hostOf(rest)) ? url : "https://" + rest;
+    // OkHttp picks the host, so text around an "@" cannot pass for localhost.
+    HttpUrl parsed = HttpUrl.parse(url);
+    boolean local = parsed != null && isLocalhost(parsed.host());
+    return local ? url : "https://" + url.substring("http://".length());
   }
 
-  // Host of "host[:port][/path]", brackets kept for IPv6.
-  private static String hostOf(String rest) {
-    int slash = rest.indexOf('/');
-    String authority = slash < 0 ? rest : rest.substring(0, slash);
-    if (authority.startsWith("[")) {
-      int close = authority.indexOf(']');
-      return close < 0 ? authority : authority.substring(0, close + 1);
-    }
-    int colon = authority.indexOf(':');
-    return colon < 0 ? authority : authority.substring(0, colon);
+  /**
+   * "scheme://host:port" of a URL, or null if unusable. Parsed by OkHttp, the same parser that
+   * picks the host a request actually goes to.
+   */
+  public static String originOf(String url) {
+    HttpUrl parsed = url == null ? null : HttpUrl.parse(url.trim());
+    return parsed == null ? null : parsed.scheme() + "://" + parsed.host() + ":" + parsed.port();
   }
 
   private static boolean isLocalhost(String host) {
-    String h = host.toLowerCase(Locale.ROOT);
-    return h.equals("localhost") || h.equals("127.0.0.1") || h.equals("[::1]");
+    return host.equals("localhost") || host.equals("127.0.0.1") || host.equals("::1");
   }
 }

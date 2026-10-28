@@ -26,7 +26,8 @@ public final class CapabilityManifest {
           new LinkedHashSet<>(
               Arrays.asList(
                   "skills", "quests", "diaries", "collectionLog", "combatAchievements",
-                  "accountType", "notableDrops", "petDrops", "sessions", "loot", "slayer")));
+                  "accountType", "notableDrops", "petDrops", "sessions", "loot", "slayer",
+                  "diaryTaskVars")));
 
   /** The contract version this build speaks. A manifest declaring anything else is not ours. */
   public static final int SUPPORTED_SCHEMA_VERSION = 1;

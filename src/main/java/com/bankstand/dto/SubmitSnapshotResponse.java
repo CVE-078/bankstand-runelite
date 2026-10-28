@@ -10,6 +10,8 @@ public class SubmitSnapshotResponse {
   private String serverTime;
   private String nextSubmitAfter;
   private List<String> storedBlocks;
+  // Received but kept back as lower than what the server has. Absent from older servers.
+  private List<String> heldBlocks;
 
   public boolean isAccepted() {
     return accepted;
@@ -38,6 +40,11 @@ public class SubmitSnapshotResponse {
   /** Never null. */
   public List<String> getStoredBlocks() {
     return storedBlocks == null ? java.util.Collections.emptyList() : storedBlocks;
+  }
+
+  /** Never null; empty from a server that predates it. */
+  public List<String> getHeldBlocks() {
+    return heldBlocks == null ? java.util.Collections.emptyList() : heldBlocks;
   }
 
   /**

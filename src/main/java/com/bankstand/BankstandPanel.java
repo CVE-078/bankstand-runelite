@@ -170,12 +170,8 @@ class BankstandPanel extends PluginPanel {
     JLabel name = new JLabel(row.name);
     name.setForeground(Color.WHITE);
 
-    // Never synced shows a placeholder, never "0m ago".
-    JLabel synced =
-        new JLabel(
-            row.lastSyncedAtMs == null
-                ? "—"
-                : PanelPresentation.formatAge(now - row.lastSyncedAtMs));
+    JLabel synced = new JLabel(PanelPresentation.capabilityStatus(row, now));
+    synced.setToolTipText(PanelPresentation.capabilityTooltip(row));
     synced.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
     synced.setHorizontalAlignment(SwingConstants.RIGHT);
 

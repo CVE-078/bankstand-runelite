@@ -27,6 +27,21 @@ final class PanelPresentation {
     return everSucceeded ? SyncDot.GREEN : SyncDot.GREY;
   }
 
+  /** A capability row's right-hand text. Never synced shows a placeholder, never "0m ago". */
+  static String capabilityStatus(PanelModel.CapabilityRow row, long nowMs) {
+    if (row.held) {
+      return "Kept saved progress";
+    }
+    return row.lastSyncedAtMs == null ? "—" : formatAge(nowMs - row.lastSyncedAtMs);
+  }
+
+  /** Null when the row needs no explanation. */
+  static String capabilityTooltip(PanelModel.CapabilityRow row) {
+    return row.held
+        ? "This read was lower than what Bankstand already has, so it was not saved."
+        : null;
+  }
+
   /** A short age like "just now", "2m ago", "3h ago", "5d ago", sized for a narrow panel row. */
   static String formatAge(long ageMillis) {
     if (ageMillis < 60_000L) {

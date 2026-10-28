@@ -47,7 +47,8 @@ public class SlayerTaskCompletionCapture extends BaseCapture {
    */
   @Subscribe
   public void onVarbitChanged(VarbitChanged event) {
-    if (event.getVarpId() != VarPlayerID.SLAYER_COUNT) {
+    // Off, or on a world that is not read: the task there is not this character's to remember.
+    if (event.getVarpId() != VarPlayerID.SLAYER_COUNT || !isEnabled()) {
       return;
     }
     SlayerTask task = currentTask.get();

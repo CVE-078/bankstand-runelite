@@ -1,11 +1,15 @@
 Third-party notices
 
-The per-task diary bit positions in
-src/main/java/com/bankstand/DiaryTaskManifestData.java are derived from
-weirdgloop/wikisync-api (https://github.com/weirdgloop/wikisync-api), commit
-aecdfd0b2264279852e479ca2f5f77a448aa3597. That project declares the MIT licence
-in its package.json, which names Jayden Bailey as author. It has no LICENSE
-file or copyright line. The MIT permission notice follows.
+The choice of achievement diary varplayers and varbits in
+src/main/java/com/bankstand/DiaryTaskVars.java follows
+src/runelite/data/achievementDiariesSpecs.json and
+AchievementDiaryTransformer.ts in weirdgloop/wikisync-api
+(https://github.com/weirdgloop/wikisync-api), commit
+aecdfd0b2264279852e479ca2f5f77a448aa3597. Earlier versions of this plugin
+carried per-task bit positions derived from the same files. That project
+declares the MIT licence in its package.json, which names Jayden Bailey as
+author. It has no LICENSE file or copyright line. The MIT permission notice
+follows.
 
 MIT License
 

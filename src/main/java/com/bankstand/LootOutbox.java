@@ -18,7 +18,9 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
+import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -38,7 +40,19 @@ public class LootOutbox {
   private static final Type LIST_TYPE = new TypeToken<ArrayList<LootEntry>>() {}.getType();
 
   private final File file;
+  // Far above a full queue's size, so only a damaged file is ever this large.
+  private static final long MAX_FILE_BYTES = 4L * 1024 * 1024;
+  // For the status report: counts and states only, never content.
+  private volatile boolean setAside;
+  private volatile boolean unsaved;
+  private volatile int dropped;
+  // What should be on disk but is not yet, cleared only by a successful write. Full when built
+  // from a successful read; otherwise only what changed while the file could not be read.
+  private List<LootEntry> unwritten;
+  private boolean unwrittenIsFull;
+  private volatile boolean readFailing;
   private final Gson gson;
+  private volatile Supplier<String> pairing = () -> null;
 
   public LootOutbox(File file, Gson gson) {
     this.file = file;
@@ -50,12 +64,13 @@ public class LootOutbox {
     if (added.isEmpty()) {
       return;
     }
-    List<LootEntry> entries = read();
+    List<LootEntry> entries = current();
     entries.addAll(added);
     int evicted = 0;
     while (entries.size() > MAX_PENDING) {
       entries.remove(0);
       evicted++;
+      dropped++;
     }
     if (evicted > 0) {
       log.warn("loot outbox full ({} pending): dropped {} oldest records", MAX_PENDING, evicted);
@@ -65,7 +80,7 @@ public class LootOutbox {
 
   /** Every pending entry, oldest first. A snapshot: mutating it does not persist. */
   public synchronized List<LootEntry> pending() {
-    return read();
+    return current();
   }
 
   /** Removes exactly the entries whose record id is in {@code ids}. */
@@ -73,9 +88,16 @@ public class LootOutbox {
     if (ids.isEmpty()) {
       return;
     }
-    List<LootEntry> entries = read();
+    List<LootEntry> entries = current();
     entries.removeIf(entry -> ids.contains(entry.getEvent().getId()));
     write(entries);
+  }
+
+  /** Forgets every pending record, on disk too, so a restart cannot send them either. */
+  public synchronized void clear() {
+    // Nothing is pending, so this is the full list whatever the last read did.
+    readFailing = false;
+    write(new ArrayList<>());
   }
 
   /** Stored, duplicate and unfixable rejections are dropped; anything else is resent. */
@@ -94,20 +116,102 @@ public class LootOutbox {
     return ids;
   }
 
+  /** Where the current pairing id is read; entries tagged with another one are never sent. */
+  public void setPairing(Supplier<String> pairing) {
+    this.pairing = pairing;
+  }
+
+  // Fails closed: if a clear on re-pair could not write, the old pairing's entries still never
+  // leave. They are dropped here, and from disk whenever a write succeeds.
+  private List<LootEntry> current() {
+    List<LootEntry> entries;
+    boolean flush = unwritten != null;
+    if (flush && unwrittenIsFull) {
+      entries = new ArrayList<>(unwritten);
+    } else {
+      List<LootEntry> fromDisk = read();
+      readFailing = fromDisk == null;
+      entries = fromDisk == null ? new ArrayList<>() : fromDisk;
+      if (flush) {
+        entries.addAll(unwritten);
+      }
+    }
+    String now = pairing.get();
+    // An unreadable pairing is not "another pairing": nothing is purged until it is known.
+    boolean purged =
+        !PairingQueues.UNKNOWN.equals(now)
+            && entries.removeIf(entry -> !Objects.equals(now, entry.getPairingId()));
+    if (purged || flush) {
+      write(entries);
+    }
+    return entries;
+  }
+
+
+
   private List<LootEntry> read() {
     if (!file.exists()) {
       return new ArrayList<>();
     }
+    if (file.length() > MAX_FILE_BYTES) {
+      return setAside();
+    }
     try (Reader reader = Files.newBufferedReader(file.toPath(), StandardCharsets.UTF_8)) {
       List<LootEntry> stored = gson.fromJson(reader, LIST_TYPE);
-      return stored == null ? new ArrayList<>() : new ArrayList<>(stored);
+      if (stored == null) {
+        return new ArrayList<>();
+      }
+      // Valid JSON can still lack what every reader of an entry needs.
+      for (LootEntry entry : stored) {
+        if (entry == null || entry.getEvent() == null || entry.getEvent().getId() == null) {
+          return setAside();
+        }
+      }
+      return new ArrayList<>(stored);
     } catch (IOException | RuntimeException e) {
-      log.debug("loot outbox unreadable, treating as empty: {}", e.getMessage());
-      return new ArrayList<>();
+      log.debug("loot outbox unreadable: {}", e.getMessage());
+      // Damaged for good: kept aside. Maybe passing (a lock, a permission): left in place.
+      return ReadFailures.isDamaged(e) ? setAside() : null;
     }
   }
 
+  // Moved aside, never overwritten, so a damaged queue can still be inspected or recovered.
+  private <T> List<T> setAside() {
+    setAside = true;
+    try {
+      Files.move(
+          file.toPath(),
+          file.toPath().resolveSibling(file.getName() + ".unreadable"),
+          StandardCopyOption.REPLACE_EXISTING);
+    } catch (IOException | RuntimeException e) {
+      log.debug("loot outbox could not be set aside: {}", e.getMessage());
+    }
+    return new ArrayList<>();
+  }
+
+  /** What is wrong with the queue file, or null. Never its content. */
+  String problem() {
+    if (readFailing) {
+      return "could not be read right now; it is kept and read again later";
+    }
+    if (unsaved) {
+      return "could not be saved, so new items may be lost";
+    }
+    return setAside ? "was unreadable and was set aside" : null;
+  }
+
+  /** Oldest items dropped this session because the queue was full. */
+  int dropped() {
+    return dropped;
+  }
+
   private void write(List<LootEntry> entries) {
+    unwritten = new ArrayList<>(entries);
+    unwrittenIsFull = !readFailing;
+    // Writing now would replace the unread file with only what is in memory.
+    if (readFailing) {
+      return;
+    }
     Path target = file.toPath();
     Path directory = target.getParent();
     try {
@@ -125,7 +229,10 @@ public class LootOutbox {
       } catch (AtomicMoveNotSupportedException e) {
         Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING);
       }
+      unsaved = false;
+      unwritten = null;
     } catch (IOException | RuntimeException e) {
+      unsaved = true;
       log.debug("loot outbox write failed: {}", e.getMessage());
     }
   }

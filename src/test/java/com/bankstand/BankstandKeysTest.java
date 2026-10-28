@@ -51,10 +51,35 @@ public class BankstandKeysTest {
   }
 
   @Test
+  public void judgesLocalhostByTheHostTheRequestGoesTo() {
+    // Each of these goes to evil.test, whatever text sits before or after an "@".
+    assertEquals(
+        "https://localhost:80@evil.test", BankstandKeys.normaliseServerUrl("http://localhost:80@evil.test"));
+    assertEquals(
+        "https://evil.test?@localhost", BankstandKeys.normaliseServerUrl("http://evil.test?@localhost"));
+    assertEquals(
+        "https://evil.test#@localhost", BankstandKeys.normaliseServerUrl("http://evil.test#@localhost"));
+    assertEquals(
+        "https://evil.test\\@localhost", BankstandKeys.normaliseServerUrl("http://evil.test\\@localhost"));
+    assertEquals("http://user@localhost:3001", BankstandKeys.normaliseServerUrl("http://user@localhost:3001"));
+  }
+
+  @Test
   public void fallsBackToTheDefaultForAnUnusableUrl() {
     assertEquals(BankstandKeys.DEFAULT_SERVER_URL, BankstandKeys.normaliseServerUrl("ftp://example.com"));
     assertEquals(BankstandKeys.DEFAULT_SERVER_URL, BankstandKeys.normaliseServerUrl("bankstand.gg"));
 
+  }
+
+  @Test
+  public void reducesAUrlToItsOrigin() {
+    assertEquals("https://bankstand.gg:443", BankstandKeys.originOf("https://BankStand.gg/x/?q#f"));
+    assertEquals("http://localhost:3001", BankstandKeys.originOf(" http://localhost:3001/ "));
+    assertEquals("https://my_app:3000", BankstandKeys.originOf("https://my_app:3000/x"));
+    // The host a request really goes to, not the text before an "@".
+    assertEquals("https://evil.test:443", BankstandKeys.originOf("https://bankstand.gg@evil.test"));
+    org.junit.Assert.assertNull(BankstandKeys.originOf("ftp://bankstand.gg"));
+    org.junit.Assert.assertNull(BankstandKeys.originOf(null));
   }
 
   @Test

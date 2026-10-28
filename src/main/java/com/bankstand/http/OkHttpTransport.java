@@ -2,6 +2,7 @@ package com.bankstand.http;
 
 import java.io.IOException;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 import javax.inject.Inject;
 import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
@@ -19,11 +20,34 @@ public class OkHttpTransport implements HttpTransport {
 
   @Inject
   public OkHttpTransport(OkHttpClient client) {
-    this.client = client;
+    this.client = noRedirects(client);
+  }
+
+  /**
+   * A 3xx comes back as a response instead of being followed, so a bearer token or capture body
+   * is never re-sent to wherever a server points it. Shares the shared client's pool.
+   */
+  static OkHttpClient noRedirects(OkHttpClient client) {
+    return client.newBuilder().followRedirects(false).followSslRedirects(false).build();
   }
 
   @Override
   public HttpResponse post(String url, String jsonBody, Map<String, String> headers)
+      throws IOException {
+    return post(client, url, jsonBody, headers);
+  }
+
+  @Override
+  public HttpResponse post(
+      String url, String jsonBody, Map<String, String> headers, long timeoutMillis)
+      throws IOException {
+    OkHttpClient bounded =
+        client.newBuilder().callTimeout(timeoutMillis, TimeUnit.MILLISECONDS).build();
+    return post(bounded, url, jsonBody, headers);
+  }
+
+  private static HttpResponse post(
+      OkHttpClient client, String url, String jsonBody, Map<String, String> headers)
       throws IOException {
     Request.Builder builder =
         new Request.Builder().url(url).post(RequestBody.create(JSON, jsonBody));

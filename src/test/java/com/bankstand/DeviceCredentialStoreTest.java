@@ -47,6 +47,20 @@ public class DeviceCredentialStoreTest {
   }
 
   @Test
+  public void aFailedSaveLeavesNoCopyOfTheTokenBehind() throws IOException {
+    File file = newFile();
+    // A non-empty directory where the file goes makes the final move fail.
+    assertTrue(new File(file, "x").mkdirs());
+    DeviceCredentials saved = new DeviceCredentials();
+    saved.setToken("tok_abc");
+
+    assertFalse(storeIn(file).save(saved));
+
+    String[] left = file.getParentFile().list((dir, name) -> name.endsWith(".tmp"));
+    assertEquals(0, left.length);
+  }
+
+  @Test
   public void readsAsUnpairedWhenNothingWasEverWritten() throws IOException {
     DeviceCredentials loaded = storeIn(newFile()).load();
 
@@ -158,5 +172,55 @@ public class DeviceCredentialStoreTest {
     store.clear();
 
     assertFalse(store.load().isPaired());
+  }
+
+  @Test
+  public void anUnreadableFileIsRetriedAndNeverPurgesTheQueues() throws IOException {
+    File file = newFile();
+    DeviceCredentials paired = new DeviceCredentials();
+    paired.setToken("tok_abc");
+    paired.setPairingId("p1");
+    storeIn(file).save(paired);
+    File events = new File(file.getParentFile(), "events.json");
+    EventOutbox writer = new EventOutbox(events, new Gson());
+    writer.setPairing(PairingQueues.pairingOf(storeIn(file)));
+    writer.add(1L, new TransientEvent("e1", TransientEvent.TYPE_PET_DROP, "2026-10-27T10:00:00Z", java.util.Collections.emptyMap()));
+
+    org.junit.Assume.assumeTrue(file.setReadable(false) && !file.canRead());
+    DeviceCredentialStore store = storeIn(file);
+    try {
+      assertFalse("unknown is not paired", store.load().isPaired());
+      EventOutbox reader = new EventOutbox(events, new Gson());
+      reader.setPairing(PairingQueues.pairingOf(store));
+      reader.pending();
+    } finally {
+      file.setReadable(true);
+    }
+    assertTrue("read again, not cached as unpaired", store.load().isPaired());
+    EventOutbox after = new EventOutbox(events, new Gson());
+    after.setPairing(PairingQueues.pairingOf(store));
+    assertEquals(1, after.pending().size());
+  }
+
+  @Test
+  public void eachReadKeepsItsOwnReadability() throws IOException {
+    File file = newFile();
+    DeviceCredentials paired = new DeviceCredentials();
+    paired.setToken("tok_abc");
+    storeIn(file).save(paired);
+    DeviceCredentialStore store = storeIn(file);
+    org.junit.Assume.assumeTrue(file.setReadable(false) && !file.canRead());
+    DeviceCredentialStore.Read failed;
+    try {
+      failed = store.read();
+    } finally {
+      file.setReadable(true);
+    }
+    // A second reader succeeds in between; the first result must not change under it.
+    DeviceCredentialStore.Read ok = store.read();
+    assertTrue(failed.unreadable);
+    assertFalse(failed.credentials.isPaired());
+    assertFalse(ok.unreadable);
+    assertTrue(ok.credentials.isPaired());
   }
 }

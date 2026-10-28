@@ -21,7 +21,7 @@ public class AccountTypeCaptureTest {
     return map;
   }
 
-  private static BankstandPlugin.SubmitPlan planWith(
+  private static SubmitPlan planWith(
       AccountTypeBaseline baseline, String accountType) {
     SkillBaseline skillBaseline = new SkillBaseline();
     skillBaseline.advance(skills(100));
@@ -43,7 +43,7 @@ public class AccountTypeCaptureTest {
   @Test
   public void submitsOnTheTypeAloneWhenNothingElseMoved() {
     // Must submit on its own; the type never changes after login.
-    BankstandPlugin.SubmitPlan plan = planWith(new AccountTypeBaseline(), "group");
+    SubmitPlan plan = planWith(new AccountTypeBaseline(), "group");
 
     assertTrue(plan.shouldSubmit());
     assertTrue(plan.includesAccountType());
@@ -54,7 +54,7 @@ public class AccountTypeCaptureTest {
     AccountTypeBaseline acked = new AccountTypeBaseline();
     acked.advance("group");
 
-    BankstandPlugin.SubmitPlan plan = planWith(acked, "group");
+    SubmitPlan plan = planWith(acked, "group");
 
     assertFalse(plan.shouldSubmit());
     assertFalse(plan.includesAccountType());
@@ -65,7 +65,7 @@ public class AccountTypeCaptureTest {
     AccountTypeBaseline acked = new AccountTypeBaseline();
     acked.advance("hardcore");
 
-    BankstandPlugin.SubmitPlan plan = planWith(acked, "ironman");
+    SubmitPlan plan = planWith(acked, "ironman");
 
     assertTrue(plan.shouldSubmit());
     assertTrue(plan.includesAccountType());

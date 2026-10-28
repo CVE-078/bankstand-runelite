@@ -33,11 +33,34 @@ public class AckedState {
    */
   private Map<String, Long> lastSyncedAt;
 
-  /**
-   * Last raw value of each diary varplayer, keyed by id. Raw, not a digest, because per-task
-   * detection XORs against the prior bits.
-   */
-  private Map<Integer, Integer> diaryTaskBits;
+  /** Digest of the raw per-task diary values the server last stored. */
+  private String diaryTaskVars;
+
+  // The acked diary values, not digests: a later read below them is too early to send.
+  private Map<String, String> diaryFlags;
+  private Map<String, Integer> diaryCounts;
+  private Map<String, Map<String, Integer>> diaryTaskVarValues;
+
+  public Map<String, String> getDiaryFlags() {
+    return diaryFlags;
+  }
+
+  public Map<String, Integer> getDiaryCounts() {
+    return diaryCounts;
+  }
+
+  public Map<String, Map<String, Integer>> getDiaryTaskVarValues() {
+    return diaryTaskVarValues;
+  }
+
+  public void setDiaryFloor(
+      Map<String, String> flags,
+      Map<String, Integer> counts,
+      Map<String, Map<String, Integer>> varValues) {
+    diaryFlags = flags;
+    diaryCounts = counts;
+    diaryTaskVarValues = varValues;
+  }
 
   /** The state of a character nothing is known about yet: everything resends once. */
   public static AckedState empty() {
@@ -45,8 +68,15 @@ public class AckedState {
     state.collectionLogItems = new LinkedHashSet<>();
     state.collectionLogAcked = -1;
     state.lastSyncedAt = new LinkedHashMap<>();
-    state.diaryTaskBits = new LinkedHashMap<>();
     return state;
+  }
+
+  public String getDiaryTaskVars() {
+    return diaryTaskVars;
+  }
+
+  public void setDiaryTaskVars(String diaryTaskVars) {
+    this.diaryTaskVars = diaryTaskVars;
   }
 
   public String getSkills() {
@@ -120,17 +150,5 @@ public class AckedState {
 
   public void setLastSyncedAt(Map<String, Long> lastSyncedAt) {
     this.lastSyncedAt = new LinkedHashMap<>(lastSyncedAt);
-  }
-
-  // Never null, even if the stored file omits the field.
-  public Map<Integer, Integer> getDiaryTaskBits() {
-    if (diaryTaskBits == null) {
-      diaryTaskBits = new LinkedHashMap<>();
-    }
-    return diaryTaskBits;
-  }
-
-  public void setDiaryTaskBits(Map<Integer, Integer> bits) {
-    this.diaryTaskBits = new LinkedHashMap<>(bits);
   }
 }

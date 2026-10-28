@@ -8,6 +8,19 @@ public final class StatusReport {
 
   private StatusReport() {}
 
+  /** What is waiting to be sent and whether its file is healthy. Counts only, never content. */
+  static List<String> queueLines(String name, int pending, int dropped, String problem) {
+    List<String> out = new ArrayList<>();
+    out.add("Queued " + name + ": " + pending + ".");
+    if (dropped > 0) {
+      out.add("Queue full: " + dropped + " oldest " + name + " dropped this session.");
+    }
+    if (problem != null) {
+      out.add("The " + name + " queue file " + problem + ".");
+    }
+    return out;
+  }
+
   /**
    * @param paired whether a device token is stored
    * @param serverUrl where submissions go; shown because a wrong one is silent otherwise
@@ -157,5 +170,21 @@ public final class StatusReport {
       out.add("The collection log is not included: it can only be read from the log's own Search.");
     }
     return out;
+  }
+
+  /** Coarse on purpose: more precision would imply more than we know. */
+  static String describeAge(long millis) {
+    long minutes = millis / 60_000L;
+    if (minutes < 1) {
+      return "less than a minute ago";
+    }
+    if (minutes == 1) {
+      return "1 minute ago";
+    }
+    if (minutes < 60) {
+      return minutes + " minutes ago";
+    }
+    long hours = minutes / 60;
+    return hours == 1 ? "1 hour ago" : hours + " hours ago";
   }
 }

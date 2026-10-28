@@ -7,5 +7,12 @@ import java.util.Map;
 public interface HttpTransport {
   HttpResponse post(String url, String jsonBody, Map<String, String> headers) throws IOException;
 
+  /** A post that gives up after {@code timeoutMillis} in total. */
+  default HttpResponse post(
+      String url, String jsonBody, Map<String, String> headers, long timeoutMillis)
+      throws IOException {
+    return post(url, jsonBody, headers);
+  }
+
   HttpResponse get(String url, Map<String, String> headers) throws IOException;
 }

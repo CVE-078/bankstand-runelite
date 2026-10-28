@@ -23,14 +23,15 @@ public class SlayerTaskBlockTest {
     return m;
   }
 
-  private static BankstandPlugin.SubmitPlan plan(
+  private static SubmitPlan plan(
       SkillBaseline skills, SlayerTaskBaseline baseline, SlayerTask task) {
-    return BankstandPlugin.plan(
+    return SubmitPlan.plan(
         skills,
         skills(),
         new QuestBaseline(),
         null,
         new DiaryBaseline(),
+        null,
         null,
         new CollectionLogBaseline(),
         Collections.emptySet(),
@@ -83,7 +84,7 @@ public class SlayerTaskBlockTest {
 
   @Test
   public void aChangedTaskSubmitsOnItsOwnWithNoXpChange() {
-    BankstandPlugin.SubmitPlan plan = plan(ackedSkills(), new SlayerTaskBaseline(), TASK);
+    SubmitPlan plan = plan(ackedSkills(), new SlayerTaskBaseline(), TASK);
     assertTrue(plan.shouldSubmit());
     assertTrue(plan.includesSlayerTask());
   }
@@ -92,7 +93,7 @@ public class SlayerTaskBlockTest {
   public void anAcknowledgedTaskIsNotResent() {
     SlayerTaskBaseline baseline = new SlayerTaskBaseline();
     baseline.advance(TASK);
-    BankstandPlugin.SubmitPlan plan = plan(ackedSkills(), baseline, TASK);
+    SubmitPlan plan = plan(ackedSkills(), baseline, TASK);
     assertFalse(plan.shouldSubmit());
     assertFalse(plan.includesSlayerTask());
   }
@@ -106,7 +107,7 @@ public class SlayerTaskBlockTest {
 
   @Test
   public void anUnreadTaskIsNeverSent() {
-    BankstandPlugin.SubmitPlan plan = plan(ackedSkills(), new SlayerTaskBaseline(), null);
+    SubmitPlan plan = plan(ackedSkills(), new SlayerTaskBaseline(), null);
     assertFalse(plan.shouldSubmit());
     assertFalse(plan.includesSlayerTask());
   }

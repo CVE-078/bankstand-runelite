@@ -23,7 +23,7 @@ public class CapabilityRowsTest {
   public void rowsEveryEnabledCapabilityInTheSameOrderAsCapabilityNames() {
     List<PanelModel.CapabilityRow> rows =
         BankstandPlugin.capabilityRows(
-            EnumSet.allOf(Capability.class), new LinkedHashMap<>());
+            EnumSet.allOf(Capability.class), new LinkedHashMap<>(), java.util.Set.of());
 
     assertEquals(
         List.of(
@@ -45,7 +45,7 @@ public class CapabilityRowsTest {
   public void skipsWhatIsSwitchedOff() {
     List<PanelModel.CapabilityRow> rows =
         BankstandPlugin.capabilityRows(
-            EnumSet.of(Capability.SKILLS, Capability.COMBAT_ACHIEVEMENTS), new LinkedHashMap<>());
+            EnumSet.of(Capability.SKILLS, Capability.COMBAT_ACHIEVEMENTS), new LinkedHashMap<>(), java.util.Set.of());
 
     assertEquals(
         List.of("Skills", "Combat achievements"),
@@ -56,7 +56,7 @@ public class CapabilityRowsTest {
   public void rowsNothingWhenEverythingIsOff() {
     assertTrue(
         BankstandPlugin.capabilityRows(
-                EnumSet.noneOf(Capability.class), new LinkedHashMap<>())
+                EnumSet.noneOf(Capability.class), new LinkedHashMap<>(), java.util.Set.of())
             .isEmpty());
   }
 
@@ -64,7 +64,7 @@ public class CapabilityRowsTest {
   public void carriesTheLastSyncedTimeForItsOwnKey() {
     List<PanelModel.CapabilityRow> rows =
         BankstandPlugin.capabilityRows(
-            EnumSet.of(Capability.SKILLS), syncedAt("skills", 1_000L));
+            EnumSet.of(Capability.SKILLS), syncedAt("skills", 1_000L), java.util.Set.of());
 
     assertEquals(1, rows.size());
     assertEquals(1_000L, (long) rows.get(0).lastSyncedAtMs);
@@ -74,7 +74,7 @@ public class CapabilityRowsTest {
   public void aNeverSyncedCapabilityCarriesNullRatherThanAFakeTime() {
     List<PanelModel.CapabilityRow> rows =
         BankstandPlugin.capabilityRows(
-            EnumSet.of(Capability.SKILLS), new LinkedHashMap<>());
+            EnumSet.of(Capability.SKILLS), new LinkedHashMap<>(), java.util.Set.of());
 
     assertNull(rows.get(0).lastSyncedAtMs);
   }
@@ -83,7 +83,7 @@ public class CapabilityRowsTest {
   public void aCapabilityOnlyReadsItsOwnKeyNeverAnotherOnes() {
     List<PanelModel.CapabilityRow> rows =
         BankstandPlugin.capabilityRows(
-            EnumSet.of(Capability.SKILLS), syncedAt("notableDrops", 1_000L));
+            EnumSet.of(Capability.SKILLS), syncedAt("notableDrops", 1_000L), java.util.Set.of());
 
     assertNull(rows.get(0).lastSyncedAtMs);
   }

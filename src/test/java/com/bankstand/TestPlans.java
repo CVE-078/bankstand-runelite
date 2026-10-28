@@ -9,7 +9,7 @@ final class TestPlans {
   private TestPlans() {}
 
   /** Without combat achievements. */
-  static BankstandPlugin.SubmitPlan plan(
+  static SubmitPlan plan(
       SkillBaseline skillBaseline,
       Map<String, Integer> skills,
       QuestBaseline questBaseline,
@@ -35,7 +35,7 @@ final class TestPlans {
   }
 
   /** Without the account type. */
-  static BankstandPlugin.SubmitPlan plan(
+  static SubmitPlan plan(
       SkillBaseline skillBaseline,
       Map<String, Integer> skills,
       QuestBaseline questBaseline,
@@ -63,7 +63,7 @@ final class TestPlans {
   }
 
   /** Without the full-enumeration signal. */
-  static BankstandPlugin.SubmitPlan plan(
+  static SubmitPlan plan(
       SkillBaseline skillBaseline,
       Map<String, Integer> skills,
       QuestBaseline questBaseline,
@@ -93,7 +93,7 @@ final class TestPlans {
   }
 
   /** Without the slayer task. */
-  static BankstandPlugin.SubmitPlan plan(
+  static SubmitPlan plan(
       SkillBaseline skillBaseline,
       Map<String, Integer> skills,
       QuestBaseline questBaseline,
@@ -107,13 +107,14 @@ final class TestPlans {
       AccountTypeBaseline accountTypeBaseline,
       String accountType,
       boolean fullEnumerationPending) {
-    return BankstandPlugin.plan(
+    return SubmitPlan.plan(
         skillBaseline,
         skills,
         questBaseline,
         quests,
         diaryBaseline,
         diaries,
+        null,
         collectionLogBaseline,
         collectionLogItems,
         combatAchievementBaseline,

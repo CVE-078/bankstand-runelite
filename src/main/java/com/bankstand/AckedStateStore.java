@@ -11,6 +11,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
@@ -25,6 +26,11 @@ public class AckedStateStore {
   }
 
   private final File file;
+  // Whether the last read hit a file it could not read, as opposed to no file at all.
+  private volatile boolean lastReadFailed;
+  // While the file cannot be read, saves wait here: writing would erase every other character.
+  private final Map<String, AckedState> held = new LinkedHashMap<>();
+  private boolean forgetHeld;
   private final Gson gson;
 
   public AckedStateStore(File file, Gson gson) {
@@ -33,8 +39,12 @@ public class AckedStateStore {
   }
 
   /** Never null. */
-  public AckedState load(long accountHash) {
-    AckedState stored = read().accounts.get(Long.toString(accountHash));
+  public synchronized AckedState load(long accountHash) {
+    Document document = document();
+    AckedState stored =
+        document == null
+            ? held.get(Long.toString(accountHash))
+            : document.accounts.get(Long.toString(accountHash));
     if (stored == null) {
       return AckedState.empty();
     }
@@ -44,29 +54,100 @@ public class AckedStateStore {
     copy.setQuests(stored.getQuests());
     copy.setDiaries(stored.getDiaries());
     copy.setAccountType(stored.getAccountType());
+    copy.setDiaryTaskVars(stored.getDiaryTaskVars());
+    copy.setDiaryFloor(
+        stored.getDiaryFlags(), stored.getDiaryCounts(), stored.getDiaryTaskVarValues());
     copy.setCombatAchievements(stored.getCombatAchievements());
     copy.setCollectionLogItems(stored.getCollectionLogItems());
     copy.setCollectionLogAcked(stored.getCollectionLogAcked());
     copy.setLastSyncedAt(stored.getLastSyncedAt());
-    copy.setDiaryTaskBits(stored.getDiaryTaskBits());
     return copy;
   }
 
   /** Leaves every other character's state untouched. */
-  public void save(long accountHash, AckedState state) {
-    Document document = read();
+  public synchronized void save(long accountHash, AckedState state) {
+    Document document = document();
+    if (document == null) {
+      held.put(Long.toString(accountHash), state);
+      return;
+    }
     document.accounts.put(Long.toString(accountHash), state);
     write(document);
   }
 
+  /** For a new pairing, which may be another account or server: keeps the browsed log, not acks. */
+  public synchronized void forgetAcks() {
+    Document document = document();
+    if (document == null) {
+      forget(held);
+      forgetHeld = true;
+      return;
+    }
+    forget(document.accounts);
+    write(document);
+  }
+
+  private static void forget(Map<String, AckedState> accounts) {
+    for (Map.Entry<String, AckedState> entry : accounts.entrySet()) {
+      AckedState kept = AckedState.empty();
+      kept.setCollectionLogItems(entry.getValue().getCollectionLogItems());
+      entry.setValue(kept);
+    }
+  }
+
+  /** The file with anything held merged in, or null while it cannot be read. */
+  private Document document() {
+    Document document = read();
+    if (document == null || (held.isEmpty() && !forgetHeld)) {
+      return document;
+    }
+    if (forgetHeld) {
+      forget(document.accounts);
+    }
+    document.accounts.putAll(held);
+    // Cleared by write() on success, so a failed write cannot lose them.
+    write(document);
+    return document;
+  }
+
+  /** One read's state and whether that read failed, taken under one lock. */
+  static final class Loaded {
+    final AckedState state;
+    final boolean failed;
+
+    Loaded(AckedState state, boolean failed) {
+      this.state = state;
+      this.failed = failed;
+    }
+  }
+
+  synchronized Loaded loadChecked(long accountHash) {
+    AckedState state = load(accountHash);
+    return new Loaded(state, lastReadFailed);
+  }
+
   private Document read() {
     Document document = null;
+    lastReadFailed = false;
     if (file.exists()) {
       try (Reader reader = Files.newBufferedReader(file.toPath(), StandardCharsets.UTF_8)) {
         document = gson.fromJson(reader, Document.class);
       } catch (IOException | RuntimeException e) {
-        // Not logged: the document holds an account hash and a collection log.
+        // Maybe passing: never treated as empty, or a save would erase every other character.
+        if (!ReadFailures.isDamaged(e)) {
+          lastReadFailed = true;
+          return null;
+        }
+        // Damaged for good: kept aside, and read as "nothing known", so the next save replaces it.
         document = null;
+        try {
+          Files.move(
+              file.toPath(),
+              file.toPath().resolveSibling(file.getName() + ".unreadable"),
+              StandardCopyOption.REPLACE_EXISTING);
+        } catch (IOException | RuntimeException moveFailure) {
+          // The next save replaces it anyway.
+        }
       }
     }
     if (document == null) {
@@ -96,6 +177,9 @@ public class AckedStateStore {
       } catch (AtomicMoveNotSupportedException e) {
         Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING);
       }
+      // Every write carries what was held, merged in by document().
+      held.clear();
+      forgetHeld = false;
     } catch (IOException | RuntimeException e) {
       // A failed save costs one resend next start.
     }

@@ -34,6 +34,7 @@ public class BankstandClientTest {
     String body;
     Map<String, String> headers;
     boolean called;
+    long timeoutMillis;
     private final HttpResponse response;
     private final IOException toThrow;
 
@@ -57,6 +58,14 @@ public class BankstandClientTest {
         throw toThrow;
       }
       return response;
+    }
+
+    @Override
+    public HttpResponse post(
+        String url, String jsonBody, Map<String, String> headers, long timeoutMillis)
+        throws IOException {
+      this.timeoutMillis = timeoutMillis;
+      return post(url, jsonBody, headers);
     }
 
     @Override
@@ -129,7 +138,7 @@ public class BankstandClientTest {
     assertEquals(BASE + "/api/plugin/v1/pair", t.url); // trailing slash trimmed
     assertTrue("normalized code in body", t.body.contains("\"ABCDEFGH\""));
     assertEquals("application/json", t.headers.get("Content-Type"));
-    assertTrue(t.headers.get("User-Agent").startsWith("Bankstand-RuneLite"));
+    assertTrue(t.headers.get("User-Agent").matches("bankstand-runelite/\\d+\\.\\d+\\.\\d+"));
   }
 
   @Test
@@ -454,6 +463,58 @@ public class BankstandClientTest {
     assertEquals(2, t.calls);
   }
 
+  @Test
+  public void anUncheckedThrowOnARetryStillCompletesTheFuture() throws Exception {
+    // The retry finds no scripted step, so the transport throws IllegalStateException.
+    SequencedTransport t = new SequencedTransport(new IOException("blip"));
+    try {
+      new BankstandClient(t, new Gson(), EXECUTOR)
+          .submitEventsWithRetry(BASE, "bsd_tok", 1L, Collections.emptyList(), 3, 0L)
+          .get(GET_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+      fail("expected a failure");
+    } catch (ExecutionException e) {
+      assertTrue(e.getCause() instanceof SubmitException);
+      assertFalse(((SubmitException) e.getCause()).isRetryable());
+    }
+    assertEquals(2, t.calls);
+  }
+
+  @Test
+  public void submitEventsDoesNotRetryA429AndCarriesItsRetryAfter() throws Exception {
+    SequencedTransport t =
+        new SequencedTransport(
+            new HttpResponse(429, "{\"error\":\"rate limited\"}", "120"),
+            new HttpResponse(200, "{\"routed\":true,\"acks\":[]}"));
+    try {
+      new BankstandClient(t, new Gson(), EXECUTOR)
+          .submitEventsWithRetry(BASE, "bsd_tok", 1L, Collections.emptyList(), 3, 0L)
+          .get(GET_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+      fail("expected a 429 failure");
+    } catch (java.util.concurrent.ExecutionException e) {
+      assertEquals(120_000L, ((SubmitException) e.getCause()).getRetryAfterMillis());
+    }
+    assertEquals(1, t.calls);
+  }
+
+  @Test
+  public void aSnapshot429IsNeverRetriedEvenWithoutARetryAfter() throws Exception {
+    SequencedTransport t =
+        new SequencedTransport(
+            new HttpResponse(429, "{\"error\":\"rate limited\"}"),
+            new HttpResponse(200, "{\"accepted\":true}"));
+    try {
+      new BankstandClient(t, new Gson(), EXECUTOR)
+          .submitSnapshotWithRetry(BASE, "bsd_tok", new java.util.HashMap<>(), 3, 0L)
+          .get(GET_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+      fail("expected a 429 failure");
+    } catch (java.util.concurrent.ExecutionException e) {
+      assertEquals(
+          BankstandClient.DEFAULT_RETRY_AFTER_MILLIS,
+          ((SubmitException) e.getCause()).getRetryAfterMillis());
+    }
+    assertEquals(1, t.calls);
+  }
+
   private static void assertGenericFailure(FakeTransport t) {
     try {
       client(t).exchangePairingCode(BASE, "ABCD-EFGH");
@@ -505,5 +566,103 @@ public class BankstandClientTest {
     for (String key : transport.headers.keySet()) {
       assertNotEquals("Authorization", key);
     }
+  }
+
+  @Test
+  public void unpairSendsTheBearerWithNoBodyAndAShortTimeout() {
+    FakeTransport t = new FakeTransport(new HttpResponse(204, ""));
+
+    assertTrue(client(t).unpair(BASE + "/", "bsd_tok"));
+
+    assertEquals(BASE + "/api/plugin/v1/unpair", t.url);
+    assertEquals("Bearer bsd_tok", t.headers.get("Authorization"));
+    assertEquals("", t.body);
+    assertTrue("short timeout", t.timeoutMillis > 0 && t.timeoutMillis <= 10_000L);
+  }
+
+  @Test
+  public void unpairTreatsAnUnknownTokenAsAlreadyGone() {
+    FakeTransport t = new FakeTransport(new HttpResponse(401, "{\"error\":\"unauthorized\"}"));
+    assertTrue(client(t).unpair(BASE, "bsd_tok"));
+  }
+
+  @Test
+  public void unpairReportsUnreachableOnANetworkErrorARateLimitOrAServerError() {
+    assertFalse(client(new FakeTransport(null, new IOException("boom"))).unpair(BASE, "bsd_tok"));
+    assertFalse(client(new FakeTransport(new HttpResponse(429, "", "30"))).unpair(BASE, "bsd_tok"));
+    assertFalse(
+        client(new FakeTransport(new HttpResponse(500, "{\"error\":\"unpair failed\"}")))
+            .unpair(BASE, "bsd_tok"));
+  }
+
+  @Test
+  public void unpairInBackgroundReportsOnlyAnUnreachableServer() throws Exception {
+    java.util.concurrent.CountDownLatch reported = new java.util.concurrent.CountDownLatch(1);
+    client(new FakeTransport(null, new IOException("offline")))
+        .unpairInBackground(BASE, "bsd_tok", reported::countDown);
+    assertTrue(reported.await(GET_TIMEOUT_SECONDS, TimeUnit.SECONDS));
+
+    java.util.concurrent.atomic.AtomicBoolean called = new java.util.concurrent.atomic.AtomicBoolean();
+    client(new FakeTransport(new HttpResponse(204, "")))
+        .unpairInBackground(BASE, "bsd_tok", () -> called.set(true));
+    EXECUTOR.submit(() -> {}).get(GET_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+    assertFalse(called.get());
+  }
+
+  @Test
+  public void unpairWithoutATokenSendsNothing() {
+    FakeTransport t = new FakeTransport(new HttpResponse(204, ""));
+    assertTrue(client(t).unpair(BASE, " "));
+    assertFalseCalled(t);
+  }
+
+  private static HttpResponse redirect() {
+    return new HttpResponse(307, "");
+  }
+
+  @Test
+  public void aRedirectIsATerminalFailureThatSaysSo() throws Exception {
+    BankstandClient c = client(new FakeTransport(redirect()));
+    SubmitException[] failures = new SubmitException[4];
+    try {
+      c.submitIdentity(BASE, "bsd_tok", 1L, "Zezima");
+    } catch (SubmitException e) {
+      failures[0] = e;
+    }
+    try {
+      c.submitSnapshot(BASE, "bsd_tok", new LinkedHashMap<>());
+    } catch (SubmitException e) {
+      failures[1] = e;
+    }
+    try {
+      c.submitEvents(BASE, "bsd_tok", 1L, Collections.emptyList());
+    } catch (SubmitException e) {
+      failures[2] = e;
+    }
+    try {
+      c.submitLoot(BASE, "bsd_tok", 1L, Collections.emptyList());
+    } catch (SubmitException e) {
+      failures[3] = e;
+    }
+    for (SubmitException e : failures) {
+      assertNotNull("a redirect must fail", e);
+      assertEquals(BankstandClient.REDIRECTED, e.getMessage());
+      assertFalse("never retried", e.isRetryable());
+    }
+  }
+
+  @Test
+  public void aRedirectedPairingSaysSo() {
+    try {
+      client(new FakeTransport(redirect())).exchangePairingCode(BASE, "ABCD-EFGH");
+      fail("expected PairingException");
+    } catch (PairingException e) {
+      assertEquals(BankstandClient.REDIRECTED, e.getMessage());
+    }
+  }
+
+  @Test
+  public void aRedirectedUnpairIsNotARevoke() {
+    assertFalse(client(new FakeTransport(redirect())).unpair(BASE, "bsd_tok"));
   }
 }
