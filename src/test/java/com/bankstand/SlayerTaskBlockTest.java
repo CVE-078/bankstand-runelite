@@ -114,9 +114,9 @@ public class SlayerTaskBlockTest {
 
   @Test
   public void advancesOnlyOnItsOwnBlockAcknowledgement() {
-    assertTrue(BankstandPlugin.shouldAdvanceSlayerTask(stored("skills", "slayerTask"), true));
-    assertFalse(BankstandPlugin.shouldAdvanceSlayerTask(stored("skills"), true));
-    assertFalse(BankstandPlugin.shouldAdvanceSlayerTask(stored("skills", "slayerTask"), false));
+    assertTrue(SnapshotAcks.shouldAdvanceSlayerTask(stored("skills", "slayerTask"), true));
+    assertFalse(SnapshotAcks.shouldAdvanceSlayerTask(stored("skills"), true));
+    assertFalse(SnapshotAcks.shouldAdvanceSlayerTask(stored("skills", "slayerTask"), false));
   }
 
   @Test

@@ -61,17 +61,87 @@ public class AckedStateStore {
     copy.setCollectionLogItems(stored.getCollectionLogItems());
     copy.setCollectionLogAcked(stored.getCollectionLogAcked());
     copy.setLastSyncedAt(stored.getLastSyncedAt());
+    copy.setCaptureGeneration(stored.getCaptureGeneration());
+    copy.setCaptureGenerationPairing(stored.getCaptureGenerationPairing());
+    copy.setBaselineGeneration(stored.getBaselineGeneration());
     return copy;
   }
 
-  /** Leaves every other character's state untouched. */
+  /**
+   * Leaves every other character's state untouched. Always keeps the stored capture generation:
+   * only {@link #saveCaptureGeneration} and {@link #clearCaptureGenerations} write it, so a full
+   * save snapshotted before an ack can never put an older value back.
+   */
   public synchronized void save(long accountHash, AckedState state) {
     Document document = document();
+    String key = Long.toString(accountHash);
+    Map<String, AckedState> accounts = document == null ? held : document.accounts;
+    AckedState previous = accounts.get(key);
+    state.setCaptureGeneration(previous == null ? null : previous.getCaptureGeneration());
+    state.setCaptureGenerationPairing(
+        previous == null ? null : previous.getCaptureGenerationPairing());
+    accounts.put(key, state);
+    if (document != null) {
+      write(document);
+    }
+  }
+
+  /** Every capture generation stored under {@code pairing}, by account. */
+  public synchronized Map<Long, Integer> captureGenerations(String pairing) {
+    Document document = document();
+    Map<String, AckedState> accounts = document == null ? held : document.accounts;
+    Map<Long, Integer> generations = new LinkedHashMap<>();
+    for (Map.Entry<String, AckedState> e : accounts.entrySet()) {
+      AckedState state = e.getValue();
+      Integer generation = state == null ? null : state.getCaptureGeneration();
+      if (generation != null
+          && java.util.Objects.equals(pairing, state.getCaptureGenerationPairing())) {
+        try {
+          generations.put(Long.parseLong(e.getKey()), generation);
+        } catch (NumberFormatException ignored) {
+          // A hand-edited key: skip it rather than fail start-up.
+        }
+      }
+    }
+    return generations;
+  }
+
+  /** Forgets every account's capture generation, keeping the rest of each state. */
+  public synchronized void clearCaptureGenerations() {
+    Document document = document();
+    // Unreadable: the file keeps the old pairing's tag, which no other pairing restores.
+    Map<String, AckedState> accounts = document == null ? held : document.accounts;
+    for (AckedState state : accounts.values()) {
+      if (state != null) {
+        state.setCaptureGeneration(null);
+        state.setCaptureGenerationPairing(null);
+      }
+    }
+    if (document != null) {
+      write(document);
+    }
+  }
+
+  /** Records only the capture generation and its pairing, for an answer for any account. */
+  public synchronized void saveCaptureGeneration(long accountHash, int generation, String pairing) {
+    Document document = document();
+    String key = Long.toString(accountHash);
     if (document == null) {
-      held.put(Long.toString(accountHash), state);
+      // Held whole, so a new empty state here would erase the file's: memory keeps the value.
+      AckedState waiting = held.get(key);
+      if (waiting != null) {
+        waiting.setCaptureGeneration(generation);
+        waiting.setCaptureGenerationPairing(pairing);
+      }
       return;
     }
-    document.accounts.put(Long.toString(accountHash), state);
+    AckedState state = document.accounts.get(key);
+    if (state == null) {
+      state = AckedState.empty();
+      document.accounts.put(key, state);
+    }
+    state.setCaptureGeneration(generation);
+    state.setCaptureGenerationPairing(pairing);
     write(document);
   }
 
@@ -91,6 +161,9 @@ public class AckedStateStore {
     for (Map.Entry<String, AckedState> entry : accounts.entrySet()) {
       AckedState kept = AckedState.empty();
       kept.setCollectionLogItems(entry.getValue().getCollectionLogItems());
+      // Tagged with their pairing, so the old pairing's values never restore under the new one.
+      kept.setCaptureGeneration(entry.getValue().getCaptureGeneration());
+      kept.setCaptureGenerationPairing(entry.getValue().getCaptureGenerationPairing());
       entry.setValue(kept);
     }
   }

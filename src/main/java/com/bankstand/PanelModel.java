@@ -14,6 +14,8 @@ final class PanelModel {
   final PanelPresentation.SyncDot dot;
   final List<CapabilityRow> capabilities;
   final List<ActivityRow> recentActivity;
+  // Since start-up, outliving a login: snapshots recovered, captures lost and why.
+  final List<String> captureLosses;
   final String lastFailureReason;
   final String serverUrl;
   // Full loot on, play sessions off: offer to turn sessions on.
@@ -25,6 +27,7 @@ final class PanelModel {
       PanelPresentation.SyncDot dot,
       List<CapabilityRow> capabilities,
       List<ActivityRow> recentActivity,
+      List<String> captureLosses,
       String lastFailureReason,
       String serverUrl,
       boolean offerSessions) {
@@ -33,6 +36,7 @@ final class PanelModel {
     this.dot = dot;
     this.capabilities = capabilities;
     this.recentActivity = recentActivity;
+    this.captureLosses = captureLosses;
     this.lastFailureReason = lastFailureReason;
     this.serverUrl = serverUrl;
     this.offerSessions = offerSessions;
@@ -43,6 +47,7 @@ final class PanelModel {
         false,
         null,
         PanelPresentation.SyncDot.GREY,
+        Collections.emptyList(),
         Collections.emptyList(),
         Collections.emptyList(),
         null,

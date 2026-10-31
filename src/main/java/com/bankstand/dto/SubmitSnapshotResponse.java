@@ -12,6 +12,12 @@ public class SubmitSnapshotResponse {
   private List<String> storedBlocks;
   // Received but kept back as lower than what the server has. Absent from older servers.
   private List<String> heldBlocks;
+  private Integer captureGeneration;
+
+  /** Null from an older server, or when the submission never reached the write. */
+  public Integer getCaptureGeneration() {
+    return captureGeneration;
+  }
 
   public boolean isAccepted() {
     return accepted;

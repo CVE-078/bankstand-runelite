@@ -19,7 +19,7 @@ Each item has its own toggle. Only **Skill XP** is on by default.
 
 | Toggle | What it sends |
 |---|---|
-| Skill XP | XP per skill, your account hash and display name. This links your character, and carries the regular progress update. |
+| Skill XP | XP per skill. Carries the regular progress update. |
 | Quest progress | Each quest's state: not started, started or finished. |
 | Diary progress | Completed tasks per tier, reward claims, and the game's per-task diary values. |
 | Combat achievements | Completed counts per tier and boss, and task names the game announces in chat. |
@@ -34,6 +34,11 @@ Each item has its own toggle. Only **Skill XP** is on by default.
 Progress is checked every 60 seconds and sent only when something changed. Right after login,
 diaries, account type and Slayer task can wait a few minutes for the game to load them fully, so
 an early read never lowers your saved progress.
+
+While any toggle is on, each login sends your account hash and display name. That links the
+character and asks Bankstand whether its captured data was removed on the website. Until it answers, drops, loot and session marks wait in memory: at most 200, for at
+most 10 minutes. Anything captured before a removal is discarded, never resent, and the panel says
+how many were lost.
 
 Only regular worlds are read. Nothing is read on Leagues, Deadman, tournament, PvP Arena, beta,
 quest speedrunning, Fresh Start or Last Man Standing worlds, inside a Last Man Standing game, or

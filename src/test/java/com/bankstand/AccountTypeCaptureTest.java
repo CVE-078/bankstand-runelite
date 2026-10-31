@@ -83,15 +83,15 @@ public class AccountTypeCaptureTest {
     // The whole-submission verdict can read stored while this block was dropped; advancing
     // on it would lose the fact for good.
     assertTrue(
-        BankstandPlugin.shouldAdvanceAccountType(response("persisted", true, "accountType"), true));
+        SnapshotAcks.shouldAdvanceAccountType(response("persisted", true, "accountType"), true));
     assertFalse(
-        BankstandPlugin.shouldAdvanceAccountType(response("persisted", true, "skills"), true));
+        SnapshotAcks.shouldAdvanceAccountType(response("persisted", true, "skills"), true));
   }
 
   @Test
   public void neverAdvancesForABlockItDidNotSend() {
     assertFalse(
-        BankstandPlugin.shouldAdvanceAccountType(
+        SnapshotAcks.shouldAdvanceAccountType(
             response("persisted", true, "accountType"), false));
   }
 

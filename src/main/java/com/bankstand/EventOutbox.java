@@ -53,6 +53,7 @@ public class EventOutbox {
   private volatile boolean readFailing;
   private final Gson gson;
   private volatile Supplier<String> pairing = () -> null;
+  private volatile CaptureBoundary boundary;
 
   public EventOutbox(File file, Gson gson) {
     this.file = file;
@@ -60,10 +61,28 @@ public class EventOutbox {
     this.gson = gson.newBuilder().serializeNulls().create();
   }
 
-  /** Appends one event, evicting the oldest pending entry (logged) if this overflows the cap. */
-  public synchronized void add(long accountHash, TransientEvent event) {
+  /** Decides each event's stamp, holding it until the server has named its generation. */
+  void setBoundary(CaptureBoundary boundary) {
+    this.boundary = boundary;
+  }
+
+  /**
+   * Queues one event, stamped as {@link CaptureBoundary} decides (held first if need be). Not
+   * synchronized: the boundary's lock is taken before this one, never after.
+   */
+  public void add(long accountHash, TransientEvent event) {
+    CaptureBoundary decides = boundary;
+    if (decides == null) {
+      append(accountHash, event, null);
+    } else {
+      decides.queue(accountHash, CaptureBoundary.Kind.EVENT, stamp -> append(accountHash, event, stamp));
+    }
+  }
+
+  /** Appends one stamped event, evicting the oldest pending entry (logged) past the cap. */
+  synchronized void append(long accountHash, TransientEvent event, Integer stamp) {
     List<OutboxEntry> entries = current();
-    entries.add(new OutboxEntry(accountHash, event, pairing.get()));
+    entries.add(new OutboxEntry(accountHash, event, stamp, pairing.get()));
     while (entries.size() > MAX_PENDING) {
       OutboxEntry dropped = entries.remove(0);
       this.dropped++;
@@ -224,25 +243,43 @@ public class EventOutbox {
   }
 
   /**
-   * The ids the outbox should stop retrying: stored or duplicate, plus {@code "stale"}
-   * rejections, which only get truer with time. {@code "not_applied"} stays pending, since the
-   * capability flag can be turned on later.
+   * The ids to stop retrying: stored or duplicate, plus rejections no resend can fix ({@code
+   * stale} and {@code invalid}, and {@code stale_generation} for an event queued before the
+   * player removed their captured data). {@code not_applied} stays pending, since the capability
+   * flag can be turned on later.
    */
   static Set<String> idsToAck(List<EventAck> acks) {
     Set<String> ids = new HashSet<>();
     for (EventAck ack : acks) {
-      if (ack.isStored() || isPermanentlyRejected(ack)) {
+      boolean terminal =
+          "rejected".equals(ack.getOutcome())
+              && ("stale".equals(ack.getReason())
+                  || "invalid".equals(ack.getReason())
+                  || "stale_generation".equals(ack.getReason()));
+      if (ack.isStored() || terminal) {
         ids.add(ack.getId());
       }
     }
     return ids;
   }
 
-  private static boolean isPermanentlyRejected(EventAck ack) {
-    // An invalid event fails the same check on every resend.
-    return "rejected".equals(ack.getOutcome())
-        && ("stale".equals(ack.getReason()) || "invalid".equals(ack.getReason()));
+  /** Whether the server refused any of these as queued before a capture removal. */
+  static boolean anyStaleGeneration(List<EventAck> acks) {
+    return countStaleGeneration(acks) > 0;
   }
+
+  /** How many the server refused as captured under an older generation. */
+  static int countStaleGeneration(List<EventAck> acks) {
+    int count = 0;
+    for (EventAck ack : acks) {
+      if ("rejected".equals(ack.getOutcome()) && STALE_GENERATION.equals(ack.getReason())) {
+        count++;
+      }
+    }
+    return count;
+  }
+
+  static final String STALE_GENERATION = "stale_generation";
 
   static Set<String> toIdSet(Iterable<String> ids) {
     Set<String> set = new HashSet<>();

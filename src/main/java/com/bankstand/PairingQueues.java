@@ -1,7 +1,10 @@
 package com.bankstand;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
+import java.util.function.LongSupplier;
 import java.util.function.Supplier;
 
 /**
@@ -15,13 +18,18 @@ final class PairingQueues {
   private final EventOutbox events;
   private final LootLedger ledger;
   private final LootOutbox loot;
+  private final CaptureGenerations generations;
+  private final CaptureBoundary boundary;
 
   PairingQueues(
       PresenceQueue presence,
       EventOutbox events,
       LootLedger ledger,
       LootOutbox loot,
-      Supplier<String> pairing) {
+      CaptureGenerations generations,
+      Supplier<String> pairing,
+      com.bankstand.session.AccountSession session,
+      LongSupplier clock) {
     events.setPairing(pairing);
     ledger.setPairing(pairing);
     loot.setPairing(pairing);
@@ -29,6 +37,17 @@ final class PairingQueues {
     this.events = events;
     this.ledger = ledger;
     this.loot = loot;
+    this.generations = generations;
+    // Locks on this object, so an answer never interleaves with replace.
+    this.boundary = new CaptureBoundary(this, generations, session, clock);
+    events.setBoundary(boundary);
+    presence.setBoundary(boundary);
+    ledger.setBoundary(boundary);
+    loot.setBoundary(boundary);
+  }
+
+  CaptureBoundary boundary() {
+    return boundary;
   }
 
   // Bumped by every pairing request and every replace, so a slow pairing reply is told apart.
@@ -62,12 +81,21 @@ final class PairingQueues {
   }
 
   /** Like {@link #replace}, but null when a disconnect or a newer pairing came after the ticket. */
-  synchronized Dropped replaceIfCurrent(long ticket, java.util.function.BooleanSupplier swapPairing) {
-    return ticket == tickets ? replace(swapPairing) : null;
+  synchronized Dropped replaceIfCurrent(
+      long ticket,
+      java.util.function.BooleanSupplier swapPairing,
+      Map<Long, Integer> generationsByAccount) {
+    return ticket == tickets ? replace(swapPairing, generationsByAccount) : null;
   }
 
   /** Drops the old queues and swaps the stored pairing as one step. Returns what it dropped. */
-  synchronized Dropped replace(java.util.function.BooleanSupplier swapPairing) {
+  Dropped replace(java.util.function.BooleanSupplier swapPairing) {
+    return replace(swapPairing, Collections.emptyMap());
+  }
+
+  /** {@link #replace(java.util.function.BooleanSupplier)} that also learns the new pairing's generations. */
+  synchronized Dropped replace(
+      java.util.function.BooleanSupplier swapPairing, Map<Long, Integer> generationsByAccount) {
     tickets++;
     int eventCount = events.pending().size();
     int lootCount = loot.pending().size();
@@ -77,10 +105,15 @@ final class PairingQueues {
     if (!swapPairing.getAsBoolean()) {
       return new Dropped(0, 0, false);
     }
-    lootCount += ledger.closeAll().size();
+    // Under this lock, so no older answer lands between the swap and the drop.
+    Map<CaptureBoundary.Kind, Integer> held = boundary.replace();
+    eventCount += held.getOrDefault(CaptureBoundary.Kind.EVENT, 0);
+    lootCount += ledger.closeAll().size() + held.getOrDefault(CaptureBoundary.Kind.LOOT, 0);
     presence.clear();
     events.clear();
     loot.clear();
+    // After the swap, so each is saved under the new pairing.
+    generations.observeAll(generationsByAccount);
     return new Dropped(eventCount, lootCount, true);
   }
 

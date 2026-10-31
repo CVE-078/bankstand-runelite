@@ -5,6 +5,7 @@ public class SubmitResponse {
   private boolean verified;
   private String linkedRsn;
   private String outcome;
+  private Integer captureGeneration;
 
   public boolean isVerified() {
     return verified;
@@ -16,5 +17,10 @@ public class SubmitResponse {
 
   public String getOutcome() {
     return outcome;
+  }
+
+  /** The linked character's capture generation, or null when unbound or from an older server. */
+  public Integer getCaptureGeneration() {
+    return captureGeneration;
   }
 }
