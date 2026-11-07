@@ -73,6 +73,14 @@ public class PetDropCaptureTest {
   }
 
   @Test
+  public void emitsOrionFromTheCollectionLogLine() throws IOException {
+    EventOutbox outbox = outbox();
+    PetDropCapture capture = new PetDropCapture(outbox, () -> true, () -> 1L);
+    feed(capture, PRIME, "New item added to your collection log: Orion");
+    assertOnePet(outbox, "Orion");
+  }
+
+  @Test
   public void anUnrecognisedMessageResolvesToNull() {
     assertNull(PetDropCapture.resolvePetName("Congratulations, you've completed a hard Combat Task."));
   }

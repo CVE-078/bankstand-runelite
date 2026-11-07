@@ -101,6 +101,7 @@ public class PetDropCapture extends BaseCapture {
               "Maggot marquess",
               "Moxi",
               "Mr McGroot",
+              "Orion",
               "Pet dark core",
               "Pet General Graardor",
               "Pet K'ril Tsutsaroth",
