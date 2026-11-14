@@ -16,13 +16,14 @@ import java.util.function.Supplier;
  * when it was queued. Thread-safe.
  */
 public final class CaptureGenerations {
-  /** Said once per removal. Never claims the removal is final while capture can refill it. */
+  /**
+   * Said once per removal. Says what was held and dropped, never that nothing was lost, and never
+   * that the removal is final while capture can refill it.
+   */
   static final String STALE_NOTICE =
-      "Captured data for one of your characters was removed on the Bankstand website. Its history"
-          + " stays deleted. Drops, loot and session marks captured before this plugin learned of"
-          + " the removal were discarded and will not be sent. While this plugin stays connected"
-          + " with capture on, its current progress syncs again. Turn capture off or disconnect to"
-          + " stop that.";
+      "Data for one of your characters was removed on the Bankstand website. Its history stays"
+          + " deleted. Anything captured just before this plugin found out was discarded. Its"
+          + " current progress syncs again while capture is on.";
 
   /** The same, short enough for a panel row. */
   static final String STALE_ACTIVITY = "Data removed on the site: progress resyncs";

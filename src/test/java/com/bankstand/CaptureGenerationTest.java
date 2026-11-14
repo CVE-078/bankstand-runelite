@@ -500,9 +500,13 @@ public class CaptureGenerationTest {
   }
 
   @Test
-  public void theRemovalNoticeNeverClaimsTheDataIsGoneForGood() {
-    assertTrue(CaptureGenerations.STALE_NOTICE.contains("history stays deleted"));
-    assertTrue(CaptureGenerations.STALE_NOTICE.contains("current progress syncs again"));
+  public void theRemovalNoticeSaysWhatWasDiscardedInShort() {
+    String notice = CaptureGenerations.STALE_NOTICE;
+    assertTrue(notice.contains("history stays deleted"));
+    assertTrue(notice.contains("current progress syncs again"));
+    assertTrue(notice.contains("captured just before this plugin found out was discarded"));
+    assertFalse("never promises nothing was lost", notice.toLowerCase().contains("nothing"));
+    assertTrue(notice.length() <= 240);
     assertTrue(CaptureGenerations.STALE_ACTIVITY.length() <= 45);
   }
 
