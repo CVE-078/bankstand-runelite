@@ -64,14 +64,14 @@ public class LiveSessionsContractTest {
   @Test
   public void presenceMatchesTheFixture() throws Exception {
     Capture capture = new Capture();
-    client(capture).submitPresence("https://x.test", "tok", 123456789012345L, "logout", 180_000L, null);
+    client(capture).submitPresence("https://x.test", "tok", 123456789012345L, "logout", 180_000L, null, null);
     assertEquals(fixture("presence-v1.logout.json"), sent(capture));
   }
 
   @Test
   public void activePresenceCarriesTheLootFlag() throws Exception {
     Capture capture = new Capture();
-    client(capture).submitPresence("https://x.test", "tok", 123456789012345L, "active", 0L, true);
+    client(capture).submitPresence("https://x.test", "tok", 123456789012345L, "active", 0L, true, null);
     assertEquals(fixture("presence-v1.active.json"), sent(capture));
   }
 
@@ -88,7 +88,7 @@ public class LiveSessionsContractTest {
             "2026-10-08T12:00:48Z",
             Arrays.asList(new LootEvent.Item(995, 1200), new LootEvent.Item(5304, 3)));
     client(capture)
-        .submitLoot("https://x.test", "tok", 123456789012345L, Collections.singletonList(event));
+        .submitLoot("https://x.test", "tok", 123456789012345L, Collections.singletonList(event), null);
     assertEquals(fixture("loot-v1.valid.json"), sent(capture));
   }
 
@@ -102,7 +102,7 @@ public class LiveSessionsContractTest {
             "2026-10-08T12:00:30Z",
             SlayerTaskCompletionCapture.payload("Cave horrors", 120, null, 15, 1234, 56));
     client(capture)
-        .submitEvents("https://x.test", "tok", 123456789012345L, Collections.singletonList(event));
+        .submitEvents("https://x.test", "tok", 123456789012345L, Collections.singletonList(event), null);
     assertEquals(fixture("events-v1.slayer-task-completed.json"), sent(capture));
   }
 
@@ -116,7 +116,7 @@ public class LiveSessionsContractTest {
             "2026-10-18T12:00:30Z",
             SlayerTaskCompletionCapture.payload("Dust devils", 187, "duradel", 15, 1255, 313));
     client(capture, Instant.parse("2026-10-18T12:01:00Z"))
-        .submitEvents("https://x.test", "tok", 123456789012345L, Collections.singletonList(event));
+        .submitEvents("https://x.test", "tok", 123456789012345L, Collections.singletonList(event), null);
     assertEquals(fixture("events-v1.slayer-task-completed-master.json"), sent(capture));
   }
 
@@ -131,7 +131,7 @@ public class LiveSessionsContractTest {
             SlayerTaskCompletionCapture.payload(
                 "Dust devils", 187, "duradel", 15, 1255, 313, "2026-10-18T09:12:03Z"));
     client(capture, Instant.parse("2026-10-18T12:01:00Z"))
-        .submitEvents("https://x.test", "tok", 123456789012345L, Collections.singletonList(event));
+        .submitEvents("https://x.test", "tok", 123456789012345L, Collections.singletonList(event), null);
     assertEquals(fixture("events-v1.slayer-task-completed-started.json"), sent(capture));
   }
 

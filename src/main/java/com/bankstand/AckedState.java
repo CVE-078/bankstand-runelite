@@ -62,6 +62,15 @@ public class AckedState {
     diaryTaskVarValues = varValues;
   }
 
+  /** The server's last acked capture generation, or null when none was seen. */
+  private Integer captureGeneration;
+
+  /** The pairing that generation was learned under: only that pairing restores it. */
+  private String captureGenerationPairing;
+
+  /** The capture generation the baselines above were acked under, or null when saved before any. */
+  private Integer baselineGeneration;
+
   /** The state of a character nothing is known about yet: everything resends once. */
   public static AckedState empty() {
     AckedState state = new AckedState();
@@ -150,5 +159,29 @@ public class AckedState {
 
   public void setLastSyncedAt(Map<String, Long> lastSyncedAt) {
     this.lastSyncedAt = new LinkedHashMap<>(lastSyncedAt);
+  }
+
+  public Integer getCaptureGeneration() {
+    return captureGeneration;
+  }
+
+  public void setCaptureGeneration(Integer captureGeneration) {
+    this.captureGeneration = captureGeneration;
+  }
+
+  public String getCaptureGenerationPairing() {
+    return captureGenerationPairing;
+  }
+
+  public void setCaptureGenerationPairing(String pairing) {
+    this.captureGenerationPairing = pairing;
+  }
+
+  public Integer getBaselineGeneration() {
+    return baselineGeneration;
+  }
+
+  public void setBaselineGeneration(Integer baselineGeneration) {
+    this.baselineGeneration = baselineGeneration;
   }
 }

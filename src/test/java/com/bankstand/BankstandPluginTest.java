@@ -264,88 +264,88 @@ public class BankstandPluginTest {
 
   @Test
   public void advancesSkillsWhenTheServerAcknowledgedTheBlock() {
-    assertTrue(BankstandPlugin.shouldAdvanceSkills(storedBlocks("skills")));
+    assertTrue(SnapshotAcks.shouldAdvanceSkills(storedBlocks("skills")));
   }
 
   @Test
   public void doesNotAdvanceSkillsOnACooldown() {
-    assertFalse(BankstandPlugin.shouldAdvanceSkills(response(true, false, "cooldown")));
+    assertFalse(SnapshotAcks.shouldAdvanceSkills(response(true, false, "cooldown")));
   }
 
   @Test
   public void doesNotAdvanceSkillsWhenTheAccountIsUnclaimed() {
     // The real server shape: accepted, HTTP 200, nothing stored.
-    assertFalse(BankstandPlugin.shouldAdvanceSkills(response(true, false, "unclaimed")));
+    assertFalse(SnapshotAcks.shouldAdvanceSkills(response(true, false, "unclaimed")));
   }
 
   @Test
   public void doesNotAdvanceSkillsWhenIngestIsNotApplied() {
-    assertFalse(BankstandPlugin.shouldAdvanceSkills(response(true, false, "not_applied")));
+    assertFalse(SnapshotAcks.shouldAdvanceSkills(response(true, false, "not_applied")));
   }
 
   @Test
   public void advancesQuestsWhenTheServerAcknowledgedTheBlock() {
-    assertTrue(BankstandPlugin.shouldAdvanceQuests(storedBlocks("skills", "quests"), true));
+    assertTrue(SnapshotAcks.shouldAdvanceQuests(storedBlocks("skills", "quests"), true));
   }
 
   @Test
   public void doesNotAdvanceQuestsWhenStoredButTheBlockWasNotAcknowledged() {
     // Stored overall, but the quests block was dropped by its rollout flag.
-    assertFalse(BankstandPlugin.shouldAdvanceQuests(storedBlocks("skills"), true));
+    assertFalse(SnapshotAcks.shouldAdvanceQuests(storedBlocks("skills"), true));
   }
 
   @Test
   public void doesNotAdvanceQuestsWhenTheServerSendsNoAcknowledgement() {
     // An older server omits the field: re-send rather than risk a silent loss.
-    assertFalse(BankstandPlugin.shouldAdvanceQuests(response(true, true, "persisted"), true));
+    assertFalse(SnapshotAcks.shouldAdvanceQuests(response(true, true, "persisted"), true));
   }
 
   @Test
   public void doesNotAdvanceQuestsWhenIncludedButNotStored() {
-    assertFalse(BankstandPlugin.shouldAdvanceQuests(response(true, false, "not_applied"), true));
+    assertFalse(SnapshotAcks.shouldAdvanceQuests(response(true, false, "not_applied"), true));
   }
 
   @Test
   public void doesNotAdvanceQuestsWhenIncludedButStale() {
-    assertFalse(BankstandPlugin.shouldAdvanceQuests(response(true, false, "stale"), true));
+    assertFalse(SnapshotAcks.shouldAdvanceQuests(response(true, false, "stale"), true));
   }
 
   @Test
   public void doesNotAdvanceQuestsWhenNotIncludedEvenIfAcknowledged() {
-    assertFalse(BankstandPlugin.shouldAdvanceQuests(storedBlocks("skills", "quests"), false));
+    assertFalse(SnapshotAcks.shouldAdvanceQuests(storedBlocks("skills", "quests"), false));
   }
 
   @Test
   public void advancesDiariesWhenTheServerAcknowledgedTheBlock() {
-    assertTrue(BankstandPlugin.shouldAdvanceDiaries(storedBlocks("skills", "diaries"), true));
+    assertTrue(SnapshotAcks.shouldAdvanceDiaries(storedBlocks("skills", "diaries"), true));
   }
 
   @Test
   public void doesNotAdvanceDiariesWhenStoredButTheBlockWasNotAcknowledged() {
     // A false ack on a one-shot diary tier means it is never re-sent.
-    assertFalse(BankstandPlugin.shouldAdvanceDiaries(storedBlocks("skills", "quests"), true));
+    assertFalse(SnapshotAcks.shouldAdvanceDiaries(storedBlocks("skills", "quests"), true));
   }
 
   @Test
   public void doesNotAdvanceDiariesWhenTheServerSendsNoAcknowledgement() {
-    assertFalse(BankstandPlugin.shouldAdvanceDiaries(response(true, true, "persisted"), true));
+    assertFalse(SnapshotAcks.shouldAdvanceDiaries(response(true, true, "persisted"), true));
   }
 
   @Test
   public void doesNotAdvanceDiariesWhenIncludedButNotStored() {
-    assertFalse(BankstandPlugin.shouldAdvanceDiaries(response(true, false, "not_applied"), true));
+    assertFalse(SnapshotAcks.shouldAdvanceDiaries(response(true, false, "not_applied"), true));
   }
 
   @Test
   public void doesNotAdvanceDiariesWhenNotIncludedEvenIfAcknowledged() {
-    assertFalse(BankstandPlugin.shouldAdvanceDiaries(storedBlocks("skills", "diaries"), false));
+    assertFalse(SnapshotAcks.shouldAdvanceDiaries(storedBlocks("skills", "diaries"), false));
   }
 
   // --- Event outbox draining ---
 
   @Test
   public void chunkEventsKeepsAGroupAtExactlyTheCapInOneChunk() {
-    List<List<TransientEvent>> chunks = BankstandPlugin.chunkEvents(events(50), 50);
+    List<List<TransientEvent>> chunks = SendGroup.chunk(events(50), 50);
 
     assertEquals(1, chunks.size());
     assertEquals(50, chunks.get(0).size());
@@ -354,7 +354,7 @@ public class BankstandPluginTest {
   @Test
   public void chunkEventsSplitsAGroupOverTheCapIntoTwoChunks() {
     // Over the server's per-request cap, the whole request is rejected every time.
-    List<List<TransientEvent>> chunks = BankstandPlugin.chunkEvents(events(51), 50);
+    List<List<TransientEvent>> chunks = SendGroup.chunk(events(51), 50);
 
     assertEquals(2, chunks.size());
     assertEquals(50, chunks.get(0).size());
@@ -363,7 +363,7 @@ public class BankstandPluginTest {
 
   @Test
   public void chunkEventsPreservesOrderWithinAndAcrossChunks() {
-    List<List<TransientEvent>> chunks = BankstandPlugin.chunkEvents(events(120), 50);
+    List<List<TransientEvent>> chunks = SendGroup.chunk(events(120), 50);
 
     assertEquals(3, chunks.size());
     assertEquals("id-0", chunks.get(0).get(0).getId());

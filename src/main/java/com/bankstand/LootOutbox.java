@@ -35,7 +35,7 @@ public class LootOutbox {
   /** Rejections that resending the same record can never fix, so it is dropped. A {@code quota}
    *  rejection stays pending: the daily quota resets at UTC midnight. */
   private static final Set<String> TERMINAL_REJECTIONS =
-      new HashSet<>(Arrays.asList("invalid", "stale"));
+      new HashSet<>(Arrays.asList("invalid", "stale", "stale_generation"));
 
   private static final Type LIST_TYPE = new TypeToken<ArrayList<LootEntry>>() {}.getType();
 
@@ -53,14 +53,41 @@ public class LootOutbox {
   private volatile boolean readFailing;
   private final Gson gson;
   private volatile Supplier<String> pairing = () -> null;
+  private volatile CaptureBoundary boundary;
 
   public LootOutbox(File file, Gson gson) {
     this.file = file;
     this.gson = gson;
   }
 
-  /** Appends closed records, evicting the oldest pending ones past the cap. */
-  public synchronized void addAll(Collection<LootEntry> added) {
+  /** Settles each record's stamp from what was known when its window opened. */
+  void setBoundary(CaptureBoundary boundary) {
+    this.boundary = boundary;
+  }
+
+  /**
+   * Queues closed records, each stamped as {@link CaptureBoundary} settles it from what was known
+   * when its window opened (held first if need be). Not synchronized: the boundary's lock is taken
+   * before this one, never after.
+   */
+  public void addAll(Collection<LootEntry> added) {
+    CaptureBoundary decides = boundary;
+    List<LootEntry> now = new ArrayList<>();
+    for (LootEntry entry : added) {
+      if (decides == null || entry.getTicket() == null) {
+        now.add(entry);
+      } else {
+        decides.queue(
+            entry.getTicket(),
+            CaptureBoundary.Kind.LOOT,
+            stamp -> append(java.util.Collections.singletonList(entry.stamped(stamp))));
+      }
+    }
+    append(now);
+  }
+
+  /** Appends stamped records, evicting the oldest pending ones past the cap. */
+  synchronized void append(Collection<LootEntry> added) {
     if (added.isEmpty()) {
       return;
     }

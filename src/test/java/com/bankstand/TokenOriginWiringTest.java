@@ -47,17 +47,18 @@ public class TokenOriginWiringTest {
   public void everyQueuedSendReadsItsTokenAndQueueAsOneStepWhenItRuns() throws IOException {
     String source = plugin();
     String[][] sends = {
-      {"public void drainEventOutbox() {", "eventOutbox.pending()"},
+      {"public void drainEventOutbox() {", "eventOutbox::pending"},
       {"private void runPresenceSends() {", "presenceQueue.peek()"},
-      {"private void sendLoot() {", "lootOutbox.pending()"},
+      {"private void sendLoot() {", "lootOutbox::pending"},
     };
     for (String[] send : sends) {
       String body = body(source, send[0]);
-      int lock = body.indexOf("synchronized (pairingQueues) {");
-      int end = body.indexOf("}", lock);
+      // send() reads the token, the queue and the tickets under the pairing lock.
+      int lock = body.indexOf("captureBoundary.send(");
+      int end = body.indexOf("::getAccountHash)", lock);
       int token = body.indexOf("deviceStore.load().tokenFor(url)", lock);
       int queue = body.indexOf(send[1], lock);
-      assertTrue(send[0] + " reads the token under the pairing lock", lock >= 0 && token < end);
+      assertTrue(send[0] + " reads the token under the pairing lock", lock >= 0 && token > lock && token < end);
       assertTrue(send[0] + " reads the queue under the pairing lock", queue > lock && queue < end);
     }
     assertTrue(body(source, "private void sendPresence() {").contains("this::runPresenceSends"));

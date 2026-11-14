@@ -13,7 +13,7 @@ public class IdentityNoticeTest {
   public void confirmsTheLinkedCharacterWhenVerified() {
     assertEquals(
         "Verified as B0aty.",
-        BankstandPlugin.identityNoticeFor(true, "B0aty", "bound"));
+        IdentityNotices.identityNoticeFor(true, "B0aty", "bound"));
   }
 
   @Test
@@ -21,13 +21,13 @@ public class IdentityNoticeTest {
     assertEquals(
         "This character is not claimed on Bankstand yet, so nothing will sync."
             + " Claim it on your account page.",
-        BankstandPlugin.identityNoticeFor(false, null, "no_claim"));
+        IdentityNotices.identityNoticeFor(false, null, "no_claim"));
   }
 
   /** A contested binding gets its own message, not "claim this character". */
   @Test
   public void saysAlreadyLinkedRatherThanNotClaimedWhenAnotherAccountHoldsIt() {
-    String message = BankstandPlugin.identityNoticeFor(false, null, "held_by_other");
+    String message = IdentityNotices.identityNoticeFor(false, null, "held_by_other");
     assertEquals(
         "This character is already linked, so there is nothing to claim here."
             + " If that looks wrong, contact support.",
@@ -40,7 +40,7 @@ public class IdentityNoticeTest {
     assertEquals(
         "This character is already linked, so there is nothing to claim here."
             + " If that looks wrong, contact support.",
-        BankstandPlugin.identityNoticeFor(false, null, "hash_bound_elsewhere"));
+        IdentityNotices.identityNoticeFor(false, null, "hash_bound_elsewhere"));
   }
 
   /** A missing or unknown {@code outcome} falls back to the generic notice, never throws. */
@@ -49,11 +49,11 @@ public class IdentityNoticeTest {
     assertEquals(
         "This character is not claimed on Bankstand yet, so nothing will sync."
             + " Claim it on your account page.",
-        BankstandPlugin.identityNoticeFor(false, null, null));
+        IdentityNotices.identityNoticeFor(false, null, null));
     assertEquals(
         "This character is not claimed on Bankstand yet, so nothing will sync."
             + " Claim it on your account page.",
-        BankstandPlugin.identityNoticeFor(false, null, "a_future_outcome_this_build_predates"));
+        IdentityNotices.identityNoticeFor(false, null, "a_future_outcome_this_build_predates"));
   }
 
   @Test
@@ -62,9 +62,9 @@ public class IdentityNoticeTest {
         new String[] {"bound", "no_account", "no_display_name", "no_claim", "held_by_other",
             "hash_bound_elsewhere", null, "unknown"}) {
       assertFalse(
-          BankstandPlugin.identityNoticeFor(false, "B0aty", outcome).contains("—"));
+          IdentityNotices.identityNoticeFor(false, "B0aty", outcome).contains("—"));
     }
-    assertFalse(BankstandPlugin.identityNoticeFor(true, "B0aty", "bound").contains("—"));
+    assertFalse(IdentityNotices.identityNoticeFor(true, "B0aty", "bound").contains("—"));
   }
 
   private static final String REJECTED =
@@ -79,12 +79,12 @@ public class IdentityNoticeTest {
     SubmitException rejected = new SubmitException(REJECTED, false, true);
     assertEquals(
         "Could not verify this character. " + REJECTED,
-        BankstandPlugin.identityFailureNotice(rejected, submitGate, noticeGate));
+        IdentityNotices.identityFailureNotice(rejected, submitGate, noticeGate));
     for (int i = 0; i < 4; i++) {
-      assertNull(BankstandPlugin.identityFailureNotice(rejected, submitGate, noticeGate));
+      assertNull(IdentityNotices.identityFailureNotice(rejected, submitGate, noticeGate));
     }
     submitGate.resume();
-    assertNotNull(BankstandPlugin.identityFailureNotice(rejected, submitGate, noticeGate));
+    assertNotNull(IdentityNotices.identityFailureNotice(rejected, submitGate, noticeGate));
   }
 
   @Test
@@ -92,9 +92,9 @@ public class IdentityNoticeTest {
     SubmitGate submitGate = new SubmitGate();
     NoticeGate noticeGate = new NoticeGate();
     SubmitException down = new SubmitException("Could not reach Bankstand.", true);
-    assertNotNull(BankstandPlugin.identityFailureNotice(down, submitGate, noticeGate));
-    assertNull(BankstandPlugin.identityFailureNotice(down, submitGate, noticeGate));
+    assertNotNull(IdentityNotices.identityFailureNotice(down, submitGate, noticeGate));
+    assertNull(IdentityNotices.identityFailureNotice(down, submitGate, noticeGate));
     noticeGate.onSuccess();
-    assertNotNull(BankstandPlugin.identityFailureNotice(down, submitGate, noticeGate));
+    assertNotNull(IdentityNotices.identityFailureNotice(down, submitGate, noticeGate));
   }
 }
