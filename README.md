@@ -39,7 +39,7 @@ Only regular worlds are read. Nothing is read on Leagues, Deadman, tournament, P
 quest speedrunning, Fresh Start or Last Man Standing worlds, inside a Last Man Standing game, or
 before the welcome screen is closed.
 
-## What it never sends
+## What it doesn't send
 
 - Your bank, equipment, inventory, location or world.
 - Anything about other players, including loot from player kills.
