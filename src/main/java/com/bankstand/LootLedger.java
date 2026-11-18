@@ -31,14 +31,32 @@ final class LootLedger {
   void setPairing(Supplier<String> pairing) {
     this.pairing = pairing;
   }
+  private volatile CaptureBoundary boundary;
+
+  /** Where a window reads what is known about its generation when it opens. */
+  void setBoundary(CaptureBoundary boundary) {
+    this.boundary = boundary;
+  }
 
   /**
    * Records one kill and returns any window it closed to make room.
    *
    * @param items canonical item id to quantity for this kill alone
    */
-  synchronized List<LootEntry> record(
+  List<LootEntry> record(
       long accountHash, int npcId, String npcName, Map<Integer, Integer> items, Instant at) {
+    // Taken before this lock: the boundary's lock comes first, never after this one.
+    CaptureBoundary decides = boundary;
+    return record(accountHash, npcId, npcName, items, at, decides == null ? null : decides.ticket(accountHash));
+  }
+
+  private synchronized List<LootEntry> record(
+      long accountHash,
+      int npcId,
+      String npcName,
+      Map<Integer, Integer> items,
+      Instant at,
+      CaptureTicket ticket) {
     List<LootEntry> closed = new ArrayList<>();
     String name = cleanName(npcName);
     Map<Integer, Integer> kill = boundedKill(items);
@@ -47,13 +65,14 @@ final class LootLedger {
     }
     Key key = new Key(accountHash, npcId);
     Window window = open.get(key);
-    if (window != null && !window.accepts(kill, at)) {
+    // A kill after the generation was learned or changed never joins a window from before it.
+    if (window != null && (!window.accepts(kill, at) || !sameStamp(window.ticket, ticket))) {
       closed.add(window.close(accountHash));
       open.remove(key);
       window = null;
     }
     if (window == null) {
-      window = new Window(npcId, name, at, pairing.get());
+      window = new Window(npcId, name, at, ticket, pairing.get());
       open.put(key, window);
     }
     window.add(kill, at);
@@ -84,6 +103,10 @@ final class LootLedger {
   /** Forgets every open window without sending it, for when the player turns loot off. */
   synchronized void discard() {
     open.clear();
+  }
+
+  private static boolean sameStamp(CaptureTicket a, CaptureTicket b) {
+    return a == null ? b == null : b != null && a.sameStamp(b);
   }
 
   private static String cleanName(String npcName) {
@@ -148,15 +171,18 @@ final class LootLedger {
     final String npcName;
     final Instant start;
     final String pairingId;
+    // What was known when the window's first kill was recorded.
+    final CaptureTicket ticket;
     Instant last;
     int kills;
     final Map<Integer, Long> items = new LinkedHashMap<>();
 
-    Window(int npcId, String npcName, Instant start, String pairingId) {
+    Window(int npcId, String npcName, Instant start, CaptureTicket ticket, String pairingId) {
       this.pairingId = pairingId;
       this.npcId = npcId;
       this.npcName = npcName;
       this.start = start;
+      this.ticket = ticket;
       this.last = start;
     }
 
@@ -198,7 +224,9 @@ final class LootLedger {
           accountHash,
           new LootEvent(
               UuidV7.generate(), npcId, npcName, kills, start.toString(), last.toString(), list),
-          pairingId);
+          ticket != null && ticket.confirmed ? ticket.stamp : null,
+          pairingId,
+          ticket);
     }
   }
 }

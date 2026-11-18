@@ -22,27 +22,27 @@ public class FinalReadTest {
 
   @Test
   public void trustsAReadThatMatchesTheLastOne() {
-    assertTrue(BankstandPlugin.isPlausibleFinalRead(xp(100, 200), xp(100, 200)));
+    assertTrue(SnapshotAcks.isPlausibleFinalRead(xp(100, 200), xp(100, 200)));
   }
 
   @Test
   public void trustsAReadThatGainedXp() {
-    assertTrue(BankstandPlugin.isPlausibleFinalRead(xp(100, 200), xp(140, 200)));
+    assertTrue(SnapshotAcks.isPlausibleFinalRead(xp(100, 200), xp(140, 200)));
   }
 
   @Test
   public void rejectsAZeroedRead() {
-    assertFalse(BankstandPlugin.isPlausibleFinalRead(xp(100, 200), xp(0, 0)));
+    assertFalse(SnapshotAcks.isPlausibleFinalRead(xp(100, 200), xp(0, 0)));
   }
 
   @Test
   public void rejectsAReadWhereAnySkillWentBackwards() {
-    assertFalse(BankstandPlugin.isPlausibleFinalRead(xp(100, 200), xp(100, 199)));
+    assertFalse(SnapshotAcks.isPlausibleFinalRead(xp(100, 200), xp(100, 199)));
   }
 
   @Test
   public void rejectsAnEmptyRead() {
-    assertFalse(BankstandPlugin.isPlausibleFinalRead(xp(100, 200), new LinkedHashMap<>()));
+    assertFalse(SnapshotAcks.isPlausibleFinalRead(xp(100, 200), new LinkedHashMap<>()));
   }
 
   @Test
@@ -50,20 +50,20 @@ public class FinalReadTest {
     Map<String, Integer> partial = new LinkedHashMap<>();
     partial.put("attack", 100);
 
-    assertFalse(BankstandPlugin.isPlausibleFinalRead(xp(100, 200), partial));
+    assertFalse(SnapshotAcks.isPlausibleFinalRead(xp(100, 200), partial));
   }
 
   /** With no read this session there is nothing to check a cleared client against. */
   @Test
   public void rejectsEveryReadWhenThereIsNoPreviousOne() {
-    assertFalse(BankstandPlugin.isPlausibleFinalRead(null, xp(100, 200)));
-    assertFalse(BankstandPlugin.isPlausibleFinalRead(null, xp(0, 0)));
-    assertFalse(BankstandPlugin.isPlausibleFinalRead(null, new LinkedHashMap<>()));
+    assertFalse(SnapshotAcks.isPlausibleFinalRead(null, xp(100, 200)));
+    assertFalse(SnapshotAcks.isPlausibleFinalRead(null, xp(0, 0)));
+    assertFalse(SnapshotAcks.isPlausibleFinalRead(null, new LinkedHashMap<>()));
   }
 
   @Test
   public void acceptsAZeroThatWasAlreadyZero() {
-    assertTrue(BankstandPlugin.isPlausibleFinalRead(xp(0, 0), xp(0, 0)));
-    assertTrue(BankstandPlugin.isPlausibleFinalRead(xp(0, 0), xp(5, 0)));
+    assertTrue(SnapshotAcks.isPlausibleFinalRead(xp(0, 0), xp(0, 0)));
+    assertTrue(SnapshotAcks.isPlausibleFinalRead(xp(0, 0), xp(5, 0)));
   }
 }

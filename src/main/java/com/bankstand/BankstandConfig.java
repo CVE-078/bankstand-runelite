@@ -89,12 +89,11 @@ public interface BankstandConfig extends Config {
       keyName = BankstandKeys.KEY_COLLECT_SKILLS,
       name = "Skill XP",
       description =
-          "Sends your XP in each skill, your account hash and your display name while you"
-              + " are paired. This links your character to Bankstand, so your other captures"
-              + " only reach your account once it has linked. It also carries your quest,"
-              + " diary, combat achievement, collection log, account type and Slayer task"
-              + " progress. Drops, pets, loot, sessions and chat-announced completions follow"
-              + " their own toggles.",
+          "Sends your XP in each skill while you are paired. It also carries your quest, diary,"
+              + " combat achievement, collection log, account type and Slayer task progress."
+              + " Drops, pets, loot, sessions and chat-announced completions follow their own"
+              + " toggles. While any capture is on, each login sends your account hash and"
+              + " display name, which links the character.",
       section = progressSection,
       position = 1)
   default boolean collectSkills() {

@@ -139,14 +139,18 @@ final class PluginHarness {
     set("lootOutbox", lootOutbox);
     set("gson", gson);
     set("pairingClient", call("newClient", transport));
-    set(
-        "pairingQueues",
+    PairingQueues queues =
         new PairingQueues(
             (PresenceQueue) get("presenceQueue"),
             eventOutbox,
             (LootLedger) get("lootLedger"),
             lootOutbox,
-            PairingQueues.pairingOf(deviceStore)));
+            (CaptureGenerations) get("captureGenerations"),
+            PairingQueues.pairingOf(deviceStore),
+            (com.bankstand.session.AccountSession) get("session"),
+            System::currentTimeMillis);
+    set("pairingQueues", queues);
+    set("captureBoundary", queues.boundary());
   }
 
   /** A real ConfigManager over a scratch file, built without RuneLite's injector. */

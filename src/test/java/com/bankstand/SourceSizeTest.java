@@ -31,8 +31,8 @@ public class SourceSizeTest {
   private static final Map<String, Integer> RATCHET = new HashMap<>();
 
   static {
-    RATCHET.put("com/bankstand/BankstandPlugin.java", 2542);
-    RATCHET.put("com/bankstand/BankstandClient.java", 437);
+    RATCHET.put("com/bankstand/BankstandPlugin.java", 2528);
+    RATCHET.put("com/bankstand/BankstandClient.java", 431);
   }
 
   @Test

@@ -13,33 +13,33 @@ public class CooldownRetryTest {
 
   @Test
   public void noRetryWhenNotCooledDown() {
-    assertEquals(-1, BankstandPlugin.cooldownRetryDelayMs(null, null, NOW));
-    assertEquals(-1, BankstandPlugin.cooldownRetryDelayMs("stored", "2026-10-13T12:00:30Z", NOW));
+    assertEquals(-1, SnapshotAcks.cooldownRetryDelayMs(null, null, NOW));
+    assertEquals(-1, SnapshotAcks.cooldownRetryDelayMs("stored", "2026-10-13T12:00:30Z", NOW));
   }
 
   @Test
   public void retriesJustAfterTheServerSaysItMay() {
     assertEquals(
-        31_000, BankstandPlugin.cooldownRetryDelayMs("cooldown", "2026-10-13T12:00:30Z", NOW));
+        31_000, SnapshotAcks.cooldownRetryDelayMs("cooldown", "2026-10-13T12:00:30Z", NOW));
   }
 
   @Test
   public void fallsBackToAMinuteWhenTheTimeIsMissingOrUnreadable() {
-    assertEquals(60_000, BankstandPlugin.cooldownRetryDelayMs("cooldown", null, NOW));
-    assertEquals(60_000, BankstandPlugin.cooldownRetryDelayMs("cooldown", "soon", NOW));
+    assertEquals(60_000, SnapshotAcks.cooldownRetryDelayMs("cooldown", null, NOW));
+    assertEquals(60_000, SnapshotAcks.cooldownRetryDelayMs("cooldown", "soon", NOW));
   }
 
   @Test
   public void clampsAFarOrPastTime() {
     assertEquals(
-        120_000, BankstandPlugin.cooldownRetryDelayMs("cooldown", "2026-10-13T13:00:00Z", NOW));
+        120_000, SnapshotAcks.cooldownRetryDelayMs("cooldown", "2026-10-13T13:00:00Z", NOW));
     assertEquals(
-        1_000, BankstandPlugin.cooldownRetryDelayMs("cooldown", "2026-10-13T11:59:00Z", NOW));
+        1_000, SnapshotAcks.cooldownRetryDelayMs("cooldown", "2026-10-13T11:59:00Z", NOW));
   }
 
   @Test
   public void aNewerSubmitSupersedesTheRetry() {
-    assertFalse(BankstandPlugin.isSuperseded(3, 3));
-    assertTrue(BankstandPlugin.isSuperseded(3, 4));
+    assertFalse(SnapshotAcks.isSuperseded(3, 3));
+    assertTrue(SnapshotAcks.isSuperseded(3, 4));
   }
 }

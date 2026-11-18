@@ -18,7 +18,6 @@ import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.Collections;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -87,9 +86,6 @@ public class BankstandPlugin extends Plugin {
   // Matches the server's per-device cooldown, so a change is reported at most once per window.
   private static final int CAPTURE_INTERVAL_SECONDS = 60;
 
-  // A submit refused by that cooldown is retried once, within these bounds.
-  private static final long COOLDOWN_RETRY_FALLBACK_MS = 60_000L;
-  private static final long COOLDOWN_RETRY_MAX_MS = 120_000L;
 
   // A batch that still fails after its bounded retry waits for the next scheduled drain.
   private static final int EVENT_DRAIN_INTERVAL_SECONDS = 60;
@@ -176,6 +172,8 @@ public class BankstandPlugin extends Plugin {
   private final CollectionLogSync collectionLogSync = new CollectionLogSync();
   private CollectionLogSyncInfoBox syncInfoBox;
   private AckedStateStore ackedStore;
+  // The last acked capture generation per account; every queued capture is stamped with it.
+  private final CaptureGenerations captureGenerations = new CaptureGenerations();
   private ManifestStore manifestStore;
   private EventOutbox eventOutbox;
   private NotableDropCapture notableDropCapture;
@@ -200,6 +198,8 @@ public class BankstandPlugin extends Plugin {
   private final AtomicBoolean eventSending = new AtomicBoolean();
   private LootOutbox lootOutbox;
   private PairingQueues pairingQueues;
+  // Decides every event, loot and presence stamp; locks on pairingQueues.
+  private CaptureBoundary captureBoundary;
   private LootCapture lootCapture;
 
   private final PresenceTracker presenceTracker = new PresenceTracker();
@@ -246,6 +246,8 @@ public class BankstandPlugin extends Plugin {
   // The generation whose acked state has loaded, and whether that read failed. Client thread.
   private int ackedLoadedGeneration = -1;
   private boolean ackedLoadFailed;
+  // The capture generation the snapshot baselines were acked under. Client thread.
+  private Integer baselineCaptureGeneration;
   private volatile BankstandClient pairingClient;
   // Set when a guided read finishes COMPLETE; cleared only once the server acknowledged a
   // submission carrying the flag, so a failed send keeps it pending.
@@ -272,6 +274,15 @@ public class BankstandPlugin extends Plugin {
     LegacyCredentials.migrate(configManager, deviceStore);
 
     eventOutbox = new EventOutbox(new File(ACKED_STATE_DIR, EVENTS_FILE), gson);
+    captureGenerations.persistTo(ackedStore, executor, PairingQueues.pairingOf(deviceStore));
+    captureGenerations.onStaleRefusal(
+        message -> {
+          notice(message);
+          clientThread.invoke(() -> recentActivityLog.record(CaptureGenerations.STALE_ACTIVITY));
+        },
+        () -> client.getGameState() == GameState.LOGGED_IN);
+    captureGenerations.onChange(
+        (account, value) -> clientThread.invoke(() -> onNewGeneration(account, value)));
     slayerTaskStart =
         new SlayerTaskStart(
             new File(ACKED_STATE_DIR, "slayer-task-start.json"), gson, executor, client, session);
@@ -345,7 +356,15 @@ public class BankstandPlugin extends Plugin {
             eventOutbox,
             lootLedger,
             lootOutbox,
-            PairingQueues.pairingOf(deviceStore));
+            captureGenerations,
+            PairingQueues.pairingOf(deviceStore),
+            session,
+            System::currentTimeMillis);
+    captureBoundary = pairingQueues.boundary();
+    captureBoundary.onLost(line -> clientThread.invoke(() -> {
+      recentActivityLog.record(line);
+      refreshPanel();
+    }));
     lootCapture =
         new LootCapture(
             this::isLootCaptureEnabled,
@@ -540,6 +559,7 @@ public class BankstandPlugin extends Plugin {
    */
   @Schedule(period = EVENT_DRAIN_INTERVAL_SECONDS, unit = ChronoUnit.SECONDS)
   public void drainEventOutbox() {
+    captureBoundary.expire();
     pulsePresence();
     retryQueuedPresence();
     if (lootOutbox != null) {
@@ -550,32 +570,35 @@ public class BankstandPlugin extends Plugin {
       return;
     }
     String url = savedServerUrl();
-    String token;
-    List<OutboxEntry> pending;
-    // One step, so the token and the queue always belong to the same pairing.
-    synchronized (pairingQueues) {
-      token = deviceStore.load().tokenFor(url);
-      pending = eventOutbox.pending();
-    }
+    // One step, so the token, the queue and each answer's ticket belong to the same pairing.
+    CaptureSend<OutboxEntry> sending =
+        captureBoundary.send(
+            () -> deviceStore.load().tokenFor(url), eventOutbox::pending, OutboxEntry::getAccountHash);
+    String token = sending.token;
+    List<OutboxEntry> pending = sending.pending;
     if (token == null || pending.isEmpty() || submitGate.isHalted()) {
       return;
     }
     if (!eventSending.compareAndSet(false, true)) {
       return;
     }
-    Map<Long, List<TransientEvent>> byAccount = new LinkedHashMap<>();
-    for (OutboxEntry entry : pending) {
-      byAccount.computeIfAbsent(entry.getAccountHash(), key -> new ArrayList<>()).add(entry.getEvent());
-    }
+    Map<SendGroup, List<TransientEvent>> byAccount =
+        SendGroup.of(
+            pending,
+            OutboxEntry::getAccountHash,
+            OutboxEntry::getCaptureGeneration,
+            OutboxEntry::getEvent);
     BankstandClient api = pairingClient;
     executor.submit(
         () -> {
           List<CompletableFuture<?>> flights = new ArrayList<>();
           SyncFailures.Drain drain = failures.startDrain();
           try {
-            for (Map.Entry<Long, List<TransientEvent>> group : byAccount.entrySet()) {
-              long hash = group.getKey();
-              for (List<TransientEvent> chunk : chunkEvents(group.getValue(), MAX_EVENTS_PER_SUBMIT)) {
+            for (Map.Entry<SendGroup, List<TransientEvent>> group : byAccount.entrySet()) {
+              long hash = group.getKey().accountHash;
+              Integer stamp = group.getKey().captureGeneration;
+              CaptureTicket asked = sending.asked(hash);
+              for (List<TransientEvent> chunk : SendGroup.chunk(group.getValue(), MAX_EVENTS_PER_SUBMIT)) {
                 // The first attempt runs here, so a 429, unrouted reply or re-pair stops the next chunk.
                 if (!eventPacer.maySend(hash, System.currentTimeMillis()) || isReplaced(url, token)) {
                   break;
@@ -586,6 +609,7 @@ public class BankstandPlugin extends Plugin {
                         token,
                         hash,
                         chunk,
+                        stamp,
                         MAX_SUBMIT_ATTEMPTS,
                         SUBMIT_RETRY_BASE_DELAY_MS)
                     .whenComplete(
@@ -602,6 +626,13 @@ public class BankstandPlugin extends Plugin {
                                 && haltIfCurrent(url, token)) {
                               notice(NO_LONGER_PAIRED);
                             }
+                          } else {
+                            captureBoundary.acked(
+                                asked,
+                                CaptureBoundary.Kind.EVENT,
+                                response.getCaptureGeneration(),
+                                stamp,
+                                response.getAcks());
                           }
                           if (eventPacer.record(hash, System.currentTimeMillis(), response, failure)) {
                             eventOutbox.ack(EventOutbox.idsToAck(response.getAcks()));
@@ -679,13 +710,17 @@ public class BankstandPlugin extends Plugin {
 
   private void runPresenceSends() {
     while (true) {
-      PresenceSignal next;
       String url = savedServerUrl();
-      String token;
-      synchronized (pairingQueues) {
-        next = presenceQueue.peek();
-        token = deviceStore.load().tokenFor(url);
-      }
+      CaptureSend<PresenceSignal> sending =
+          captureBoundary.send(
+              () -> deviceStore.load().tokenFor(url),
+              () -> {
+                PresenceSignal head = presenceQueue.peek();
+                return head == null ? Collections.emptyList() : Collections.singletonList(head);
+              },
+              PresenceSignal::getAccountHash);
+      PresenceSignal next = sending.pending.isEmpty() ? null : sending.pending.get(0);
+      String token = sending.token;
       if (token == null) {
         presenceSending.set(false);
         return;
@@ -703,6 +738,7 @@ public class BankstandPlugin extends Plugin {
         presenceSending.set(false);
         return;
       }
+      CaptureTicket asked = sending.asked(next.getAccountHash());
       try {
         PresenceResponse res =
             client.submitPresence(
@@ -711,12 +747,15 @@ public class BankstandPlugin extends Plugin {
                 next.getAccountHash(),
                 next.getState(),
                 next.elapsedMillis(System.nanoTime()),
-                next.getLoot());
+                next.getLoot(),
+                next.getCaptureGeneration());
         // Answered for a pairing since replaced: its queue is gone, so this says nothing.
         if (isReplaced(url, token)) {
           continue;
         }
         presenceQueue.onAnswered(next);
+        captureBoundary.acked(asked, CaptureBoundary.Kind.PRESENCE,
+            res.getCaptureGeneration(), next.getCaptureGeneration(), res.getReason());
         if (res.isApplied()) {
           lastSyncedAt.put(Capability.SESSIONS.key, System.currentTimeMillis());
           if (PresenceSignal.LOGIN.equals(next.getState())) {
@@ -789,28 +828,34 @@ public class BankstandPlugin extends Plugin {
 
   private void sendLoot() {
     String url = savedServerUrl();
-    String token;
-    List<LootEntry> pending;
-    synchronized (pairingQueues) {
-      token = deviceStore.load().tokenFor(url);
-      pending = lootOutbox.pending();
-    }
+    CaptureSend<LootEntry> sending =
+        captureBoundary.send(
+            () -> deviceStore.load().tokenFor(url), lootOutbox::pending, LootEntry::getAccountHash);
+    String token = sending.token;
+    List<LootEntry> pending = sending.pending;
     if (token == null) {
       return;
     }
-    Map<Long, List<LootEvent>> byAccount = new LinkedHashMap<>();
-    for (LootEntry entry : pending) {
-      byAccount.computeIfAbsent(entry.getAccountHash(), key -> new ArrayList<>()).add(entry.getEvent());
-    }
-    for (Map.Entry<Long, List<LootEvent>> group : byAccount.entrySet()) {
-      for (List<LootEvent> chunk : chunk(group.getValue(), MAX_EVENTS_PER_SUBMIT)) {
+    Map<SendGroup, List<LootEvent>> byAccount =
+        SendGroup.of(
+            pending,
+            LootEntry::getAccountHash,
+            LootEntry::getCaptureGeneration,
+            LootEntry::getEvent);
+    for (Map.Entry<SendGroup, List<LootEvent>> group : byAccount.entrySet()) {
+      long accountHash = group.getKey().accountHash;
+      for (List<LootEvent> chunk : SendGroup.chunk(group.getValue(), MAX_EVENTS_PER_SUBMIT)) {
         BankstandClient client = pairingClient;
         // A disconnect or re-pair since this drain started: nothing more goes out under it.
         if (client == null || isReplaced(url, token)) {
           return;
         }
+        CaptureTicket asked = sending.asked(accountHash);
         try {
-          SubmitLootResponse res = client.submitLoot(url, token, group.getKey(), chunk);
+          SubmitLootResponse res =
+              client.submitLoot(url, token, accountHash, chunk, group.getKey().captureGeneration);
+          captureBoundary.acked(asked, CaptureBoundary.Kind.LOOT,
+              res.getCaptureGeneration(), group.getKey().captureGeneration, res.getAcks());
           lootOutbox.ack(LootOutbox.idsToAck(res.getAcks()));
           if (res.getAcks().stream().anyMatch(EventAck::isStored)) {
             lastSyncedAt.put(Capability.LOOT.key, System.currentTimeMillis());
@@ -831,20 +876,6 @@ public class BankstandPlugin extends Plugin {
         }
       }
     }
-  }
-
-  /** {@link #chunkEvents} for any element type. */
-  static <T> List<List<T>> chunk(List<T> items, int maxSize) {
-    List<List<T>> chunks = new ArrayList<>();
-    for (int start = 0; start < items.size(); start += maxSize) {
-      chunks.add(new ArrayList<>(items.subList(start, Math.min(start + maxSize, items.size()))));
-    }
-    return chunks;
-  }
-
-  /** Splits into batches of at most {@code maxSize}, oldest first. */
-  static List<List<TransientEvent>> chunkEvents(List<TransientEvent> events, int maxSize) {
-    return chunk(events, maxSize);
   }
 
   private java.util.List<String> statusLines() {
@@ -910,8 +941,8 @@ public class BankstandPlugin extends Plugin {
       notice("Log in first, then run ::bstand link.");
       return;
     }
-    if (!isSkillCaptureEnabled()) {
-      notice("Turn on skill capture first: it carries the name and hash that link a character.");
+    if (enabledCapabilitySet().isEmpty()) {
+      notice("Turn on a capture first: linking sends the name and hash of the character.");
       return;
     }
     if (!isCaptureReady()) {
@@ -1251,23 +1282,6 @@ public class BankstandPlugin extends Plugin {
   }
 
   /**
-   * The chat line for an identity submit's result. Not-claimed and held-by-another-account need
-   * different fixes, so they read differently. {@code outcome} is optional on the wire; a
-   * missing or unknown value falls back to the not-claimed line.
-   */
-  static String identityNoticeFor(boolean verified, String linkedRsn, String outcome) {
-    if (verified) {
-      return "Verified as " + linkedRsn + ".";
-    }
-    if ("held_by_other".equals(outcome) || "hash_bound_elsewhere".equals(outcome)) {
-      return "This character is already linked, so there is nothing to claim here."
-          + " If that looks wrong, contact support.";
-    }
-    return "This character is not claimed on Bankstand yet, so nothing will sync."
-        + " Claim it on your account page.";
-  }
-
-  /**
    * Whether a chat line is a quest or diary-tier completion broadcast. It only signals that
    * something may have changed; the capture re-reads every state anyway. Requires a specific
    * word, since a bare "Congratulations" also opens level-ups and clue rewards. Unverified
@@ -1366,6 +1380,7 @@ public class BankstandPlugin extends Plugin {
         dot,
         rows,
         recentActivityLog.recent(),
+        captureBoundary.losses().summary(),
         failures.shown(),
         savedServerUrl(),
         PanelModel.shouldOfferSessions(config.collectLoot(), config.collectSessions()));
@@ -1451,7 +1466,7 @@ public class BankstandPlugin extends Plugin {
       presenceTracker.onHopping();
     } else if (state == GameState.LOGGED_IN) {
       // Adopts the account only if it changed; the -1 logged-out sentinel is ignored.
-      if (session.onLogin(client.getAccountHash())) {
+      if (captureBoundary.startLogin(client.getAccountHash())) {
         lastSkillRead = null;
         adoptCharacter(session.getAccountHash(), session.getGeneration());
       }
@@ -1476,7 +1491,7 @@ public class BankstandPlugin extends Plugin {
       if (slayerTaskCompletionCapture != null) {
         slayerTaskCompletionCapture.reset();
       }
-      session.onLogout();
+      captureBoundary.endLogin();
       // A read belongs to the character that started it; abandon it silently.
       collectionLogSync.reset();
       hideSyncInfoBox();
@@ -1536,8 +1551,8 @@ public class BankstandPlugin extends Plugin {
         || submitGate.isPaused(System.currentTimeMillis())) {
       return;
     }
-    // Identity sends the account hash and name, so it shares the skill capture opt-in.
-    if (!isSkillCaptureEnabled()) {
+    // Every enabled capture needs it: it routes the character and names its generation.
+    if (enabledCapabilitySet().isEmpty()) {
       return;
     }
     Player local = client.getLocalPlayer();
@@ -1569,7 +1584,7 @@ public class BankstandPlugin extends Plugin {
       return;
     }
     Map<String, Integer> skills = readSkillXp();
-    if (!isPlausibleFinalRead(lastSkillRead, skills)) {
+    if (!SnapshotAcks.isPlausibleFinalRead(lastSkillRead, skills)) {
       return;
     }
     onSkillsCaptured(
@@ -1728,6 +1743,11 @@ public class BankstandPlugin extends Plugin {
       diaries = null;
       diaryTaskCounts = null;
     }
+    // Not until the server answered for this character this login: re-captured once it has.
+    if (!captureGenerations.isConfirmed(accountHash)) {
+      captureBoundary.snapshotWaiting(accountHash);
+      return;
+    }
     // An opt-in is not retroactive to items observed before it.
     Set<Integer> clog =
         isCollectionLogCaptureEnabled() ? collectionLog.observed() : Collections.emptySet();
@@ -1820,19 +1840,9 @@ public class BankstandPlugin extends Plugin {
    */
   private void adoptCharacter(long accountHash, int generation) {
     if (generation != baselineGeneration) {
-      skillBaseline.reset();
-      questBaseline.reset();
-      diaryBaseline.reset();
-      combatAchievementBaseline.reset();
-      accountTypeBaseline.reset();
-      slayerTaskBaseline.reset();
-      diaryTaskVarsAcked = null;
-      heldBlocks.clear();
+      resetSnapshotBaselines(captureGenerations.get(accountHash));
       // Per-character state; carrying it across a switch would mix accounts.
       collectionLog.reset();
-      collectionLogBaseline.reset();
-      // A pending COMPLETE claim is about the log just reset, so it must not survive a relog.
-      pendingFullEnumeration = false;
       // loadAckedState repopulates lastSyncedAt; activity and failures are per account.
       lastSyncedAt.clear();
       recentActivityLog.clear();
@@ -1871,12 +1881,20 @@ public class BankstandPlugin extends Plugin {
                 if (failed) {
                   return;
                 }
+                Integer current = captureGenerations.get(accountHash);
                 if (pairingQueues.epoch() != pairing) {
                   // A re-pair forgot the acks, but the observed log is kept: merge only that.
                   mergeCollectionLog(state);
+                } else if (!CaptureGenerations.baselinesHold(state.getBaselineGeneration(), current)) {
+                  // Acked before a removal: every enabled block resends on the next capture.
+                  mergeCollectionLog(state);
+                  baselineCaptureGeneration = current;
                 } else {
                   // A retry only fills in what is still unknown.
                   applyAckedState(state, retry);
+                  if (!retry || baselineCaptureGeneration == null) {
+                    baselineCaptureGeneration = state.getBaselineGeneration();
+                  }
                 }
                 refreshPanel();
               });
@@ -1942,92 +1960,41 @@ public class BankstandPlugin extends Plugin {
     state.setCollectionLogItems(collectionLog.observed());
     state.setCollectionLogAcked(collectionLogBaseline.ackedCount());
     state.setLastSyncedAt(lastSyncedAt);
+    state.setBaselineGeneration(baselineCaptureGeneration);
     executor.submit(() -> ackedStore.save(accountHash, state));
   }
 
+  /** Forgets what the server acked, so each enabled snapshot block resends whole. Client thread. */
+  private void resetSnapshotBaselines(Integer captureGeneration) {
+    skillBaseline.reset();
+    questBaseline.reset();
+    diaryBaseline.reset();
+    combatAchievementBaseline.reset();
+    accountTypeBaseline.reset();
+    slayerTaskBaseline.reset();
+    collectionLogBaseline.reset();
+    diaryTaskVarsAcked = null;
+    heldBlocks.clear();
+    // Only a guided read this login may claim the whole log, never a resend.
+    pendingFullEnumeration = false;
+    baselineCaptureGeneration = captureGeneration;
+  }
+
   /**
-   * Whether a read taken during logout is worth submitting. A cleared client reads as zeroes or
-   * nothing, which would be an XP regression, so the read is checked against the last trusted
-   * one. Discarding is free: the next login re-reads.
+   * A removal cleared what the server held, so the current character resends its whole state on
+   * the next capture even if nothing in game changed. Another character's stored baselines are
+   * voided when it next loads. Events are never resent. Client thread.
    */
-  static boolean isPlausibleFinalRead(
-      Map<String, Integer> previous, Map<String, Integer> fresh) {
-    if (fresh == null || fresh.isEmpty()) {
-      return false;
+  private void onNewGeneration(long accountHash, int captureGeneration) {
+    if (session.getAccountHash() != accountHash || baselineGeneration != session.getGeneration()) {
+      return;
     }
-    // No trusted read this session: a cleared client cannot be told apart, so skip it.
-    if (previous == null) {
-      return false;
+    if (!CaptureGenerations.baselinesHold(baselineCaptureGeneration, captureGeneration)) {
+      resetSnapshotBaselines(captureGeneration);
+    } else {
+      baselineCaptureGeneration = captureGeneration;
     }
-    for (Map.Entry<String, Integer> before : previous.entrySet()) {
-      Integer now = fresh.get(before.getKey());
-      if (now == null || now < before.getValue()) {
-        return false;
-      }
-    }
-    return true;
-  }
-
-  // Baselines advance only on the per-block ack. The server answers 200 accepted=true even for
-  // outcomes that store nothing (stale, regression, unclaimed, not_applied).
-  static boolean shouldAdvanceSkills(SubmitSnapshotResponse res) {
-    return res.isBlockStored("skills");
-  }
-
-  // Optional blocks must also have been sent. The whole-submission verdict is not enough: a
-  // one-shot fact like a diary tier, falsely acked, would never be resent.
-  static boolean shouldAdvanceQuests(SubmitSnapshotResponse res, boolean questsIncluded) {
-    return questsIncluded && res.isBlockStored("quests");
-  }
-
-  static boolean shouldAdvanceDiaries(SubmitSnapshotResponse res, boolean diariesIncluded) {
-    return diariesIncluded && res.isBlockStored("diaries");
-  }
-
-  static boolean shouldAdvanceCollectionLog(SubmitSnapshotResponse res, boolean included) {
-    return included && res.isBlockStored("collectionLog");
-  }
-
-  static boolean shouldAdvanceCombatAchievements(
-      SubmitSnapshotResponse res, boolean included) {
-    return included && res.isBlockStored("combatAchievements");
-  }
-
-  // A false ack here never self-heals: an account type changes once if ever.
-  static boolean shouldAdvanceAccountType(SubmitSnapshotResponse res, boolean included) {
-    return included && res.isBlockStored("accountType");
-  }
-
-  static boolean shouldAdvanceSlayerTask(SubmitSnapshotResponse res, boolean included) {
-    return included && res.isBlockStored("slayerTask");
-  }
-
-  /** Milliseconds until a cooldown-refused submit may retry, or -1 when it was not refused. */
-  static long cooldownRetryDelayMs(String reason, String nextSubmitAfter, long nowMs) {
-    if (!"cooldown".equals(reason)) {
-      return -1;
-    }
-    long delay;
-    try {
-      // A second of margin, so the retry does not land on the window's edge.
-      delay = Instant.parse(nextSubmitAfter).toEpochMilli() - nowMs + 1000L;
-    } catch (RuntimeException e) {
-      delay = COOLDOWN_RETRY_FALLBACK_MS;
-    }
-    return Math.max(1000L, Math.min(COOLDOWN_RETRY_MAX_MS, delay));
-  }
-
-  static boolean isSuperseded(long seq, long latestSeq) {
-    return seq != latestSeq;
-  }
-
-  /** Null when already announced: a rejected token halts and is told once until re-pairing. */
-  static String identityFailureNotice(
-      Throwable failure, SubmitGate submitGate, NoticeGate noticeGate) {
-    boolean auth = failure instanceof SubmitException && ((SubmitException) failure).isAuthFailure();
-    boolean announce =
-        auth ? submitGate.onAuthFailure() : noticeGate.onFailure(failure.getMessage());
-    return announce ? "Could not verify this character. " + failure.getMessage() : null;
+    saveAckedState(accountHash);
   }
 
   private void submitSnapshot(
@@ -2047,7 +2014,6 @@ public class BankstandPlugin extends Plugin {
       Map<String, Object> diaryTaskVars,
       Map<String, Object> retryBody) {
     String url = savedServerUrl();
-    String token = deviceStore.load().tokenFor(url);
     // A retry re-sends the original envelope: a cooldown is not recorded, so its id is unused.
     long seq = retryBody == null ? submitSeq.incrementAndGet() : submitSeq.get();
     Map<String, Object> body =
@@ -2075,6 +2041,19 @@ public class BankstandPlugin extends Plugin {
     }
     // Taken now, so an ack that lands after a re-pair reset is dropped, not applied over it.
     long pairing = pairingQueues.epoch();
+    // The stamp, token and ticket in one step, so all belong to one pairing.
+    CaptureSend<Long> sending =
+        captureBoundary.send(
+            () -> {
+              if (retryBody == null) {
+                captureGenerations.stamp(body, accountHash);
+              }
+              return deviceStore.load().tokenFor(url);
+            },
+            () -> Collections.singletonList(accountHash),
+            a -> a);
+    String token = sending.token;
+    CaptureTicket asked = sending.asked(accountHash);
     BankstandClient api = pairingClient;
     executor.submit(
         () -> {
@@ -2114,16 +2093,20 @@ public class BankstandPlugin extends Plugin {
                     if (isReplaced(url, token)) {
                       return;
                     }
+                    captureBoundary.acked(asked, CaptureBoundary.Kind.SNAPSHOT,
+                        res.getCaptureGeneration(), (Integer) body.get("captureGeneration"), res.getReason());
                     // Advance each baseline only for a block the server wrote, on the client
                     // thread, and only if this login is still current.
                     clientThread.invoke(
                         () -> {
                           if (session.isCurrent(accountHash, generation)
-                              && pairingQueues.epoch() == pairing) {
+                              && pairingQueues.epoch() == pairing
+                              && CaptureGenerations.ackedUnder(
+                                  res.getCaptureGeneration(), captureGenerations.get(accountHash))) {
                             // Skills ride on every submission, so check for a real change
                             // before advance() overwrites the baseline.
                             boolean skillsChanged = skillBaseline.changedSince(skills);
-                            boolean skillsAdvanced = shouldAdvanceSkills(res);
+                            boolean skillsAdvanced = SnapshotAcks.shouldAdvanceSkills(res);
                             if (skillsAdvanced) {
                               skillBaseline.advance(skills);
                             }
@@ -2132,7 +2115,7 @@ public class BankstandPlugin extends Plugin {
                                 heldBlocks.settle(
                                     Capability.QUESTS.key,
                                     res,
-                                    shouldAdvanceQuests(res, quests != null),
+                                    SnapshotAcks.shouldAdvanceQuests(res, quests != null),
                                     accountHash,
                                     generation,
                                     quests);
@@ -2143,7 +2126,7 @@ public class BankstandPlugin extends Plugin {
                                 heldBlocks.settle(
                                     Capability.DIARIES.key,
                                     res,
-                                    shouldAdvanceDiaries(res, diaries != null),
+                                    SnapshotAcks.shouldAdvanceDiaries(res, diaries != null),
                                     accountHash,
                                     generation,
                                     diaries,
@@ -2152,7 +2135,7 @@ public class BankstandPlugin extends Plugin {
                               diaryBaseline.advance(diaries, diaryTaskCounts);
                             }
                             boolean collectionLogAdvanced =
-                                shouldAdvanceCollectionLog(res, !collectionLogItems.isEmpty());
+                                SnapshotAcks.shouldAdvanceCollectionLog(res, !collectionLogItems.isEmpty());
                             if (collectionLogAdvanced) {
                               collectionLogBaseline.advance(collectionLogItems.size());
                             }
@@ -2164,7 +2147,7 @@ public class BankstandPlugin extends Plugin {
                                 heldBlocks.settle(
                                     Capability.COMBAT_ACHIEVEMENTS.key,
                                     res,
-                                    shouldAdvanceCombatAchievements(
+                                    SnapshotAcks.shouldAdvanceCombatAchievements(
                                         res, combatAchievementCounts != null),
                                     accountHash,
                                     generation,
@@ -2174,12 +2157,12 @@ public class BankstandPlugin extends Plugin {
                               combatAchievementBaseline.advance(combatAchievementCounts);
                             }
                             boolean accountTypeAdvanced =
-                                shouldAdvanceAccountType(res, accountType != null);
+                                SnapshotAcks.shouldAdvanceAccountType(res, accountType != null);
                             if (accountTypeAdvanced) {
                               accountTypeBaseline.advance(accountType);
                             }
                             boolean slayerTaskAdvanced =
-                                shouldAdvanceSlayerTask(res, slayerTask != null);
+                                SnapshotAcks.shouldAdvanceSlayerTask(res, slayerTask != null);
                             if (heldBlocks.settle(
                                 HeldBlocks.DIARY_TASK_VARS,
                                 res,
@@ -2232,13 +2215,13 @@ public class BankstandPlugin extends Plugin {
                       notice("Reconnected. Your progress is syncing again.");
                     }
                     long retryDelay =
-                        cooldownRetryDelayMs(
+                        SnapshotAcks.cooldownRetryDelayMs(
                             res.getReason(), res.getNextSubmitAfter(), System.currentTimeMillis());
                     // Once only. Runs even after logout: the ack above still checks the login.
                     if (retryBody == null && retryDelay >= 0) {
                       executor.schedule(
                           () -> {
-                            if (isSuperseded(seq, submitSeq.get())
+                            if (SnapshotAcks.isSuperseded(seq, submitSeq.get())
                                 || submitGate.isHalted()
                                 || pairingClient == null
                                 || !isPaired()
@@ -2339,12 +2322,17 @@ public class BankstandPlugin extends Plugin {
       return;
     }
     String url = savedServerUrl();
-    String token = deviceStore.load().tokenFor(url);
+    // Taken now with the token: the answer counts only for this login and pairing.
+    CaptureSend<Long> sending =
+        captureBoundary.send(
+            () -> deviceStore.load().tokenFor(url), () -> Collections.singletonList(accountHash), a -> a);
+    String token = sending.token;
+    CaptureTicket asked = sending.asked(accountHash);
     executor.submit(
         () -> {
-          api
-              .submitIdentityWithRetry(
-                  url, token, accountHash, displayName, MAX_SUBMIT_ATTEMPTS, SUBMIT_RETRY_BASE_DELAY_MS)
+          captureBoundary
+              .discover(asked, () -> api.submitIdentityWithRetry(
+                  url, token, accountHash, displayName, MAX_SUBMIT_ATTEMPTS, SUBMIT_RETRY_BASE_DELAY_MS))
               .whenComplete(
                   (res, failure) -> {
                     if (failure != null) {
@@ -2359,7 +2347,7 @@ public class BankstandPlugin extends Plugin {
                           return;
                         }
                         // Never log the token or account hash.
-                        message = identityFailureNotice(failure, submitGate, noticeGate);
+                        message = IdentityNotices.identityFailureNotice(failure, submitGate, noticeGate);
                         if (failure instanceof SubmitException) {
                           submitGate.pauseFor(
                               System.currentTimeMillis(),
@@ -2374,8 +2362,10 @@ public class BankstandPlugin extends Plugin {
                     // Drop the result unless this login instance and pairing are still current:
                     // the retry backoff can span a relog or a re-pair.
                     if (session.isCurrent(accountHash, generation) && !isReplaced(url, token)) {
-                      notice(identityNoticeFor(res.isVerified(), res.getLinkedRsn(), res.getOutcome()));
+                      notice(IdentityNotices.identityNoticeFor(res.isVerified(), res.getLinkedRsn(), res.getOutcome()));
                     }
+                    // Session marks held for this answer go out now, not at the next drain.
+                    sendPresence();
                   });
         });
   }
@@ -2487,6 +2477,7 @@ public class BankstandPlugin extends Plugin {
 
   private Stored storeToken(PairResponse res, String url, long ticket, BankstandClient api) {
     DeviceCredentials previous = deviceStore.load();
+    Map<Long, Integer> generations = res.captureGenerationsByAccount();
     PairingQueues.Dropped dropped =
         pairingQueues.replaceIfCurrent(
             ticket,
@@ -2497,7 +2488,8 @@ public class BankstandPlugin extends Plugin {
                 submitGate.resume();
               }
               return saved;
-            });
+            },
+            generations);
     if (dropped == null) {
       return Stored.STALE;
     }
@@ -2507,6 +2499,8 @@ public class BankstandPlugin extends Plugin {
     }
     eventPacer.forgetUnrouted();
     clientThread.invoke(this::forgetAcks);
+    // Re-runs the identity check, which confirms the current character under this pairing.
+    session.markSubmitFailed(session.getAccountHash(), session.getGeneration());
     String discarded = dropped.repairNotice();
     if (discarded != null) {
       notice(discarded);
@@ -2519,15 +2513,7 @@ public class BankstandPlugin extends Plugin {
 
   /** The new pairing may be another account or server, so every block is sent to it afresh. */
   private void forgetAcks() {
-    skillBaseline.reset();
-    questBaseline.reset();
-    diaryBaseline.reset();
-    combatAchievementBaseline.reset();
-    accountTypeBaseline.reset();
-    slayerTaskBaseline.reset();
-    collectionLogBaseline.reset();
-    diaryTaskVarsAcked = null;
-    heldBlocks.clear();
+    resetSnapshotBaselines(captureGenerations.get(session.getAccountHash()));
     // With the reset, so a load that read the old acks before it is never applied after it.
     pairingQueues.acksForgotten();
     lastSyncedAt.clear();

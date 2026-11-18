@@ -439,6 +439,9 @@ public class DiaryTaskVarsTest {
     try {
       h.call("pair", "BBBB-BBBB");
       h.executor.runAll();
+      // Captures wait for the identity check under the new pairing.
+      h.ticks(1);
+      h.executor.runAll();
       h.xp = 3_000;
       capture();
       assertFalse("the stored log is still unread", last().has("diaries"));

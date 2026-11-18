@@ -13,6 +13,7 @@ import com.google.gson.JsonSyntaxException;
 import java.io.IOException;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -42,9 +43,6 @@ public class BankstandClient {
   private static final String GENERIC_FAILURE = "Pairing failed. Check the code and try again.";
   // Redirects are never followed, so the token and body never reach a host they were not sent to.
   static final String REDIRECTED = "The server redirected the request, so it was not sent. Check the Server URL.";
-
-  // The pause for a 429 without a Retry-After.
-  static final long DEFAULT_RETRY_AFTER_MILLIS = 60_000L;
 
   private final HttpTransport transport;
   private final Gson gson;
@@ -79,8 +77,9 @@ public class BankstandClient {
     }
 
     String url = trimTrailingSlash(baseUrl) + PAIR_PATH;
-    Map<String, String> body = new LinkedHashMap<>();
+    Map<String, Object> body = new LinkedHashMap<>();
     body.put("code", code);
+    body.put("capabilities", Collections.singletonList("capture_generation"));
     Map<String, String> headers = new LinkedHashMap<>();
     headers.put("Content-Type", "application/json");
     headers.put("Accept", "application/json");
@@ -159,9 +158,16 @@ public class BankstandClient {
         baseDelayMillis);
   }
 
-  /** Wire field names are a server contract; do not rename them. */
+  /**
+   * Wire field names are a server contract; do not rename them. {@code captureGeneration} is
+   * the one every event was queued with; null leaves it out.
+   */
   public SubmitEventsResponse submitEvents(
-      String baseUrl, String deviceToken, long accountHash, List<TransientEvent> events)
+      String baseUrl,
+      String deviceToken,
+      long accountHash,
+      List<TransientEvent> events,
+      Integer captureGeneration)
       throws SubmitException {
     Map<String, Object> body = new LinkedHashMap<>();
     body.put("accountHash", Long.toString(accountHash));
@@ -177,6 +183,7 @@ public class BankstandClient {
     body.put("events", wireEvents);
     // Stamped per attempt so the server can correct for this machine's clock.
     body.put("sentAt", clock.get().toString());
+    putCaptureGeneration(body, captureGeneration);
     return parse(authorizedPost(baseUrl, EVENTS_PATH, deviceToken, body), SubmitEventsResponse.class);
   }
 
@@ -185,14 +192,22 @@ public class BankstandClient {
       String deviceToken,
       long accountHash,
       List<TransientEvent> events,
+      Integer captureGeneration,
       int maxAttempts,
       long baseDelayMillis) {
     return withRetry(
         baseUrl,
         deviceToken,
-        () -> submitEvents(baseUrl, deviceToken, accountHash, events),
+        () -> submitEvents(baseUrl, deviceToken, accountHash, events, captureGeneration),
         maxAttempts,
         baseDelayMillis);
+  }
+
+  /** Left out when null, so an unstamped request reads exactly as before. */
+  private static void putCaptureGeneration(Map<String, Object> body, Integer captureGeneration) {
+    if (captureGeneration != null) {
+      body.put("captureGeneration", captureGeneration);
+    }
   }
 
   /**
@@ -205,7 +220,8 @@ public class BankstandClient {
       long accountHash,
       String state,
       long elapsedMs,
-      Boolean loot)
+      Boolean loot,
+      Integer captureGeneration)
       throws SubmitException {
     Map<String, Object> body = new LinkedHashMap<>();
     body.put("accountHash", Long.toString(accountHash));
@@ -214,17 +230,23 @@ public class BankstandClient {
     if (loot != null) {
       body.put("loot", loot);
     }
+    putCaptureGeneration(body, captureGeneration);
     HttpResponse response = authorizedPost(baseUrl, PRESENCE_PATH, deviceToken, body);
     return parse(response, PresenceResponse.class);
   }
 
   /** Sends one account's loot records, single attempt; a 429 carries its Retry-After. */
   public SubmitLootResponse submitLoot(
-      String baseUrl, String deviceToken, long accountHash, List<LootEvent> events)
+      String baseUrl,
+      String deviceToken,
+      long accountHash,
+      List<LootEvent> events,
+      Integer captureGeneration)
       throws SubmitException {
     Map<String, Object> body = new LinkedHashMap<>();
     body.put("accountHash", Long.toString(accountHash));
     body.put("sentAt", clock.get().toString());
+    putCaptureGeneration(body, captureGeneration);
     body.put("events", new ArrayList<>(events));
     HttpResponse response = authorizedPost(baseUrl, LOOT_PATH, deviceToken, body);
     return parse(response, SubmitLootResponse.class);
@@ -259,7 +281,7 @@ public class BankstandClient {
     }
     if (status == 429) {
       throw new SubmitException(
-          "Bankstand is busy.", true, false, retryAfterMillis(response.getRetryAfter()));
+          "Bankstand is busy.", true, false, RetryTiming.retryAfterMillis(response.getRetryAfter()));
     }
     if (status >= 500) {
       throw new SubmitException("Bankstand is busy.", true);
@@ -319,37 +341,8 @@ public class BankstandClient {
     }
   }
 
-  /** A {@code Retry-After} in seconds as millis, capped at an hour, else the default. */
-  static long retryAfterMillis(String header) {
-    if (header == null) {
-      return DEFAULT_RETRY_AFTER_MILLIS;
-    }
-    try {
-      long seconds = Long.parseLong(header.trim());
-      if (seconds <= 0) {
-        return DEFAULT_RETRY_AFTER_MILLIS;
-      }
-      return Math.min(seconds, 3600L) * 1000L;
-    } catch (NumberFormatException e) {
-      return DEFAULT_RETRY_AFTER_MILLIS;
-    }
-  }
-
   private interface SubmitCall<T> {
     T call() throws SubmitException;
-  }
-
-  static final long MAX_BACKOFF_MILLIS = 8_000L;
-
-  /**
-   * Full jitter over a doubling window, so clients that failed together do not retry
-   * together. The randomness is a parameter so the backoff is testable.
-   *
-   * @param randomFraction a value in {@code [0, 1)}
-   */
-  static long backoffMillis(int attempt, long baseDelayMillis, double randomFraction) {
-    long window = Math.min(MAX_BACKOFF_MILLIS, baseDelayMillis << (attempt - 1));
-    return (long) (window * randomFraction);
   }
 
   /** Checked before every attempt, retries included, so a replaced token is never sent. */
@@ -392,7 +385,8 @@ public class BankstandClient {
         return;
       }
       long delay =
-          backoffMillis(attemptNumber, baseDelayMillis, ThreadLocalRandom.current().nextDouble());
+          RetryTiming.backoffMillis(
+              attemptNumber, baseDelayMillis, ThreadLocalRandom.current().nextDouble());
       executor.schedule(
           () -> attempt(call, attemptNumber + 1, maxAttempts, baseDelayMillis, result),
           delay,

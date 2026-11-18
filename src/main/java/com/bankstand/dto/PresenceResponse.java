@@ -4,6 +4,12 @@ package com.bankstand.dto;
 public class PresenceResponse {
   private boolean applied;
   private String reason;
+  private Integer captureGeneration;
+
+  /** Null from an older server, or when the request never reached the write. */
+  public Integer getCaptureGeneration() {
+    return captureGeneration;
+  }
 
   public boolean isApplied() {
     return applied;

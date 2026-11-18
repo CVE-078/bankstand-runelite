@@ -104,6 +104,9 @@ public class ThrottlingTest {
     drain();
     h.call("pair", "BBBB-BBBB");
     h.executor.runAll();
+    // Captures wait for the identity check under the new pairing.
+    h.ticks(1);
+    h.executor.runAll();
     // The re-pair dropped the old queue; a fresh capture goes out under the new pairing.
     unlock("Abyssal orphan");
     drain();

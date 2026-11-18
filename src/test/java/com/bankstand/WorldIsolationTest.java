@@ -97,6 +97,17 @@ public class WorldIsolationTest {
     set("config", config);
     set("deviceStore", store);
     set("pairingClient", new BankstandClient(null, new Gson(), null));
+    PairingQueues queues =
+        new PairingQueues(
+            (PresenceQueue) get("presenceQueue"),
+            new EventOutbox(new File(folder.getRoot(), "queued-events.json"), new Gson()),
+            (LootLedger) get("lootLedger"),
+            new LootOutbox(new File(folder.getRoot(), "queued-loot.json"), new Gson()),
+            (CaptureGenerations) get("captureGenerations"),
+            PairingQueues.pairingOf(store),
+            (com.bankstand.session.AccountSession) get("session"),
+            System::currentTimeMillis);
+    set("captureBoundary", queues.boundary());
   }
 
   private static Object zero(Class<?> type) {

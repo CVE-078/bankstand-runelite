@@ -177,6 +177,8 @@ public class DeliveryHardeningTest {
   @Test
   public void aDrainWithOneFailedChunkStaysAmberAndRecoveryClearsToGreen() throws Exception {
     snapshot(200);
+    // B answered its identity check at an earlier login, so its unlock queues at once.
+    ((CaptureGenerations) h.get("captureGenerations")).confirm(77L);
     new CollectionLogUnlockCapture(h.eventOutbox, () -> true, () -> 77L)
         .handleMessage("New item added to your collection log: Pet snakeling");
     unlock("Pet snakeling");
@@ -197,6 +199,8 @@ public class DeliveryHardeningTest {
   @Test
   public void aDrainFinishingAfterARePairLeavesNoStaleFailure() throws Exception {
     unlock("Pet snakeling");
+    // B answered its identity check at an earlier login, so its unlock queues at once.
+    ((CaptureGenerations) h.get("captureGenerations")).confirm(77L);
     new CollectionLogUnlockCapture(h.eventOutbox, () -> true, () -> 77L)
         .handleMessage("New item added to your collection log: Pet snakeling");
     String failing = h.eventOutbox.pending().get(0).getEvent().getId();
@@ -270,7 +274,8 @@ public class DeliveryHardeningTest {
         body ->
             body.contains("\"accountHash\":\"" + PluginHarness.MAIN + "\"")
                 ? new HttpResponse(mainCalls[0]++ == 0 ? 503 : 200, mainCalls[0] == 1 ? "" : STORED)
-                : new HttpResponse(400, ""));
+                // B's identity check answers, so its own snapshot is what fails.
+                : body.contains("\"skills\"") ? new HttpResponse(400, "") : new HttpResponse(200, "{}"));
     h.toggles.put("collectQuests", false);
     h.toggles.put("collectSlayer", false);
     ((SubmitGate) h.get("submitGate")).onSuccess();
