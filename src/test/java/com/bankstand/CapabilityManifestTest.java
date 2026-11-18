@@ -80,7 +80,7 @@ public class CapabilityManifestTest {
   }
 
   @Test
-  public void refusesTheCapabilitiesTheProductPromisedNeverToTake() {
+  public void refusesBankInventoryEquipmentChatAndLocation() {
     CapabilityManifest m =
         CapabilityManifest.validate(
             parse(
